@@ -2,6 +2,7 @@ import React, { memo } from '../../../lib/teact/teact';
 import { getActions } from '../../../global';
 
 import type { ApiChain } from '../../../api/types';
+import type { PlatformDeposit } from '../../../platform/accountStore';
 
 import renderText from '../../../global/helpers/renderText';
 import buildClassName from '../../../util/buildClassName';
@@ -23,6 +24,11 @@ interface OwnProps {
   isViewMode?: boolean;
   address: string;
   comment?: string;
+  network?: string;
+  asset?: string;
+  reference?: string;
+  platformLoading?: boolean;
+  depositHistory?: PlatformDeposit[];
   onClose?: NoneToVoidFunction;
 }
 
@@ -33,6 +39,11 @@ function Address({
   isViewMode,
   address,
   comment,
+  network,
+  asset,
+  reference,
+  platformLoading,
+  depositHistory,
   onClose,
 }: OwnProps) {
   const { verifyHardwareAddress } = getActions();
@@ -59,12 +70,16 @@ function Address({
   return (
     <div>
       <div className={buildClassName(styles.contentTitle, styles.contentTitleQr)}>
-        {renderText(lang('$receive_description'))}
+        {network ? `${network}${asset ? ` · ${asset}` : ''}` : renderText(lang('$receive_description'))}
       </div>
 
-      <div className={styles.qrCode} ref={qrCodeRef} />
+      {platformLoading && <div className={styles.platformNotice}>Loading approved deposit details…</div>}
+      {!platformLoading && !address && (
+        <div className={styles.platformNotice}>Deposit details are temporarily unavailable. Please try again.</div>
+      )}
+      {address && <div className={styles.qrCode} ref={qrCodeRef} />}
 
-      <InteractiveTextField
+      {address && <InteractiveTextField
         chain={chain}
         address={address}
         copyText={copyText}
@@ -72,7 +87,25 @@ function Address({
         copyNotification={lang('%chain% Address Copied', { chain: getChainTitle(chain) }) as string}
         noSavedAddress
         noDimming
-      />
+      />}
+      {reference && (
+        <div className={styles.platformNotice}>
+          Required reference: <strong>{reference}</strong>
+        </div>
+      )}
+      {depositHistory?.length ? (
+        <div className={styles.platformNotice}>
+          <strong>Deposit Transactions</strong>
+          {depositHistory.slice(0, 3).map((deposit) => (
+            <div key={deposit.id}>
+              {deposit.status}
+              {' · '}
+              {deposit.asset}
+              {deposit.transactionHash ? ` · ${deposit.transactionHash.slice(0, 10)}…` : ''}
+            </div>
+          ))}
+        </div>
+      ) : undefined}
 
       {isViewMode && (
         <WarningMessage className={styles.viewModeWarning}>
@@ -90,7 +123,7 @@ function Address({
         </div>
       )}
 
-      {!isViewMode && <Actions chain={chain} isLedger={isLedger} onClose={onClose} />}
+      {!isViewMode && address && <Actions chain={chain} isLedger={isLedger} onClose={onClose} />}
     </div>
   );
 }

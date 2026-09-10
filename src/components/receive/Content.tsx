@@ -18,7 +18,7 @@ import buildClassName from '../../util/buildClassName';
 import { getChainTitle, getDisplayOrderedChains } from '../../util/chain';
 import { swapKeysAndValues } from '../../util/iteratees';
 import {
-  getPlatformInvoiceComment, getPlatformTonAddress, usePlatformAccount,
+  getPlatformDeposit, usePlatformAccount, isPlatformAccountEnabled,
 } from '../../platform/accountStore';
 
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
@@ -57,7 +57,7 @@ function Content({
   isOpen, accountChains, chainDisplay, receiveModalChain, isLedger, isViewMode, onClose,
 }: StateProps & OwnProps) {
   const { setReceiveActiveTab } = getActions();
-  usePlatformAccount();
+  const platformAccount = usePlatformAccount();
 
   // `lang.code` is used to force redrawing of the `Transition` content,
   // since the height of the content differs from translation to translation.
@@ -84,6 +84,7 @@ function Content({
 
   function renderAddress(isActive: boolean, isFrom: boolean, currentKey: number) {
     const chain = chainByTabId[currentKey];
+    const platformDeposit = isPlatformAccountEnabled() ? getPlatformDeposit(chain) : undefined;
 
     return (
       <Address
@@ -91,10 +92,13 @@ function Content({
         isActive={isOpen && isActive}
         isLedger={isLedger}
         isViewMode={isViewMode}
-        address={chain === 'ton'
-          ? getPlatformTonAddress(accountChains?.[chain]?.address ?? '')
-          : (accountChains?.[chain]?.address ?? '')}
-        comment={chain === 'ton' ? getPlatformInvoiceComment('') : undefined}
+        address={isPlatformAccountEnabled() ? (platformDeposit?.address ?? '') : (accountChains?.[chain]?.address ?? '')}
+        network={isPlatformAccountEnabled() ? (platformDeposit?.network || getChainTitle(chain)) : undefined}
+        asset={platformDeposit?.asset || platformDeposit?.symbol}
+        reference={platformDeposit?.reference}
+        comment={platformDeposit?.reference}
+        depositHistory={platformAccount?.depositHistory?.filter((item) => item.chain === chain)}
+        platformLoading={isPlatformAccountEnabled() && !platformAccount}
         onClose={onClose}
       />
     );

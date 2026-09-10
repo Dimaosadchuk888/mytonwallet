@@ -18,7 +18,7 @@ import buildClassName from '../../util/buildClassName';
 import { getChainConfig, getOrderedAccountChains } from '../../util/chain';
 import { fromDecimal } from '../../util/decimals';
 import {
-  getPlatformInvoiceComment, getPlatformTonAddress, isPlatformAccountEnabled,
+  claimPlatformTransactionHash, getPlatformDeposit, isPlatformAccountEnabled,
   usePlatformAccount,
 } from '../../platform/accountStore';
 import resolveSlideTransitionName from '../../util/resolveSlideTransitionName';
@@ -67,31 +67,32 @@ function InvoiceModal({
   accountTitle,
   hasMultipleAccounts,
 }: StateProps) {
-  usePlatformAccount();
+  const platformAccount = usePlatformAccount();
   const { changeInvoiceToken, closeInvoiceModal, switchAccount } = getActions();
 
   const selectedChain = tokenSlug ? getChainBySlug(tokenSlug) : DEFAULT_CHAIN;
   const { isTransferPayloadSupported, nativeToken, formatTransferUrl } = getChainConfig(selectedChain);
-  const isPlatformTonDeposit = selectedChain === 'ton' && isPlatformAccountEnabled();
-  const selectedToken = isPlatformTonDeposit
-    ? nativeToken
+  const isPlatformDeposit = isPlatformAccountEnabled();
+  const platformDeposit = isPlatformDeposit ? getPlatformDeposit(selectedChain) : undefined;
+  const selectedToken = isPlatformDeposit
+    ? { ...nativeToken, symbol: platformDeposit?.asset || nativeToken.symbol, decimals: platformDeposit?.decimals ?? nativeToken.decimals }
     : ((tokenSlug && tokensBySlug?.[tokenSlug]) || nativeToken);
-  const address = selectedChain === 'ton'
-    ? getPlatformTonAddress(byChain?.[selectedChain]?.address ?? '')
-    : byChain?.[selectedChain]?.address;
+  const address = isPlatformDeposit ? platformDeposit?.address : byChain?.[selectedChain]?.address;
 
   const lang = useLang();
   const [isTokenSelectorOpen, openTokenSelector, closeTokenSelector] = useFlag(false);
   const [isAccountSelectorOpen, openAccountSelector, closeAccountSelector] = useFlag(false);
   const [amountValue, setAmountValue] = useState<string | undefined>(undefined);
   const [comment, setComment] = useState<string>('');
-  const hasSystemComment = isPlatformTonDeposit;
-  const invoiceComment = selectedChain === 'ton' ? getPlatformInvoiceComment(comment) : comment;
+  const [claimHash, setClaimHash] = useState('');
+  const [claimError, setClaimError] = useState<string>();
+  const hasSystemComment = isPlatformDeposit;
+  const invoiceComment = isPlatformDeposit ? (platformDeposit?.reference || '') : comment;
   const handleCommentInput = useLastCallback((value: string) => {
     if (!hasSystemComment) setComment(value);
   });
   const handleOpenTokenSelector = useLastCallback(() => {
-    if (!isPlatformTonDeposit) openTokenSelector();
+    if (!isPlatformDeposit) openTokenSelector();
   });
 
   useEffect(() => {
@@ -109,12 +110,26 @@ function InvoiceModal({
   );
 
   const amount = amountValue ? fromDecimal(amountValue, selectedToken.decimals) : 0n;
-  const tokenAddress = 'tokenAddress' in selectedToken ? selectedToken?.tokenAddress : undefined;
-  const invoiceUrl = address && formatTransferUrl ? formatTransferUrl(address, amount, invoiceComment, tokenAddress) : '';
+  const tokenAddress = isPlatformDeposit
+    ? platformDeposit?.tokenContract
+    : ('tokenAddress' in selectedToken ? selectedToken?.tokenAddress : undefined);
+  const invoiceUrl = address && formatTransferUrl && (!isPlatformDeposit || selectedChain === 'ton')
+    ? formatTransferUrl(address, amount, invoiceComment, tokenAddress)
+    : '';
 
   const handleTokenSelect = useLastCallback((token: UserToken | UserSwapToken) => {
-    if (isPlatformTonDeposit) return;
+    if (isPlatformDeposit) return;
     changeInvoiceToken({ tokenSlug: token.slug });
+  });
+
+  const handleClaim = useLastCallback(async () => {
+    try {
+      setClaimError(undefined);
+      await claimPlatformTransactionHash(selectedChain, claimHash);
+      setClaimHash('');
+    } catch (error) {
+      setClaimError(error instanceof Error ? error.message : 'Unable to claim transaction');
+    }
   });
 
   const handleSelectAccount = useLastCallback((accountId: string) => {
@@ -162,7 +177,7 @@ function InvoiceModal({
                   onClick={handleOpenTokenSelector}
                 />
               </RichNumberInput>
-              {isTransferPayloadSupported && (
+                {isTransferPayloadSupported && !isPlatformDeposit && (
                 <Input
                   value={invoiceComment}
                   label={lang('Comment')}
@@ -181,6 +196,30 @@ function InvoiceModal({
                 copyNotification={lang('Invoice Link Copied')}
                 className={styles.invoiceLinkField}
               />
+              {isPlatformDeposit && selectedChain !== 'ton' && !invoiceUrl && (
+                <div className={styles.platformNotice}>
+                  Copy the approved address above. A token payment link is unavailable for this network.
+                </div>
+              )}
+                {isPlatformDeposit && (
+                  <>
+                    <div className={styles.platformNotice}>
+                      {platformDeposit?.network || selectedChain.toUpperCase()} · send only the approved asset
+                      {platformDeposit?.reference ? ` and include reference ${platformDeposit.reference}` : ''}.
+                      For networks without a reference, claim your transaction hash after sending.
+                    </div>
+                    <Input
+                      value={claimHash}
+                      label="Transaction hash claim"
+                      placeholder="Paste transaction hash"
+                      onInput={setClaimHash}
+                    />
+                    <button type="button" disabled={!platformAccount || !claimHash.trim()} onClick={handleClaim}>
+                      Claim transaction
+                    </button>
+                    {claimError && <div className={styles.platformNotice}>{claimError}</div>}
+                  </>
+                )}
             </div>
           </>
         );

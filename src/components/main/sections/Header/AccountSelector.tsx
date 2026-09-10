@@ -14,7 +14,6 @@ import { getAccountTitle } from '../../../../util/account';
 import buildClassName from '../../../../util/buildClassName';
 import { calculateFullBalance } from '../../../../util/calculateFullBalance';
 import { formatCurrencyWithZero, getShortCurrencySymbol } from '../../../../util/formatNumber';
-import { isPlatformAccountEnabled, usePlatformAccount } from '../../../../platform/accountStore';
 
 import useLang from '../../../../hooks/useLang';
 
@@ -50,29 +49,13 @@ function AccountSelector({
   const { openAccountSelector } = getActions();
 
   const lang = useLang();
-  const platformAccount = usePlatformAccount();
   const balanceValues = useMemo(() => {
     return tokens ? calculateFullBalance(tokens, stakingStates, currencyRates[baseCurrency]) : undefined;
   }, [tokens, stakingStates, currencyRates, baseCurrency]);
   const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
   const { primaryWholePart, primaryFractionPart } = balanceValues || {};
-  const internalTon = platformAccount?.balance ? (() => {
-    try {
-      const nano = BigInt(platformAccount.balance);
-      const whole = nano / 1_000_000_000n;
-      const fraction = (nano % 1_000_000_000n).toString().padStart(9, '0').replace(/0+$/, '');
-      return `${whole}${fraction ? `.${fraction}` : ''} TON`;
-    } catch {
-      return undefined;
-    }
-  })() : undefined;
-  const hasInternalBalance = internalTon !== undefined;
-  const shouldUseInternalBalance = isPlatformAccountEnabled();
-  const displayedInternalTon = internalTon ?? '— TON';
   const shouldHideDisplayedBalance = Boolean(
-    isSensitiveDataHidden && (shouldUseInternalBalance && hasInternalBalance
-      ? platformAccount?.balance !== '0'
-      : balanceValues?.primaryValue !== undefined && balanceValues.primaryValue !== '0'),
+    isSensitiveDataHidden && balanceValues?.primaryValue !== undefined && balanceValues.primaryValue !== '0',
   );
 
   function handleOpenAccountSelector() {
@@ -105,7 +88,7 @@ function AccountSelector({
             <span
               className={styles.currencySwitcher}
             >
-              {shouldUseInternalBalance ? displayedInternalTon : (balanceValues?.primaryValue === '0'
+              {balanceValues?.primaryValue === '0'
                 ? formatCurrencyWithZero(0, shortBaseSymbol)
                 : (
                   <>
@@ -120,7 +103,7 @@ function AccountSelector({
                       <span className={styles.balanceCurrency}>&nbsp;{shortBaseSymbol}</span>
                     )}
                   </>
-                ))}
+                )}
             </span>
           </SensitiveData>
         </div>

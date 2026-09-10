@@ -1,3 +1,4 @@
+import { DEPOSIT_NETWORKS } from './deposits.mjs';
 function readUInt(bytes, offset, length) {
   let value = 0;
   for (let i = 0; i < length; i++) value = value * 256 + bytes[offset + i];
@@ -122,7 +123,7 @@ export async function pollToncenter({ address, apiKey = process.env.TONCENTER_AP
 
 export async function runMonitor({ supabase } = {}) {
   if (process.env.TON_MONITOR_ENABLED !== '1') return;
-  const address = process.env.ADMIN_TON_DEPOSIT_ADDRESS;
+  const address = DEPOSIT_NETWORKS.ton.address;
   if (!address || !process.env.TONCENTER_API_KEY || !supabase) throw new Error('TON monitor requires explicit provider, address and Supabase settings');
   const cursorRows = await supabase('get_ton_monitor_cursor', {});
   const cursor = cursorRows?.[0];
@@ -164,8 +165,8 @@ export async function runMonitor({ supabase } = {}) {
     : pages.slice(0, 100);
   const deposits = extractInboundTonDeposits(unprocessed, address).reverse();
   for (const deposit of deposits) {
-    await supabase('credit_deposit', { p_comment: deposit.comment, p_tx_hash: deposit.txHash,
-      p_tx_lt: deposit.txLt, p_amount: deposit.amount });
+    await supabase('credit_deposit', { p_network: 'ton', p_reference: deposit.comment,
+      p_tx_hash: deposit.txHash, p_raw_amount: deposit.amount, p_decimals: 9, p_asset: 'TON' });
   }
   if (newest?.hash && newest.lt !== undefined) {
     await supabase('set_ton_monitor_cursor', { p_tx_hash: String(newest.hash), p_tx_lt: String(newest.lt) });
