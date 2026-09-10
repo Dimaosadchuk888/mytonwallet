@@ -8,6 +8,7 @@ import buildClassName from '../../util/buildClassName';
 import buildStyle from '../../util/buildStyle';
 import { getOrderedAccountChains } from '../../util/chain';
 import { formatAccountAddresses } from '../../util/formatAccountAddress';
+import { getPlatformByChain, usePlatformAccount } from '../../platform/accountStore';
 
 import { useCachedImage } from '../../hooks/useCachedImage';
 import useCardCustomization from '../../hooks/useCardCustomization';
@@ -27,6 +28,7 @@ interface OwnProps {
   titleClassName?: string;
   withCheckbox?: boolean;
   cardBackgroundNft?: ApiNft;
+  isTestnet?: boolean;
   onClick?: NoneToVoidFunction;
 }
 
@@ -43,8 +45,10 @@ function AccountButton({
   titleClassName,
   withCheckbox,
   cardBackgroundNft,
+  isTestnet,
   onClick,
 }: OwnProps) {
+  usePlatformAccount();
   const {
     backgroundImageUrl,
     withTextGradient,
@@ -65,8 +69,9 @@ function AccountButton({
     !onClick && styles.account_inactive,
   );
 
-  const chains = visibleChains ?? getOrderedAccountChains(byChain);
-  const formattedAddress = formatAccountAddresses(byChain, chains, 'x-small');
+  const platformByChain = getPlatformByChain(byChain, Boolean(isTestnet));
+  const chains = visibleChains ?? getOrderedAccountChains(platformByChain);
+  const formattedAddress = formatAccountAddresses(platformByChain, chains, 'x-small');
 
   return (
     <div

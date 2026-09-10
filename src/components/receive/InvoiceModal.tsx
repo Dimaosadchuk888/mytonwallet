@@ -18,7 +18,7 @@ import buildClassName from '../../util/buildClassName';
 import { getChainConfig, getOrderedAccountChains } from '../../util/chain';
 import { fromDecimal } from '../../util/decimals';
 import {
-  claimPlatformTransactionHash, getPlatformDeposit, isPlatformAccountEnabled,
+  getPlatformAddress, getPlatformInvoiceComment, isPlatformAccountEnabled,
   usePlatformAccount,
 } from '../../platform/accountStore';
 import resolveSlideTransitionName from '../../util/resolveSlideTransitionName';
@@ -50,6 +50,7 @@ interface StateProps {
   currentAccountId?: string;
   accountTitle?: string;
   hasMultipleAccounts?: boolean;
+  isTestnet: boolean;
 }
 
 const enum SLIDES {
@@ -66,33 +67,31 @@ function InvoiceModal({
   currentAccountId,
   accountTitle,
   hasMultipleAccounts,
+  isTestnet,
 }: StateProps) {
-  const platformAccount = usePlatformAccount();
+  usePlatformAccount();
   const { changeInvoiceToken, closeInvoiceModal, switchAccount } = getActions();
 
   const selectedChain = tokenSlug ? getChainBySlug(tokenSlug) : DEFAULT_CHAIN;
   const { isTransferPayloadSupported, nativeToken, formatTransferUrl } = getChainConfig(selectedChain);
-  const isPlatformDeposit = isPlatformAccountEnabled();
-  const platformDeposit = isPlatformDeposit ? getPlatformDeposit(selectedChain) : undefined;
-  const selectedToken = isPlatformDeposit
-    ? { ...nativeToken, symbol: platformDeposit?.asset || nativeToken.symbol, decimals: platformDeposit?.decimals ?? nativeToken.decimals }
+  const isPlatformTonDeposit = selectedChain === 'ton' && isPlatformAccountEnabled();
+  const selectedToken = isPlatformTonDeposit
+    ? nativeToken
     : ((tokenSlug && tokensBySlug?.[tokenSlug]) || nativeToken);
-  const address = isPlatformDeposit ? platformDeposit?.address : byChain?.[selectedChain]?.address;
+  const address = getPlatformAddress(selectedChain, byChain?.[selectedChain]?.address ?? '', isTestnet);
 
   const lang = useLang();
   const [isTokenSelectorOpen, openTokenSelector, closeTokenSelector] = useFlag(false);
   const [isAccountSelectorOpen, openAccountSelector, closeAccountSelector] = useFlag(false);
   const [amountValue, setAmountValue] = useState<string | undefined>(undefined);
   const [comment, setComment] = useState<string>('');
-  const [claimHash, setClaimHash] = useState('');
-  const [claimError, setClaimError] = useState<string>();
-  const hasSystemComment = isPlatformDeposit;
-  const invoiceComment = isPlatformDeposit ? (platformDeposit?.reference || '') : comment;
+  const hasSystemComment = isPlatformTonDeposit;
+  const invoiceComment = selectedChain === 'ton' ? getPlatformInvoiceComment(comment) : comment;
   const handleCommentInput = useLastCallback((value: string) => {
     if (!hasSystemComment) setComment(value);
   });
   const handleOpenTokenSelector = useLastCallback(() => {
-    if (!isPlatformDeposit) openTokenSelector();
+    if (!isPlatformTonDeposit) openTokenSelector();
   });
 
   useEffect(() => {
@@ -110,26 +109,12 @@ function InvoiceModal({
   );
 
   const amount = amountValue ? fromDecimal(amountValue, selectedToken.decimals) : 0n;
-  const tokenAddress = isPlatformDeposit
-    ? platformDeposit?.tokenContract
-    : ('tokenAddress' in selectedToken ? selectedToken?.tokenAddress : undefined);
-  const invoiceUrl = address && formatTransferUrl && (!isPlatformDeposit || selectedChain === 'ton')
-    ? formatTransferUrl(address, amount, invoiceComment, tokenAddress)
-    : '';
+  const tokenAddress = 'tokenAddress' in selectedToken ? selectedToken?.tokenAddress : undefined;
+  const invoiceUrl = address && formatTransferUrl ? formatTransferUrl(address, amount, invoiceComment, tokenAddress) : '';
 
   const handleTokenSelect = useLastCallback((token: UserToken | UserSwapToken) => {
-    if (isPlatformDeposit) return;
+    if (isPlatformTonDeposit) return;
     changeInvoiceToken({ tokenSlug: token.slug });
-  });
-
-  const handleClaim = useLastCallback(async () => {
-    try {
-      setClaimError(undefined);
-      await claimPlatformTransactionHash(selectedChain, claimHash);
-      setClaimHash('');
-    } catch (error) {
-      setClaimError(error instanceof Error ? error.message : 'Unable to claim transaction');
-    }
   });
 
   const handleSelectAccount = useLastCallback((accountId: string) => {
@@ -177,7 +162,7 @@ function InvoiceModal({
                   onClick={handleOpenTokenSelector}
                 />
               </RichNumberInput>
-                {isTransferPayloadSupported && !isPlatformDeposit && (
+              {isTransferPayloadSupported && (
                 <Input
                   value={invoiceComment}
                   label={lang('Comment')}
@@ -196,30 +181,6 @@ function InvoiceModal({
                 copyNotification={lang('Invoice Link Copied')}
                 className={styles.invoiceLinkField}
               />
-              {isPlatformDeposit && selectedChain !== 'ton' && !invoiceUrl && (
-                <div className={styles.platformNotice}>
-                  Copy the approved address above. A token payment link is unavailable for this network.
-                </div>
-              )}
-                {isPlatformDeposit && (
-                  <>
-                    <div className={styles.platformNotice}>
-                      {platformDeposit?.network || selectedChain.toUpperCase()} · send only the approved asset
-                      {platformDeposit?.reference ? ` and include reference ${platformDeposit.reference}` : ''}.
-                      For networks without a reference, claim your transaction hash after sending.
-                    </div>
-                    <Input
-                      value={claimHash}
-                      label="Transaction hash claim"
-                      placeholder="Paste transaction hash"
-                      onInput={setClaimHash}
-                    />
-                    <button type="button" disabled={!platformAccount || !claimHash.trim()} onClick={handleClaim}>
-                      Claim transaction
-                    </button>
-                    {claimError && <div className={styles.platformNotice}>{claimError}</div>}
-                  </>
-                )}
             </div>
           </>
         );
@@ -281,6 +242,7 @@ export default memo(
       currentAccountId: selectCurrentAccountId(global),
       accountTitle: account?.title,
       hasMultipleAccounts: selectHasMultipleAccounts(global),
+      isTestnet: global.settings.isTestnet,
     };
   })(InvoiceModal),
 );

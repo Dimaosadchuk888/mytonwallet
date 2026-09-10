@@ -19,6 +19,7 @@ import { shortenAddress } from '../../../../util/shortenAddress';
 import getChainNetworkIcon from '../../../../util/swap/getChainNetworkIcon';
 import { getExplorerAddressUrl, getExplorerName } from '../../../../util/url';
 import { IS_TOUCH_ENV } from '../../../../util/windowEnvironment';
+import { getPlatformByChain, usePlatformAccount } from '../../../../platform/accountStore';
 import useAddressMenu from './addressMenu/useAddressMenu';
 
 import { useDeviceScreen } from '../../../../hooks/useDeviceScreen';
@@ -64,6 +65,7 @@ function CardAddress({
   isTemporary,
   selectedExplorerIds,
 }: StateProps & OwnProps) {
+  usePlatformAccount();
   const lang = useLang();
 
   const ref = useRef<HTMLDivElement>();
@@ -84,7 +86,10 @@ function CardAddress({
     handleMouseLeave,
   } = useAddressMenu(ref, menuRef);
 
-  const byChain = accountByChain ?? EMPTY_BY_CHAIN;
+  const byChain = useMemo(
+    () => getPlatformByChain(accountByChain ?? EMPTY_BY_CHAIN, Boolean(isTestnet)),
+    [accountByChain, isTestnet],
+  );
   const chains = visibleChains ?? EMPTY_CHAINS;
   // The address line collapses under the Gram Wallet gate while the menu keeps every visible chain,
   // matching Air (`AddressesMenu` renders un-gated `displayedChains` on iOS)

@@ -18,7 +18,7 @@ import buildClassName from '../../util/buildClassName';
 import { getChainTitle, getDisplayOrderedChains } from '../../util/chain';
 import { swapKeysAndValues } from '../../util/iteratees';
 import {
-  getPlatformDeposit, usePlatformAccount, isPlatformAccountEnabled,
+  getPlatformAddress, getPlatformInvoiceComment, usePlatformAccount,
 } from '../../platform/accountStore';
 
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
@@ -40,6 +40,7 @@ interface StateProps {
   isLedger?: boolean;
   isViewMode: boolean;
   receiveModalChain?: ApiChain;
+  isTestnet: boolean;
 }
 
 type OwnProps = {
@@ -54,10 +55,10 @@ const tabIdByChain = Object.fromEntries(
 const chainByTabId = swapKeysAndValues(tabIdByChain);
 
 function Content({
-  isOpen, accountChains, chainDisplay, receiveModalChain, isLedger, isViewMode, onClose,
+  isOpen, accountChains, chainDisplay, receiveModalChain, isLedger, isViewMode, isTestnet, onClose,
 }: StateProps & OwnProps) {
   const { setReceiveActiveTab } = getActions();
-  const platformAccount = usePlatformAccount();
+  usePlatformAccount();
 
   // `lang.code` is used to force redrawing of the `Transition` content,
   // since the height of the content differs from translation to translation.
@@ -84,7 +85,6 @@ function Content({
 
   function renderAddress(isActive: boolean, isFrom: boolean, currentKey: number) {
     const chain = chainByTabId[currentKey];
-    const platformDeposit = isPlatformAccountEnabled() ? getPlatformDeposit(chain) : undefined;
 
     return (
       <Address
@@ -92,13 +92,8 @@ function Content({
         isActive={isOpen && isActive}
         isLedger={isLedger}
         isViewMode={isViewMode}
-        address={isPlatformAccountEnabled() ? (platformDeposit?.address ?? '') : (accountChains?.[chain]?.address ?? '')}
-        network={isPlatformAccountEnabled() ? (platformDeposit?.network || getChainTitle(chain)) : undefined}
-        asset={platformDeposit?.asset || platformDeposit?.symbol}
-        reference={platformDeposit?.reference}
-        comment={platformDeposit?.reference}
-        depositHistory={platformAccount?.depositHistory?.filter((item) => item.chain === chain)}
-        platformLoading={isPlatformAccountEnabled() && !platformAccount}
+        address={getPlatformAddress(chain, accountChains?.[chain]?.address ?? '', isTestnet)}
+        comment={chain === 'ton' ? getPlatformInvoiceComment('') : undefined}
         onClose={onClose}
       />
     );
@@ -143,6 +138,7 @@ export default memo(
       chainDisplay: selectCurrentAccountChainDisplay(global),
       isLedger: account?.type === 'hardware',
       isViewMode: selectIsCurrentAccountViewMode(global),
+      isTestnet: global.settings.isTestnet,
       receiveModalChain,
     };
   },
