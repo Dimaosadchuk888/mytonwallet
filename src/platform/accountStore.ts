@@ -1,5 +1,5 @@
 import { useEffect, useState } from '../lib/teact/teact';
-import { IS_TELEGRAM_APP } from '../config';
+import { INTERNAL_TON_API_BASE_URL, IS_TELEGRAM_APP } from '../config';
 
 export interface PlatformAccount {
   address?: string;
@@ -12,6 +12,7 @@ let account: PlatformAccount | undefined;
 let request: Promise<PlatformAccount | undefined> | undefined;
 let isAuthenticated = false;
 const listeners = new Set<() => void>();
+const apiUrl = (path: string) => `${INTERNAL_TON_API_BASE_URL}${path}`;
 
 function publish(nextAccount: PlatformAccount | undefined) {
   account = nextAccount;
@@ -52,7 +53,7 @@ export async function refreshPlatformAccount(initData?: string) {
       if (initData) {
         isAuthenticated = false;
         publish(undefined);
-        const authResponse = await fetch('/api/auth/telegram', {
+        const authResponse = await fetch(apiUrl('/api/auth/telegram'), {
           method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ initData }),
         });
@@ -60,8 +61,8 @@ export async function refreshPlatformAccount(initData?: string) {
         isAuthenticated = true;
       }
       const [accountResponse, balanceResponse] = await Promise.all([
-        fetch('/api/account', { credentials: 'include' }),
-        fetch('/api/balance', { credentials: 'include' }),
+        fetch(apiUrl('/api/account'), { credentials: 'include' }),
+        fetch(apiUrl('/api/balance'), { credentials: 'include' }),
       ]);
       if (!accountResponse.ok) {
         isAuthenticated = false;

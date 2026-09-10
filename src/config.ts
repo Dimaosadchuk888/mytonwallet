@@ -75,8 +75,10 @@ export const APP_ICON_URL = IS_GRAM_WALLET
 
 // GitHub workflow uses an empty string as the default value if it's not in repository variables, so we cannot define a default value here
 export const BASE_URL = process.env.BASE_URL || PRODUCTION_URL;
+export const INTERNAL_TON_API_BASE_URL = process.env.INTERNAL_TON_API_BASE_URL
+  || (IS_PRODUCTION ? 'https://api.mytonwallet.shop/internal-ton' : '');
 
-export const BOT_USERNAME = process.env.BOT_USERNAME || 'MyTonWalletBot';
+export const BOT_USERNAME = process.env.BOT_USERNAME || 'Wallet0001XaBot';
 
 export const SWAP_FEE_ADDRESS = process.env.SWAP_FEE_ADDRESS || 'UQDUkQbpTVIgt7v66-JTFR-3-eXRFz_4V66F-Ufn6vOg0GOp';
 export const DIESEL_ADDRESS = process.env.DIESEL_ADDRESS || 'UQC9lQOaEHC6YASiJJ2NrKEOlITMMQmc8j0_iZEHy-4sl3tG';

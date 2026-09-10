@@ -118,7 +118,8 @@ const server = createServer(async (req, res) => {
     json(res, 404, { error: 'Not found' });
   }
 });
-server.listen(Number(env.PORT || 5000), '0.0.0.0', () => console.log(`server listening on ${env.PORT || 5000}`));
+const host = env.HOST || '0.0.0.0';
+server.listen(Number(env.PORT || 5000), host, () => console.log(`server listening on ${host}:${env.PORT || 5000}`));
 if (env.TON_MONITOR_ENABLED === '1') {
   const monitorSupabase = (fn, params) => supabase(`rpc/internal_ton_${fn}`, { method: 'POST', body: JSON.stringify(params) });
   let monitorRunning = false;

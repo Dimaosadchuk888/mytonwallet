@@ -495,6 +495,7 @@ export default function createConfig(
         ELECTRON_TONCENTER_MAINNET_KEY: '',
         ELECTRON_TONCENTER_TESTNET_KEY: '',
         BASE_URL,
+        INTERNAL_TON_API_BASE_URL: '',
         BOT_USERNAME: '',
         IS_EXTENSION: '', // It's necessary to use an empty string, because it's used in bundle-time conditions
         IS_FIREFOX_EXTENSION: 'false',
