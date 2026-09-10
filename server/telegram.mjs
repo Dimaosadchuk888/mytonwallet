@@ -19,7 +19,7 @@ export function verifyTelegramInitData(initData, botToken, now = Date.now()) {
   if (received.length !== expected.length
     || !crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected))) throw new Error('Invalid Telegram signature');
   const user = params.get('user');
-  return { user: user ? JSON.parse(user) : undefined, authDate };
+  return { user: user ? JSON.parse(user) : undefined, authDate, startParam: params.get('start_param') || undefined };
 }
 
 export function signSession(userId, secret, now = Date.now()) {

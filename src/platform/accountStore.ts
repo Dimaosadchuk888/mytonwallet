@@ -1,4 +1,5 @@
 import { useEffect, useState } from '../lib/teact/teact';
+import { getActions } from '../global';
 import type { ApiChain } from '../api/types';
 import type { Account } from '../global/types';
 import { INTERNAL_TON_API_BASE_URL, IS_TELEGRAM_APP } from '../config';
@@ -17,9 +18,23 @@ export interface PlatformAccount {
   currency?: string;
 }
 
+export type PlatformRewardResult = {
+  status: 'credited' | 'already_claimed' | 'not_found' | 'inactive' | 'expired' | 'exhausted' | 'error';
+  title?: string;
+  amount?: string;
+  balance?: string;
+};
+
+export interface PlatformAuthMetadata {
+  isAdmin: boolean;
+  reward?: PlatformRewardResult;
+}
+
 let account: PlatformAccount | undefined;
 let request: Promise<PlatformAccount | undefined> | undefined;
 let isAuthenticated = false;
+let authMetadata: PlatformAuthMetadata | undefined;
+let lastRewardToastKey: string | undefined;
 const listeners = new Set<() => void>();
 const apiUrl = (path: string) => `${INTERNAL_TON_API_BASE_URL}${path}`;
 
@@ -64,6 +79,10 @@ export function getPlatformBalance() {
   return account?.balance;
 }
 
+export function getPlatformAuthMetadata() {
+  return authMetadata;
+}
+
 export function usePlatformAccount() {
   const [, redraw] = useState(0);
   useEffect(() => {
@@ -87,6 +106,26 @@ export async function refreshPlatformAccount(initData?: string) {
           body: JSON.stringify({ initData }),
         });
         if (!authResponse.ok) return undefined;
+        const authData = await authResponse.json() as { ok?: boolean; isAdmin?: boolean; reward?: PlatformRewardResult };
+        authMetadata = { isAdmin: Boolean(authData.isAdmin), reward: authData.reward };
+        if (authData.reward && JSON.stringify(authData.reward) !== lastRewardToastKey) {
+          lastRewardToastKey = JSON.stringify(authData.reward);
+          const reward = authData.reward;
+          const message = reward.status === 'credited'
+            ? `Начислено ${formatNanoTon(reward.amount)} TON`
+            : reward.status === 'already_claimed'
+              ? 'Эта награда уже получена'
+              : reward.status === 'not_found'
+                ? 'Награда не найдена'
+                : reward.status === 'inactive'
+                  ? 'Эта награда больше недоступна'
+                  : reward.status === 'expired'
+                    ? 'Срок действия награды истёк'
+                    : reward.status === 'exhausted'
+                      ? 'Лимит получателей награды исчерпан'
+                      : 'Не удалось начислить награду. Откройте ссылку ещё раз';
+          getActions().showToast({ message });
+        }
         isAuthenticated = true;
       }
       const [accountResponse, balanceResponse] = await Promise.all([
@@ -109,4 +148,12 @@ export async function refreshPlatformAccount(initData?: string) {
     }).finally(() => { request = undefined; });
   }
   return request;
+}
+
+function formatNanoTon(value?: string) {
+  if (!value) return '0';
+  const normalized = value.padStart(10, '0');
+  const whole = normalized.slice(0, -9).replace(/^0+(?=\d)/, '');
+  const fraction = normalized.slice(-9).replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole;
 }
