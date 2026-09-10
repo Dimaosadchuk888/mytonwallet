@@ -31,7 +31,9 @@ import {
 } from '../../../../global/selectors';
 import buildClassName from '../../../../util/buildClassName';
 import { calculateFullBalance } from '../../../../util/calculateFullBalance';
-import { formatCurrency, formatCurrencyExtended, getShortCurrencySymbol } from '../../../../util/formatNumber';
+import {
+  formatCurrency, formatCurrencyExtended, formatCurrencyWithZero, getShortCurrencySymbol,
+} from '../../../../util/formatNumber';
 import { round } from '../../../../util/math';
 import { toNativeDigits } from '../../../../util/nativeDigits';
 import { DEFAULT_PORTFOLIO_TIME_RANGE } from '../../../../util/portfolio/timeRange';
@@ -228,6 +230,7 @@ function Card({
   }, [currentAccountId, baseCurrency, portfolioActiveRange, isPortfolioOpen, values?.primaryValue]);
 
   const { primaryValue, primaryWholePart, primaryFractionPart } = values || {};
+  const shouldHidePrimaryValue = Boolean(isSensitiveDataHidden && primaryValue !== undefined && primaryValue !== '0');
 
   const changeValue = portfolioPnlChange ? portfolioPnlChange.amount : values?.changeValue;
   const changePercent = portfolioPnlChange
@@ -275,7 +278,7 @@ function Card({
           slideClassName={styles.balanceSlide}
         >
           <SensitiveData
-            isActive={isSensitiveDataHidden}
+            isActive={shouldHidePrimaryValue}
             maskSkin={sensitiveDataMaskSkin}
             rows={4}
             cols={14}
@@ -296,15 +299,21 @@ function Card({
                 tabIndex={0}
                 onClick={!isSensitiveDataHidden ? openCurrencyMenu : undefined}
               >
-                {shortBaseSymbol.length === 1 && <span className={styles.currencySymbol}>{shortBaseSymbol}</span>}
-                <AnimatedCounter isDisabled={noAnimationCounter} text={primaryWholePart ?? ''} />
-                {primaryFractionPart && (
-                  <span className={styles.primaryFractionPart}>
-                    <AnimatedCounter isDisabled={noAnimationCounter} text={`.${primaryFractionPart}`} />
-                  </span>
-                )}
-                {shortBaseSymbol.length > 1 && (
-                  <span className={styles.primaryFractionPart}>&nbsp;{shortBaseSymbol}</span>
+                {primaryValue === '0' ? (
+                  <AnimatedCounter isDisabled={noAnimationCounter} text={formatCurrencyWithZero(0, shortBaseSymbol)} />
+                ) : (
+                  <>
+                    {shortBaseSymbol.length === 1 && <span className={styles.currencySymbol}>{shortBaseSymbol}</span>}
+                    <AnimatedCounter isDisabled={noAnimationCounter} text={primaryWholePart ?? ''} />
+                    {primaryFractionPart && (
+                      <span className={styles.primaryFractionPart}>
+                        <AnimatedCounter isDisabled={noAnimationCounter} text={`.${primaryFractionPart}`} />
+                      </span>
+                    )}
+                    {shortBaseSymbol.length > 1 && (
+                      <span className={styles.primaryFractionPart}>&nbsp;{shortBaseSymbol}</span>
+                    )}
+                  </>
                 )}
                 <i className={iconCaretClassNames} aria-hidden />
               </span>

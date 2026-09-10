@@ -27,6 +27,7 @@ export default function useQrCode({
   hiddenClassName,
   hideLogo,
   preferUrl,
+  comment,
 }: {
   address?: string;
   chain?: ApiChain;
@@ -34,6 +35,7 @@ export default function useQrCode({
   hiddenClassName?: string;
   hideLogo?: boolean;
   preferUrl?: boolean;
+  comment?: string;
 }): UseQRCodeHook {
   const qrCodeInstanceRef = useRef<QRCodeStyling>();
   const [isInitialized, setIsInitialized] = useState(false);
@@ -87,10 +89,12 @@ export default function useQrCode({
 
     const image = hideLogo ? undefined : (chain ? getChainNetworkIcon(chain) : logoUrl);
     const formatTransferUrl = chain && getChainConfig(chain).formatTransferUrl;
-    const data = address && preferUrl && formatTransferUrl ? formatTransferUrl(address) : (address || '');
+    const data = address && preferUrl && formatTransferUrl
+      ? formatTransferUrl(address, undefined, comment)
+      : (address || '');
 
     qrCode.update({ data, image });
-  }, [isActive, isInitialized, hiddenClassName, address, chain, hideLogo, logoUrl, preferUrl]);
+  }, [isActive, isInitialized, hiddenClassName, address, chain, hideLogo, logoUrl, preferUrl, comment]);
 
   return { qrCodeRef, isInitialized };
 }

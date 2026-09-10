@@ -11,7 +11,7 @@ import buildClassName from '../../../../util/buildClassName';
 import { calcChangeValue } from '../../../../util/calcChangeValue';
 import { DAY, formatFullDay } from '../../../../util/dateFormat';
 import { toDecimal } from '../../../../util/decimals';
-import { formatCurrency, getShortCurrencySymbol } from '../../../../util/formatNumber';
+import { formatCurrency, formatCurrencyWithZero, getShortCurrencySymbol } from '../../../../util/formatNumber';
 import { toNativeDigits } from '../../../../util/nativeDigits';
 import { round } from '../../../../util/round';
 import { getIsRwaStockToken, getTokenName } from '../../../../util/tokens';
@@ -114,6 +114,10 @@ function Token({
   const isVesting = Boolean(vestingStatus?.length);
   const renderedAmount = amount ?? toDecimal(tokenAmount, decimals, true);
   const value = Big(renderedAmount).mul(price).toString();
+  const isAmountZero = Big(renderedAmount).eq(0);
+  const isValueZero = Big(value).eq(0);
+  const shouldHideAmount = Boolean(isSensitiveDataHidden && !isAmountZero);
+  const shouldHideValue = Boolean(isSensitiveDataHidden && !isValueZero);
   const changeClassName = change > 0 ? styles.change_up : change < 0 ? styles.change_down : undefined;
   const changeValue = Math.abs(round(calcChangeValue(Number(value), change), 4));
   const changePercent = Math.abs(round(change * 100, 2));
@@ -281,14 +285,14 @@ function Token({
           </div>
           <div className={buildClassName(styles.subtitle, lang.isRtl && styles.subtitleRtl)}>
             <SensitiveData
-              isActive={isSensitiveDataHidden}
+              isActive={shouldHideAmount}
               min={5}
               max={10}
               seed={name}
               rows={2}
               cellSize={8}
             >
-              <AnimatedCounter text={formatCurrency(renderedAmount, symbol)} />
+              <AnimatedCounter text={formatCurrencyWithZero(renderedAmount, symbol)} />
             </SensitiveData>
             <i className={styles.dot} aria-hidden />
             <AnimatedCounter text={formatCurrency(price, shortBaseSymbol, undefined, true)} />
@@ -296,7 +300,7 @@ function Token({
         </div>
         <div className={styles.secondaryCell}>
           <SensitiveData
-            isActive={isSensitiveDataHidden}
+            isActive={shouldHideValue}
             min={4}
             max={12}
             seed={name}
@@ -310,7 +314,7 @@ function Token({
               isVesting && vestingStatus === 'readyToUnfreeze' && styles.secondaryValue_vestingUnfreeze,
             )}
           >
-            <AnimatedCounter text={formatCurrency(value, shortBaseSymbol)} />
+            <AnimatedCounter text={formatCurrencyWithZero(value, shortBaseSymbol)} />
           </SensitiveData>
           {unfreezeEndDate ? (
             <div
@@ -325,7 +329,7 @@ function Token({
             </div>
           ) : (
             <SensitiveData
-              isActive={isSensitiveDataHidden}
+              isActive={shouldHideValue}
               min={5}
               max={10}
               seed={name}
@@ -411,7 +415,7 @@ function Token({
         </div>
         <div className={styles.secondaryCell}>
           <SensitiveData
-            isActive={isSensitiveDataHidden}
+            isActive={shouldHideAmount}
             min={4}
             max={12}
             seed={name}
@@ -425,10 +429,10 @@ function Token({
               isVesting && vestingStatus === 'readyToUnfreeze' && styles.secondaryValue_vestingUnfreeze,
             )}
           >
-            <AnimatedCounter text={formatCurrency(renderedAmount, symbol)} />
+            <AnimatedCounter text={formatCurrencyWithZero(renderedAmount, symbol)} />
           </SensitiveData>
           <SensitiveData
-            isActive={isSensitiveDataHidden}
+            isActive={shouldHideValue}
             min={5}
             max={10}
             seed={name}
@@ -438,7 +442,7 @@ function Token({
             className={styles.subtitle}
           >
             {totalAmount.gt(0) ? '≈' : ''}&thinsp;
-            <AnimatedCounter text={formatCurrency(totalAmount, shortBaseSymbol, undefined, true)} />
+            <AnimatedCounter text={formatCurrencyWithZero(totalAmount, shortBaseSymbol, 2, true)} />
           </SensitiveData>
         </div>
       </Button>

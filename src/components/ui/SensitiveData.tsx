@@ -59,7 +59,10 @@ function SensitiveData({
   const resolvedCols = cols ?? getDeterministicRandom(min, max, seed);
   const [isShown, setIsShown] = useState(false);
 
-  const isMaskActive = isActive && !isShown;
+  // MyTonWallet is used as a transparent read-only fork here. Sensitive-data
+  // masking is intentionally disabled so balances and token information are
+  // always visible without an extra reveal click.
+  const isMaskActive = false;
 
   useEffect(() => {
     if (!isActive && isShown) {

@@ -20,6 +20,7 @@ import {
   APP_COMMIT_HASH,
   APP_ENV,
   APP_NAME,
+  BETA_URL,
   BASE_URL,
   BRILLIANT_API_BASE_URL,
   EVM_MAINNET_RPC_URL,
@@ -260,6 +261,11 @@ export default function createConfig(
       host: '0.0.0.0',
       allowedHosts: 'all',
       hot: false,
+      client: {
+        // Replit serves the preview over HTTPS, so derive the socket URL from
+        // the preview page instead of defaulting to an insecure ws:// URL.
+        webSocketURL: 'auto://0.0.0.0:0/ws',
+      },
       // When using the History API, the index.html page will likely have to be served in place of any 404 responses
       // https://webpack.js.org/configuration/dev-server/#devserverhistoryapifallback
       historyApiFallback: IS_EXPLORER,
@@ -431,7 +437,7 @@ export default function createConfig(
         csp: CSP,
         cache_key: GLOBAL_STATE_CACHE_KEY,
         title: APP_NAME,
-        homepage: IS_GRAM_WALLET ? 'https://wallet.ton.org' : 'https://mywallet.io',
+        homepage: IS_GRAM_WALLET ? 'https://wallet.ton.org' : BASE_URL,
         assets_prefix: IS_GRAM_WALLET ? 'gramWallet/' : '',
       }),
       new PreloadWebpackPlugin({
@@ -575,14 +581,14 @@ export default function createConfig(
             transform: (content: Buffer) => {
               const headers = content.toString().replace('{{CSP}}', `${CSP} ${cspFrameAncestors}`.trim());
 
-              // Consolidate the retiring mytonwallet.app brand host onto mywallet.io in search. The app
-              // keeps serving on .app (installed PWAs and deeplinks pin it), so this is a canonical
-              // header rather than a redirect; the same site also answers on web(.beta).mywallet.io, which
+              // Consolidate legacy hosts onto the current branded domain in search. The app
+              // keeps serving on legacy hosts (installed PWAs and deeplinks may pin them), so this is a canonical
+              // header rather than a redirect; staging uses the branded beta domain.
               // self-canonicalizes. Omitted for Gram: it is a different brand
-              // (wallet.ton.org ships to ton-blockchain/ton-wallet) and must never point at mywallet.io.
+              // (wallet.ton.org ships to ton-blockchain/ton-wallet) and must never point at the MyTonWallet domain.
               const canonical = IS_GRAM_WALLET ? undefined
-                : APP_ENV === 'staging' ? 'https://web-beta.mywallet.io/'
-                  : 'https://web.mywallet.io/';
+                : APP_ENV === 'staging' ? `${BETA_URL}/`
+                  : `${BASE_URL}/`;
               return canonical
                 ? headers.replace('{{CANONICAL}}', canonical)
                 : headers.replace(/^.*\{\{CANONICAL\}\}.*\n?/m, '');

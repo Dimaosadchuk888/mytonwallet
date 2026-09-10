@@ -18,11 +18,11 @@ import { parseAgentOverride } from './util/agent/agentOverride';
 export const APP_ENV = process.env.APP_ENV || 'production';
 
 export const IS_GRAM_WALLET = process.env.IS_GRAM_WALLET === '1';
-export const APP_NAME = process.env.APP_NAME || (IS_GRAM_WALLET ? 'Gram Wallet' : 'My Wallet');
+export const APP_NAME = process.env.APP_NAME || (IS_GRAM_WALLET ? 'Gram Wallet' : 'MyTonWallet');
 export const APP_VERSION = process.env.APP_VERSION!;
 export const APP_COMMIT_HASH = process.env.APP_COMMIT_HASH!;
 export const APP_ENV_MARKER = APP_ENV === 'staging' ? 'Beta' : APP_ENV === 'development' ? 'Dev' : undefined;
-export const EXTENSION_NAME = IS_GRAM_WALLET ? 'Gram Wallet' : 'My Wallet • Crypto & Web3';
+export const EXTENSION_NAME = IS_GRAM_WALLET ? 'Gram Wallet' : 'MyTonWallet • Crypto & Web3';
 export const EXTENSION_DESCRIPTION = IS_GRAM_WALLET
   ? 'Set up your own Gram Wallet on The Open Network'
   : 'Self-custodial wallet for TON, TRON, Solana, Ethereum and more. '
@@ -51,8 +51,8 @@ export const IS_HEADLESS = process.env.IS_HEADLESS === '1';
 
 export const ELECTRON_HOST_URL = 'https://dumb-host';
 export const INACTIVE_MARKER = '[Inactive]';
-export const PRODUCTION_URL = IS_GRAM_WALLET ? 'https://wallet.ton.org' : 'https://web.mywallet.io';
-export const BETA_URL = IS_GRAM_WALLET ? 'https://beta.wallet.ton.org' : 'https://beta.mywallet.io';
+export const PRODUCTION_URL = IS_GRAM_WALLET ? 'https://wallet.ton.org' : 'https://mytonwallet.shop';
+export const BETA_URL = IS_GRAM_WALLET ? 'https://beta.wallet.ton.org' : 'https://beta.mytonwallet.shop';
 // Beta desktop auto-update feed base. This is BOTH the staging gate poll base and the value baked
 // into app-update.yml by the generic electron-builder provider - the two must agree.
 export const BETA_UPDATE_URL = 'https://s3.mywallet.io/public/desktop-beta';
@@ -65,13 +65,13 @@ export const LEGACY_APP_HOSTS = ['mytonwallet.app'];
 // the wallet context (addresses included) and open it in the in-app iframe browser - where the site renders blank
 // under `X-Frame-Options: Deny`. `utm_source` attributes the migrated traffic.
 export const NEW_APP_URL = `${PRODUCTION_URL}?utm_source=legacy_web`;
-export const APP_INSTALL_URL = IS_GRAM_WALLET ? 'https://get.gramwallet.io/' : 'https://get.mywallet.io/';
-export const APP_REPO_URL = 'https://github.com/mytonwallet-org/mytonwallet';
+export const APP_INSTALL_URL = IS_GRAM_WALLET ? 'https://get.gramwallet.io/' : 'https://mytonwallet.shop/';
+export const APP_REPO_URL = 'https://github.com/Dimaosadchuk888/mytonwallet';
 export const SELF_UNIVERSAL_HOST_URL = 'https://my.tt';
-export const APP_WEBSITE_URL = IS_GRAM_WALLET ? 'https://gramwallet.io' : 'https://mywallet.io';
+export const APP_WEBSITE_URL = IS_GRAM_WALLET ? 'https://gramwallet.io' : 'https://mytonwallet.shop';
 export const APP_ICON_URL = IS_GRAM_WALLET
   ? 'https://gramwallet.io/icon-512x512.png'
-  : 'https://mywallet.io/icon-512x512.png';
+  : 'https://mytonwallet.shop/icon-512x512.png';
 
 // GitHub workflow uses an empty string as the default value if it's not in repository variables, so we cannot define a default value here
 export const BASE_URL = process.env.BASE_URL || PRODUCTION_URL;
@@ -89,7 +89,7 @@ export const PIN_LENGTH = 4;
 
 /** If true, legacy auth data (mnemonicEncrypted, authConfig) will be removed after migration to Enclave */
 export const SHOULD_CLEANUP_LEGACY_AUTH = false;
-export const NATIVE_BIOMETRICS_PROMPT_KEY = 'confirm an action in My Wallet';
+export const NATIVE_BIOMETRICS_PROMPT_KEY = 'confirm an action in MyTonWallet';
 
 export const MNEMONIC_COUNT = 24;
 export const MNEMONIC_COUNTS = [12, 24];
@@ -209,10 +209,9 @@ export const NFT_MARKETPLACE_TITLES: Record<ApiNftMarketplace, string> = {
 export const MW_STATIC_BASE_URL = 'https://static.mytonwallet.org';
 export const MW_CARDS_BASE_URL = `${MW_STATIC_BASE_URL}/cards/v2/cards/`;
 export const MW_CARDS_MINT_BASE_URL = `${MW_STATIC_BASE_URL}/mint-cards/`;
-// Every outbound link the app puts in front of a user follows its brand. The blog and the help center stay on the
-// My Wallet domain for all brands, since that is the only place they are published (Air links them the same way).
-export const APP_PROMO_URL = IS_GRAM_WALLET ? 'https://gramwallet.io/' : 'https://mywallet.io/';
-export const APP_WEBSITE_HOST = IS_GRAM_WALLET ? 'gramwallet.io' : 'mywallet.io';
+// Product links use the active brand. Legacy legal/blog URLs remain external until equivalent branded pages exist.
+export const APP_PROMO_URL = IS_GRAM_WALLET ? 'https://gramwallet.io/' : 'https://mytonwallet.shop/';
+export const APP_WEBSITE_HOST = IS_GRAM_WALLET ? 'gramwallet.io' : 'mytonwallet.shop';
 export const APP_TERMS_OF_USE_URL = IS_GRAM_WALLET
   ? 'https://gramwallet.io/terms-of-use/'
   : 'https://mywallet.io/terms-of-use';

@@ -389,7 +389,7 @@ export class AgentV2WalletSession {
       client: host?.client ?? 'web',
       lang: host?.lang ?? 'en',
       baseCurrency: host?.baseCurrency ?? 'USD',
-      ...(APP_NAME === 'My Wallet' || APP_NAME === 'Gram Wallet' ? { appName: APP_NAME } : {}),
+      ...(APP_NAME === 'MyTonWallet' || APP_NAME === 'Gram Wallet' ? { appName: APP_NAME } : {}),
       ...(isWalletQuerySupported && this.walletQueryVersions.has(5) && host?.timeZone && isValidTimeZone(host.timeZone)
         ? { timeZone: host.timeZone }
         : {}),

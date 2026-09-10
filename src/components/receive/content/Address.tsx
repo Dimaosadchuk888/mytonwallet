@@ -5,7 +5,7 @@ import type { ApiChain } from '../../../api/types';
 
 import renderText from '../../../global/helpers/renderText';
 import buildClassName from '../../../util/buildClassName';
-import { getChainTitle } from '../../../util/chain';
+import { getChainConfig, getChainTitle } from '../../../util/chain';
 
 import useLang from '../../../hooks/useLang';
 import useQrCode from '../../../hooks/useQrCode';
@@ -22,6 +22,7 @@ interface OwnProps {
   isLedger?: boolean;
   isViewMode?: boolean;
   address: string;
+  comment?: string;
   onClose?: NoneToVoidFunction;
 }
 
@@ -31,16 +32,21 @@ function Address({
   isLedger,
   isViewMode,
   address,
+  comment,
   onClose,
 }: OwnProps) {
   const { verifyHardwareAddress } = getActions();
 
   const lang = useLang();
+  const copyText = address && comment
+    ? getChainConfig(chain).formatTransferUrl?.(address, undefined, comment)
+    : undefined;
   const { qrCodeRef } = useQrCode({
     address,
     chain,
     isActive,
     preferUrl: true,
+    comment,
   });
 
   const handleVerify = (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -61,6 +67,7 @@ function Address({
       <InteractiveTextField
         chain={chain}
         address={address}
+        copyText={copyText}
         className={styles.addressWrapper}
         copyNotification={lang('%chain% Address Copied', { chain: getChainTitle(chain) }) as string}
         noSavedAddress

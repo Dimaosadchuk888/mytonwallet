@@ -68,6 +68,19 @@ export function formatCurrency(
   return addCurrency(formatted, currency);
 }
 
+export function formatCurrencyWithZero(
+  value: number | string | Big,
+  currency: string,
+  fractionDigits = 2,
+  noTruncate?: boolean,
+) {
+  if (new Big(value).eq(0)) {
+    return addCurrency(`0.${'0'.repeat(fractionDigits)}`, currency);
+  }
+
+  return formatCurrency(value, currency, fractionDigits, noTruncate);
+}
+
 export function formatCurrencyExtended(
   value: number | string, currency: string, noSign = false, fractionDigits?: number, isZeroNegative?: boolean,
 ) {

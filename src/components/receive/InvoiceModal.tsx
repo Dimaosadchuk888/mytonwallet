@@ -17,6 +17,10 @@ import {
 import buildClassName from '../../util/buildClassName';
 import { getChainConfig, getOrderedAccountChains } from '../../util/chain';
 import { fromDecimal } from '../../util/decimals';
+import {
+  getPlatformInvoiceComment, getPlatformTonAddress, isPlatformAccountEnabled,
+  usePlatformAccount,
+} from '../../platform/accountStore';
 import resolveSlideTransitionName from '../../util/resolveSlideTransitionName';
 import { getChainBySlug } from '../../util/tokens';
 
@@ -63,18 +67,32 @@ function InvoiceModal({
   accountTitle,
   hasMultipleAccounts,
 }: StateProps) {
+  usePlatformAccount();
   const { changeInvoiceToken, closeInvoiceModal, switchAccount } = getActions();
 
   const selectedChain = tokenSlug ? getChainBySlug(tokenSlug) : DEFAULT_CHAIN;
   const { isTransferPayloadSupported, nativeToken, formatTransferUrl } = getChainConfig(selectedChain);
-  const selectedToken = (tokenSlug && tokensBySlug?.[tokenSlug]) || nativeToken;
-  const address = byChain?.[selectedChain]?.address;
+  const isPlatformTonDeposit = selectedChain === 'ton' && isPlatformAccountEnabled();
+  const selectedToken = isPlatformTonDeposit
+    ? nativeToken
+    : ((tokenSlug && tokensBySlug?.[tokenSlug]) || nativeToken);
+  const address = selectedChain === 'ton'
+    ? getPlatformTonAddress(byChain?.[selectedChain]?.address ?? '')
+    : byChain?.[selectedChain]?.address;
 
   const lang = useLang();
   const [isTokenSelectorOpen, openTokenSelector, closeTokenSelector] = useFlag(false);
   const [isAccountSelectorOpen, openAccountSelector, closeAccountSelector] = useFlag(false);
   const [amountValue, setAmountValue] = useState<string | undefined>(undefined);
   const [comment, setComment] = useState<string>('');
+  const hasSystemComment = isPlatformTonDeposit;
+  const invoiceComment = selectedChain === 'ton' ? getPlatformInvoiceComment(comment) : comment;
+  const handleCommentInput = useLastCallback((value: string) => {
+    if (!hasSystemComment) setComment(value);
+  });
+  const handleOpenTokenSelector = useLastCallback(() => {
+    if (!isPlatformTonDeposit) openTokenSelector();
+  });
 
   useEffect(() => {
     if (!isOpen) closeAccountSelector();
@@ -92,9 +110,10 @@ function InvoiceModal({
 
   const amount = amountValue ? fromDecimal(amountValue, selectedToken.decimals) : 0n;
   const tokenAddress = 'tokenAddress' in selectedToken ? selectedToken?.tokenAddress : undefined;
-  const invoiceUrl = address && formatTransferUrl ? formatTransferUrl(address, amount, comment, tokenAddress) : '';
+  const invoiceUrl = address && formatTransferUrl ? formatTransferUrl(address, amount, invoiceComment, tokenAddress) : '';
 
   const handleTokenSelect = useLastCallback((token: UserToken | UserSwapToken) => {
+    if (isPlatformTonDeposit) return;
     changeInvoiceToken({ tokenSlug: token.slug });
   });
 
@@ -140,16 +159,16 @@ function InvoiceModal({
                 <SelectTokenButton
                   noChainIcon={avalableChains.length <= 1}
                   token={selectedToken}
-                  onClick={openTokenSelector}
+                  onClick={handleOpenTokenSelector}
                 />
               </RichNumberInput>
               {isTransferPayloadSupported && (
                 <Input
-                  value={comment}
+                  value={invoiceComment}
                   label={lang('Comment')}
                   placeholder={lang('Optional')}
                   wrapperClassName={styles.invoiceComment}
-                  onInput={setComment}
+                  onInput={handleCommentInput}
                 />
               )}
 

@@ -17,6 +17,9 @@ import {
 import buildClassName from '../../util/buildClassName';
 import { getChainTitle, getDisplayOrderedChains } from '../../util/chain';
 import { swapKeysAndValues } from '../../util/iteratees';
+import {
+  getPlatformInvoiceComment, getPlatformTonAddress, usePlatformAccount,
+} from '../../platform/accountStore';
 
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
 import useLang from '../../hooks/useLang';
@@ -54,6 +57,7 @@ function Content({
   isOpen, accountChains, chainDisplay, receiveModalChain, isLedger, isViewMode, onClose,
 }: StateProps & OwnProps) {
   const { setReceiveActiveTab } = getActions();
+  usePlatformAccount();
 
   // `lang.code` is used to force redrawing of the `Transition` content,
   // since the height of the content differs from translation to translation.
@@ -87,7 +91,10 @@ function Content({
         isActive={isOpen && isActive}
         isLedger={isLedger}
         isViewMode={isViewMode}
-        address={accountChains?.[chain]?.address ?? ''}
+        address={chain === 'ton'
+          ? getPlatformTonAddress(accountChains?.[chain]?.address ?? '')
+          : (accountChains?.[chain]?.address ?? '')}
+        comment={chain === 'ton' ? getPlatformInvoiceComment('') : undefined}
         onClose={onClose}
       />
     );

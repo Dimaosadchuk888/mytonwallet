@@ -9,7 +9,9 @@ import { selectCurrentAccountId, selectIsMultichainAccount } from '../../../glob
 import buildClassName from '../../../util/buildClassName';
 import { calcBigChangeValue } from '../../../util/calcChangeValue';
 import { toBig, toDecimal } from '../../../util/decimals';
-import { formatCurrency, formatNumber, formatPercent, getShortCurrencySymbol } from '../../../util/formatNumber';
+import {
+  formatCurrency, formatCurrencyWithZero, formatNumber, formatPercent, getShortCurrencySymbol,
+} from '../../../util/formatNumber';
 
 import useFlag from '../../../hooks/useFlag';
 import useFontScale from '../../../hooks/useFontScale';
@@ -53,6 +55,8 @@ function Balance({
 
   const amountBig = toBig(amount, decimals);
   const valueBig = amountBig.mul(pricePoint?.price ?? price);
+  const shouldHideAmount = Boolean(isSensitiveDataHidden && !amountBig.eq(0));
+  const shouldHideValue = Boolean(isSensitiveDataHidden && !valueBig.eq(0));
   // With no chart point, only the 24h change ratio is known, and the amount is restored from it by
   // dividing by `1 + change24h`. A point carries both prices, so the amount is a subtraction, which
   // covers a zero price as well.
@@ -87,7 +91,7 @@ function Balance({
 
       <div ref={amountRef} className={styles.amountWrapper}>
         <SensitiveData
-          isActive={isSensitiveDataHidden}
+          isActive={shouldHideAmount}
           align="center"
           min={AMOUNT_MIN_COLS}
           max={AMOUNT_MAX_COLS}
@@ -108,14 +112,14 @@ function Balance({
       </div>
 
       <SensitiveData
-        isActive={isSensitiveDataHidden}
+        isActive={shouldHideValue}
         align="center"
         cols={VALUE_COLS}
         rows={VALUE_ROWS}
         cellSize={VALUE_CELL_SIZE}
         className={styles.value}
       >
-        {formatCurrency(valueBig, currencySymbol)}
+        {formatCurrencyWithZero(valueBig, currencySymbol)}
         {Boolean(changeValue) && (
           <span className={buildClassName(styles.change, changeValue > 0 ? styles.positive : styles.negative)}>
             {' · '}
