@@ -29,6 +29,7 @@ import {
   EXTENSION_NAME,
   GLOBAL_STATE_CACHE_KEY,
   IFRAME_WHITELIST,
+  INTERNAL_TON_API_BASE_URL,
   IPFS_GATEWAY_BASE_URL,
   IS_EXPLORER,
   IS_EXTENSION,
@@ -128,6 +129,7 @@ const cspConnectSrcHosts = Array.from(new Set([
   MFA_API_BASE_URL,
   ensureTrailingSlash(PORTFOLIO_API_URL),
   TON_CONNECT_ANALYTICS_URL,
+  INTERNAL_TON_API_BASE_URL ? new URL(INTERNAL_TON_API_BASE_URL).origin : undefined,
 ])).join(' ');
 
 const cspImageSrcHosts = [
