@@ -2261,3 +2261,5 @@ Tokenized Stocks: سهام توکن‌شده
 Tokenized Gold: طلای توکن‌شده
 Index Funds: صندوق‌های شاخص
 Search token or stock: جستجوی توکن یا سهام
+$gram_minimum_withdrawal_warning: "حداقل برداشت %minimum% است. مبلغ واردشده: %amount%."
+$gram_minimum_swap_warning: "حداقل مبلغ مبادله %minimum% است. مبلغ واردشده: %amount%."

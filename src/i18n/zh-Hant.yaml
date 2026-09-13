@@ -2256,3 +2256,5 @@ Tokenized Stocks: 代幣化股票
 Tokenized Gold: 代幣化黃金
 Index Funds: 指數基金
 Search token or stock: 搜尋代幣或股票
+$gram_minimum_withdrawal_warning: "最低提領金額為 %minimum%。已輸入金額：%amount%。"
+$gram_minimum_swap_warning: "最低兌換金額為 %minimum%。已輸入金額：%amount%。"

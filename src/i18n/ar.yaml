@@ -2268,3 +2268,5 @@ Tokenized Stocks: الأسهم المرمّزة
 Tokenized Gold: الذهب المرمّز
 Index Funds: صناديق المؤشرات
 Search token or stock: ابحث عن توكن أو سهم
+$gram_minimum_withdrawal_warning: "الحد الأدنى للسحب هو %minimum%. المبلغ المُدخل: %amount%."
+$gram_minimum_swap_warning: "الحد الأدنى لمبلغ المبادلة هو %minimum%. المبلغ المُدخل: %amount%."

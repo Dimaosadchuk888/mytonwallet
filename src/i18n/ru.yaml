@@ -2304,3 +2304,5 @@ Tokenized Stocks: Токенизированные акции
 Tokenized Gold: Токенизированное золото
 Index Funds: Индексные фонды
 Search token or stock: Поиск токена или акции
+$gram_minimum_withdrawal_warning: "Минимальная сумма вывода — %minimum%. Введённая сумма: %amount%."
+$gram_minimum_swap_warning: "Минимальная сумма обмена — %minimum%. Введённая сумма: %amount%."

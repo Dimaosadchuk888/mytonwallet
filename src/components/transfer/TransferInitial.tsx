@@ -9,7 +9,12 @@ import type { ExplainedTransferFee } from '../../util/fee/transferFee';
 import type { FeePrecision, FeeTerms } from '../../util/fee/types';
 import { ScamWarningType, TransferState } from '../../global/types';
 
-import { DEFAULT_PRICE_CURRENCY, UNKNOWN_TOKEN } from '../../config';
+import {
+  DEFAULT_PRICE_CURRENCY,
+  MIN_GRAM_OPERATION_AMOUNT,
+  TONCOIN,
+  UNKNOWN_TOKEN,
+} from '../../config';
 import { getHelpCenterUrl } from '../../global/helpers/getHelpCenterUrl';
 import {
   selectCurrentAccount,
@@ -25,8 +30,10 @@ import {
 import buildClassName from '../../util/buildClassName';
 import { getChainConfig } from '../../util/chain';
 import { SECOND } from '../../util/dateFormat';
+import { toDecimal } from '../../util/decimals';
 import { stopEvent } from '../../util/domEvents';
 import { getMaxTransferAmount, isBalanceSufficientForTransfer } from '../../util/fee/transferFee';
+import { formatCurrency } from '../../util/formatNumber';
 import { vibrate } from '../../util/haptics';
 import { isValidAddressOrDomain } from '../../util/isValidAddress';
 import { debounce } from '../../util/schedulers';
@@ -354,6 +361,9 @@ function TransferInitial({
     (maxAmount !== undefined && amount > maxAmount)
     || hasInsufficientFeeError // Ideally, the insufficient fee error message should be displayed somewhere else
   );
+  const isBelowGramWithdrawalMinimum = transferToken?.slug === TONCOIN.slug
+    && amount !== undefined
+    && amount < MIN_GRAM_OPERATION_AMOUNT;
   const isCommentRequired = Boolean(toAddress) && isMemoRequired;
   const hasCommentError = isCommentRequired && !comment;
 
@@ -546,6 +556,26 @@ function TransferInitial({
               renderBottomRight={renderBottomRight}
               onPressEnter={handleSubmit}
             />
+          )}
+          {isBelowGramWithdrawalMinimum && transferToken && (
+            <div className={styles.minimumAmountWarning} role="alert">
+              {lang('$gram_minimum_withdrawal_warning', {
+                amount: formatCurrency(
+                  toDecimal(amount!, transferToken.decimals, true),
+                  transferToken.symbol,
+                  transferToken.decimals,
+                  true,
+                  true,
+                ),
+                minimum: formatCurrency(
+                  toDecimal(MIN_GRAM_OPERATION_AMOUNT, TONCOIN.decimals),
+                  TONCOIN.symbol,
+                  TONCOIN.decimals,
+                  true,
+                  true,
+                ),
+              })}
+            </div>
           )}
 
           {doesSupportComment && (

@@ -46,6 +46,15 @@
   margin-bottom: 0;
 }
 
+.minimumAmountWarning {
+  margin: -0.5rem 0 1rem;
+  padding: 0 0.5rem;
+
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--color-red);
+}
+
 .inputLabel {
   margin-bottom: 0.375rem;
   line-height: 1.125rem;

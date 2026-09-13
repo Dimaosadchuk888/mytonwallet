@@ -2269,3 +2269,5 @@ Tokenized Stocks: Tokenize Hisse Senetleri
 Tokenized Gold: Tokenize Altın
 Index Funds: Endeks Fonları
 Search token or stock: Token veya hisse ara
+$gram_minimum_withdrawal_warning: "Minimum çekim tutarı %minimum% değerindedir. Girilen tutar: %amount%."
+$gram_minimum_swap_warning: "Minimum takas tutarı %minimum% değerindedir. Girilen tutar: %amount%."

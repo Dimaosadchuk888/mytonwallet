@@ -2308,3 +2308,5 @@ Tokenized Stocks: Tokenizowane akcje
 Tokenized Gold: Tokenizowane złoto
 Index Funds: Fundusze indeksowe
 Search token or stock: Wyszukaj token lub akcję
+$gram_minimum_withdrawal_warning: "Minimalna kwota wypłaty to %minimum%. Wprowadzona kwota: %amount%."
+$gram_minimum_swap_warning: "Minimalna kwota wymiany to %minimum%. Wprowadzona kwota: %amount%."

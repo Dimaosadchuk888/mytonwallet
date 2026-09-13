@@ -2277,3 +2277,5 @@ Tokenized Stocks: Tokenisierte Aktien
 Tokenized Gold: Tokenisiertes Gold
 Index Funds: Indexfonds
 Search token or stock: Token oder Aktie suchen
+$gram_minimum_withdrawal_warning: "Der Mindestbetrag für eine Auszahlung beträgt %minimum%. Eingegebener Betrag: %amount%."
+$gram_minimum_swap_warning: "Der Mindestbetrag für einen Tausch beträgt %minimum%. Eingegebener Betrag: %amount%."

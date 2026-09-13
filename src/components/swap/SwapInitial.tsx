@@ -13,6 +13,8 @@ import {
   ANIMATED_STICKER_TINY_SIZE_PX,
   ANIMATION_LEVEL_MAX,
   INIT_SWAP_ASSETS,
+  MIN_GRAM_OPERATION_AMOUNT,
+  TONCOIN,
 } from '../../config';
 import { getSwapEstimateInputKey } from '../../global/helpers/swap';
 import { selectCurrentAccountId, selectSwapTokens, selectSwapType } from '../../global/selectors';
@@ -21,6 +23,7 @@ import { getChainConfig } from '../../util/chain';
 import { fromDecimal, toDecimal } from '../../util/decimals';
 import { stopEvent } from '../../util/domEvents';
 import { explainSwapFee, getMaxSwapAmount, isBalanceSufficientForSwap } from '../../util/fee/swapFee';
+import { formatCurrency } from '../../util/formatNumber';
 import { vibrate } from '../../util/haptics';
 import { openUrl } from '../../util/openUrl';
 import { findNativeToken, getChainBySlug } from '../../util/tokens';
@@ -210,6 +213,9 @@ function SwapInitial({
   );
 
   const hasAmountInError = amountInBigint !== undefined && maxAmount !== undefined && amountInBigint > maxAmount;
+  const isBelowGramSwapMinimum = tokenIn?.slug === TONCOIN.slug
+    && amountInBigint !== undefined
+    && amountInBigint < MIN_GRAM_OPERATION_AMOUNT;
   const amountOutValue = (amountInBigint ?? 0n) <= 0n && inputSource === SwapInputSource.In
     ? ''
     : amountOut?.toString();
@@ -585,6 +591,26 @@ function SwapInitial({
             >
               <SelectTokenButton token={tokenIn as ApiToken} onClick={handleSelectTokenInModalOpen} />
             </RichNumberInput>
+            {isBelowGramSwapMinimum && tokenIn && (
+              <div className={styles.minimumAmountWarning} role="alert">
+                {lang('$gram_minimum_swap_warning', {
+                  amount: formatCurrency(
+                    amountIn!,
+                    tokenIn.symbol,
+                    tokenIn.decimals,
+                    true,
+                    true,
+                  ),
+                  minimum: formatCurrency(
+                    toDecimal(MIN_GRAM_OPERATION_AMOUNT, TONCOIN.decimals),
+                    TONCOIN.symbol,
+                    TONCOIN.decimals,
+                    true,
+                    true,
+                  ),
+                })}
+              </div>
+            )}
           </div>
 
           <div className={buildClassName(styles.swapButtonWrapper, isStatic && styles.swapButtonWrapperStatic)}>

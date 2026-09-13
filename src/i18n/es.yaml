@@ -2275,3 +2275,5 @@ Tokenized Stocks: Acciones tokenizadas
 Tokenized Gold: Oro tokenizado
 Index Funds: Fondos indexados
 Search token or stock: Buscar token o acción
+$gram_minimum_withdrawal_warning: "El retiro mínimo es de %minimum%. Importe introducido: %amount%."
+$gram_minimum_swap_warning: "El importe mínimo del intercambio es %minimum%. Importe introducido: %amount%."

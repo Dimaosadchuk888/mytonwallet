@@ -2268,3 +2268,5 @@ Tokenized Stocks: Tokenized Stocks
 Tokenized Gold: Tokenized Gold
 Index Funds: Index Funds
 Search token or stock: Search token or stock
+$gram_minimum_withdrawal_warning: "Minimum withdrawal is %minimum%. Entered amount: %amount%."
+$gram_minimum_swap_warning: "Minimum swap amount is %minimum%. Entered amount: %amount%."

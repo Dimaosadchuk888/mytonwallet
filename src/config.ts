@@ -401,6 +401,10 @@ export const TONCOIN = {
   priceUsd: 1.5,
 } as const;
 
+// Visual guidance for the planned Gram withdrawal and swap flows.
+// This is intentionally not used as backend validation.
+export const MIN_GRAM_OPERATION_AMOUNT = 5_000_000_000n;
+
 export const TRX = {
   name: 'TRON',
   symbol: 'TRX',
