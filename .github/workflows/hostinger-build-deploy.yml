@@ -31,14 +31,15 @@ jobs:
       - name: Build production site
         run: npm run build:production
 
-      - name: Deploy built site over FTPS
-        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+      - name: Deploy built site over SFTP
+        uses: appleboy/scp-action@v1
         with:
-          server: ${{ secrets.HOSTINGER_FTP_SERVER }}
-          username: ${{ secrets.HOSTINGER_FTP_USERNAME }}
-          password: ${{ secrets.HOSTINGER_FTP_PASSWORD }}
-          protocol: ftps
-          port: 21
-          local-dir: ./dist/
-          server-dir: ./
-          dangerous-clean-slate: true
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USERNAME }}
+          key: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT }}
+          source: "dist/."
+          target: ${{ secrets.HOSTINGER_SERVER_DIR }}
+          rm: true
+          strip_components: 1
+          overwrite: true
