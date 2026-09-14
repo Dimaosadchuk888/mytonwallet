@@ -25,6 +25,32 @@
   el.dir = isRtl ? 'rtl' : 'ltr';
 })();
 
+// Keep the already-built static bundle aligned with the current support username until the next full build.
+(function updateSupportLinks() {
+  var oldSupportUrl = 'https://t.me/mysupport';
+  var newSupportUrl = 'https://t.me/TonWalletSupport';
+
+  function replaceSupportText(node) {
+    node.childNodes.forEach(function(child) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        child.nodeValue = child.nodeValue.replace(/@mysupport/g, '@TonWalletSupport');
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        replaceSupportText(child);
+      }
+    });
+  }
+
+  function update() {
+    document.querySelectorAll('a[href="' + oldSupportUrl + '"]').forEach(function(link) {
+      link.setAttribute('href', newSupportUrl);
+      replaceSupportText(link);
+    });
+  }
+
+  update();
+  new MutationObserver(update).observe(document.documentElement, { childList: true, subtree: true });
+})();
+
 var APP_RENDERED_TIMEOUT = 5000;
 
 function checkAppRendered() {
