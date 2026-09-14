@@ -1,9 +1,6 @@
 name: Build and publish MyTonWallet to Hostinger
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 concurrency:
