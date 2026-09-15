@@ -35,7 +35,17 @@ jobs:
         env:
           HOSTINGER_SSH_PRIVATE_KEY_B64: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
         run: |
-          printf '%s' "$HOSTINGER_SSH_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/hostinger-deploy-key"
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          encoded = ''.join(os.environ['HOSTINGER_SSH_PRIVATE_KEY_B64'].split())
+          encoded += '=' * (-len(encoded) % 4)
+          Path(os.environ['RUNNER_TEMP'], 'hostinger-deploy-key').write_bytes(
+              base64.b64decode(encoded, validate=True),
+          )
+          PY
           chmod 600 "$RUNNER_TEMP/hostinger-deploy-key"
           ssh-keygen -lf "$RUNNER_TEMP/hostinger-deploy-key"
 
