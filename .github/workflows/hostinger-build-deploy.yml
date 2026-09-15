@@ -31,12 +31,20 @@ jobs:
       - name: Build production site
         run: npm run build:production
 
+      - name: Prepare SSH private key
+        env:
+          HOSTINGER_SSH_PRIVATE_KEY_B64: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$HOSTINGER_SSH_PRIVATE_KEY_B64" | base64 --decode > "$RUNNER_TEMP/hostinger-deploy-key"
+          chmod 600 "$RUNNER_TEMP/hostinger-deploy-key"
+          ssh-keygen -lf "$RUNNER_TEMP/hostinger-deploy-key"
+
       - name: Deploy built site over SFTP
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.HOSTINGER_SSH_HOST }}
           username: ${{ secrets.HOSTINGER_SSH_USER }}
-          key: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+          key_path: ${{ runner.temp }}/hostinger-deploy-key
           port: ${{ secrets.HOSTINGER_SSH_PORT }}
           source: "dist/."
           target: ${{ secrets.HOSTINGER_SERVER_DIR }}
