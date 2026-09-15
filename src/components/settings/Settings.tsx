@@ -20,7 +20,6 @@ import {
   SUPPORT_USERNAME,
   TONCOIN,
 } from '../../config';
-import { getHelpCenterUrl } from '../../global/helpers/getHelpCenterUrl';
 import {
   selectAccount,
   selectAccountStakingStates,
@@ -42,7 +41,6 @@ import { openUrl } from '../../util/openUrl';
 import resolveSlideTransitionName from '../../util/resolveSlideTransitionName';
 import { captureControlledSwipe } from '../../util/swipeController';
 import useTelegramMiniAppSwipeToClose from '../../util/telegram/hooks/useTelegramMiniAppSwipeToClose';
-import { getTelegramTipsChannelUrl } from '../../util/url';
 import {
   IS_DAPP_SUPPORTED,
   IS_ELECTRON,
@@ -91,7 +89,6 @@ import assetsActivityImg from '../../assets/settings/settings_assets-activity.sv
 import connectedDappsImg from '../../assets/settings/settings_connected-dapps.svg';
 import disclaimerImg from '../../assets/settings/settings_disclaimer.svg';
 import exitImg from '../../assets/settings/settings_exit.svg';
-import helpcenterImg from '../../assets/settings/settings_helpcenter.svg';
 import installAppImg from '../../assets/settings/settings_install-app.svg';
 import installMobileImg from '../../assets/settings/settings_install-mobile.svg';
 import languageImg from '../../assets/settings/settings_language.svg';
@@ -100,7 +97,6 @@ import notifications from '../../assets/settings/settings_notifications.svg';
 import portfolioImg from '../../assets/settings/settings_portfolio.svg';
 import securityImg from '../../assets/settings/settings_security.svg';
 import supportImg from '../../assets/settings/settings_support.svg';
-import tipsImg from '../../assets/settings/settings_tips.svg';
 import tonLinksImg from '../../assets/settings/settings_ton-links.svg';
 import tonProxyImg from '../../assets/settings/settings_ton-proxy.svg';
 import tonWallets from '../../assets/settings/settings_ton-wallets.svg';
@@ -190,7 +186,6 @@ function Settings({
   const { isScrolled, handleScroll: handleContentScroll } = useScrolledState();
 
   const activeLang = useMemo(() => LANG_LIST.find((l) => l.langCode === langCode), [langCode]);
-  const featuresTitle = lang('%app_name% Features', { app_name: APP_NAME }) as string;
 
   const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
 
@@ -598,28 +593,6 @@ function Settings({
                 </div>
               </a>
             )}
-            <a
-              href={getHelpCenterUrl(langCode, 'home')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buildClassName(styles.item, styles.itemMenu)}
-            >
-              <img className={styles.menuIcon} src={helpcenterImg} alt={lang('Help Center')} />
-              <span className={styles.itemTitle}>{lang('Help Center')}</span>
-
-              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
-            </a>
-            <a
-              href={getTelegramTipsChannelUrl(langCode)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buildClassName(styles.item, styles.itemMenu)}
-            >
-              <img className={styles.menuIcon} src={tipsImg} alt={featuresTitle} />
-              <span className={styles.itemTitle}>{featuresTitle}</span>
-
-              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
-            </a>
             <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleDisclaimerOpen}>
               <img className={styles.menuIcon} src={disclaimerImg} alt={lang('Use Responsibly')} />
               <span className={styles.itemTitle}>{lang('Use Responsibly')}</span>
