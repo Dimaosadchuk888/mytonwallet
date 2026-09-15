@@ -31,32 +31,33 @@ jobs:
       - name: Build production site
         run: npm run build:production
 
-      - name: Prepare SSH private key
-        env:
-          HOSTINGER_SSH_PRIVATE_KEY_B64: ${{ secrets.HOSTINGER_SSH_PRIVATE_KEY }}
+      - name: Install password-based SSH client
         run: |
-          python3 - <<'PY'
-          import base64
-          import os
-          from pathlib import Path
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends sshpass
 
-          encoded = ''.join(os.environ['HOSTINGER_SSH_PRIVATE_KEY_B64'].split())
-          encoded += '=' * (-len(encoded) % 4)
-          Path(os.environ['RUNNER_TEMP'], 'hostinger-deploy-key').write_bytes(
-              base64.b64decode(encoded, validate=True),
-          )
-          PY
-          chmod 600 "$RUNNER_TEMP/hostinger-deploy-key"
-          ssh-keygen -lf "$RUNNER_TEMP/hostinger-deploy-key"
-
-      - name: Deploy built site over one SSH stream
+      - name: Validate root password deployment configuration
         env:
           HOSTINGER_SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
-          HOSTINGER_SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
           HOSTINGER_SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          HOSTINGER_SSH_PASSWORD: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
           HOSTINGER_SERVER_DIR: ${{ secrets.HOSTINGER_SERVER_DIR }}
         run: |
           set -euo pipefail
+          test -n "$HOSTINGER_SSH_HOST"
+          test -n "$HOSTINGER_SSH_PORT"
+          test -n "$HOSTINGER_SSH_PASSWORD"
+          test -n "$HOSTINGER_SERVER_DIR"
+
+      - name: Deploy built site over one SSH stream as root
+        env:
+          HOSTINGER_SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          HOSTINGER_SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          HOSTINGER_SSH_PASSWORD: ${{ secrets.HOSTINGER_SSH_PASSWORD }}
+          HOSTINGER_SERVER_DIR: ${{ secrets.HOSTINGER_SERVER_DIR }}
+        run: |
+          set -euo pipefail
+          export SSHPASS="$HOSTINGER_SSH_PASSWORD"
 
           printf -v remote_dir_q '%q' "$HOSTINGER_SERVER_DIR"
           remote_command="set -e
@@ -67,14 +68,16 @@ jobs:
           find $remote_dir_q -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
           tar -xzf \"\$temp_archive\" -C $remote_dir_q"
 
-          tar -C dist -czf - . | ssh \
-            -i "$RUNNER_TEMP/hostinger-deploy-key" \
+          tar -C dist -czf - . | sshpass -e ssh \
+            -o PreferredAuthentications=password \
+            -o PubkeyAuthentication=no \
+            -o PasswordAuthentication=yes \
+            -o KbdInteractiveAuthentication=no \
             -p "$HOSTINGER_SSH_PORT" \
-            -o BatchMode=yes \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=30 \
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=8 \
-            "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
+            "root@$HOSTINGER_SSH_HOST" \
             "$remote_command"
