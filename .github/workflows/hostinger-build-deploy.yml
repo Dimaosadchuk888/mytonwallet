@@ -49,17 +49,32 @@ jobs:
           chmod 600 "$RUNNER_TEMP/hostinger-deploy-key"
           ssh-keygen -lf "$RUNNER_TEMP/hostinger-deploy-key"
 
-      - name: Deploy built site over SFTP
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.HOSTINGER_SSH_HOST }}
-          username: ${{ secrets.HOSTINGER_SSH_USER }}
-          key_path: ${{ runner.temp }}/hostinger-deploy-key
-          port: ${{ secrets.HOSTINGER_SSH_PORT }}
-          source: "dist/."
-          target: ${{ secrets.HOSTINGER_SERVER_DIR }}
-          rm: true
-          strip_components: 1
-          overwrite: true
-          timeout: 120s
-          command_timeout: 15m
+      - name: Deploy built site over one SSH stream
+        env:
+          HOSTINGER_SSH_HOST: ${{ secrets.HOSTINGER_SSH_HOST }}
+          HOSTINGER_SSH_USER: ${{ secrets.HOSTINGER_SSH_USER }}
+          HOSTINGER_SSH_PORT: ${{ secrets.HOSTINGER_SSH_PORT }}
+          HOSTINGER_SERVER_DIR: ${{ secrets.HOSTINGER_SERVER_DIR }}
+        run: |
+          set -euo pipefail
+
+          printf -v remote_dir_q '%q' "$HOSTINGER_SERVER_DIR"
+          remote_command="set -e
+          temp_archive=\$(mktemp)
+          trap 'rm -f \"\$temp_archive\"' EXIT
+          cat > \"\$temp_archive\"
+          mkdir -p $remote_dir_q
+          find $remote_dir_q -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          tar -xzf \"\$temp_archive\" -C $remote_dir_q"
+
+          tar -C dist -czf - . | ssh \
+            -i "$RUNNER_TEMP/hostinger-deploy-key" \
+            -p "$HOSTINGER_SSH_PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=30 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=8 \
+            "$HOSTINGER_SSH_USER@$HOSTINGER_SSH_HOST" \
+            "$remote_command"
