@@ -25,26 +25,33 @@
   el.dir = isRtl ? 'rtl' : 'ltr';
 })();
 
-// Keep the already-built static bundle aligned with the current support username until the next full build.
+// Keep support links compatible with cached bundles during the username migration.
 (function updateSupportLinks() {
   var oldSupportUrl = 'https://t.me/mysupport';
   var newSupportUrl = 'https://t.me/TonWalletSupport';
 
-  function replaceSupportText(node) {
-    node.childNodes.forEach(function(child) {
-      if (child.nodeType === Node.TEXT_NODE) {
-        child.nodeValue = child.nodeValue.replace(/@mysupport/g, '@TonWalletSupport');
-      } else if (child.nodeType === Node.ELEMENT_NODE) {
-        replaceSupportText(child);
+  function replaceSupportText(root) {
+    if (!root) return;
+
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    var textNode;
+    while (textNode = walker.nextNode()) {
+      if (textNode.parentElement && !['SCRIPT', 'STYLE'].includes(textNode.parentElement.tagName)) {
+        textNode.nodeValue = textNode.nodeValue.replace(/@mysupport/g, '@TonWalletSupport');
       }
-    });
+    }
   }
 
   function update() {
-    document.querySelectorAll('a[href="' + oldSupportUrl + '"]').forEach(function(link) {
-      link.setAttribute('href', newSupportUrl);
-      replaceSupportText(link);
+    document.querySelectorAll('[href], [title], [aria-label]').forEach(function(element) {
+      ['href', 'title', 'aria-label'].forEach(function(attribute) {
+        var value = element.getAttribute(attribute);
+        if (value && value.indexOf(oldSupportUrl) !== -1) {
+          element.setAttribute(attribute, value.replace(oldSupportUrl, newSupportUrl));
+        }
+      });
     });
+    replaceSupportText(document.body || document.documentElement);
   }
 
   update();
