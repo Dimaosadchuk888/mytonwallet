@@ -48,16 +48,15 @@ const ANIMATED_STICKER_SPEED = 2;
 
 const TAB_WALLET = 0;
 const TAB_MARKET = 1;
-const TAB_AGENT = 2;
-const TAB_EXPLORE = 3;
-const TAB_SETTINGS = 4;
+const TAB_EXPLORE = 2;
+const TAB_SETTINGS = 3;
 
-const TAB_COUNT = 5;
+const TAB_COUNT = 4;
 
 function BottomBar({
   theme, areSettingsOpen, isAgentOpen, isExploreOpen, isMarketOpen, accentColorIndex,
 }: StateProps) {
-  const { switchToWallet, switchToAgent, switchToExplore, switchToMarket, switchToSettings } = getActions();
+  const { switchToWallet, switchToExplore, switchToMarket, switchToSettings } = getActions();
 
   const lang = useLang();
   const [isHidden, setIsHidden] = useState(getIsBottomBarHidden());
@@ -76,7 +75,6 @@ function BottomBar({
   const tabs: TabConfig[] = [
     { index: TAB_WALLET, label: 'Wallet', iconKey: 'iconWallet', onClick: switchToWallet },
     { index: TAB_MARKET, label: 'Market', iconKey: 'iconMarket', onClick: switchToMarket },
-    { index: TAB_AGENT, label: 'Agent', iconKey: 'iconAgent', onClick: switchToAgent },
     { index: TAB_EXPLORE, label: 'Explore', iconKey: 'iconExplore', onClick: switchToExplore },
     { index: TAB_SETTINGS, label: 'Settings', iconKey: 'iconSettings', onClick: switchToSettings },
   ];
@@ -190,7 +188,9 @@ const TabButton = memo(({
 function getActiveIndex({
   isAgentOpen, isExploreOpen, isMarketOpen, areSettingsOpen,
 }: Pick<StateProps, 'isAgentOpen' | 'isExploreOpen' | 'isMarketOpen' | 'areSettingsOpen'>) {
-  if (isAgentOpen) return TAB_AGENT;
+  // Agent remains available through its existing actions/routes, but is intentionally
+  // hidden from the bottom navigation. Keep the pill on a valid visible tab while it is open.
+  if (isAgentOpen) return TAB_WALLET;
   if (isExploreOpen) return TAB_EXPLORE;
   if (isMarketOpen) return TAB_MARKET;
   if (areSettingsOpen) return TAB_SETTINGS;

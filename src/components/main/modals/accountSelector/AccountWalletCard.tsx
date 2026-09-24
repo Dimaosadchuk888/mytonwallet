@@ -9,6 +9,7 @@ import buildClassName from '../../../../util/buildClassName';
 import buildStyle from '../../../../util/buildStyle';
 import { getOrderedAccountChains } from '../../../../util/chain';
 import { formatAccountAddresses } from '../../../../util/formatAccountAddress';
+import { getPlatformByChain, usePlatformAccount } from '../../../../platform/accountStore';
 import { OPEN_CONTEXT_MENU_CLASS_NAME } from './constants';
 
 import { useCachedImage } from '../../../../hooks/useCachedImage';
@@ -71,6 +72,7 @@ function AccountWalletCard({
   onReorder,
   onLogOut,
 }: OwnProps) {
+  usePlatformAccount();
   const lang = useLang();
   const balanceRef = useRef<HTMLDivElement>();
   const contentRef = useRef<HTMLDivElement>();
@@ -83,8 +85,9 @@ function AccountWalletCard({
   const screenWidthDep = isPortrait ? screenWidth : 0;
   const isHardware = accountType === 'hardware';
   const isViewMode = accountType === 'view';
-  const chains = visibleChains ?? getOrderedAccountChains(byChain);
-  const formattedAddress = formatAccountAddresses(byChain, chains, 'x-small');
+  const platformByChain = getPlatformByChain(byChain, Boolean(isTestnet));
+  const chains = visibleChains ?? getOrderedAccountChains(platformByChain);
+  const formattedAddress = formatAccountAddresses(platformByChain, chains, 'x-small');
 
   const {
     backgroundImageUrl,

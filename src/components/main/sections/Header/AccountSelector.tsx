@@ -13,7 +13,9 @@ import {
 import { getAccountTitle } from '../../../../util/account';
 import buildClassName from '../../../../util/buildClassName';
 import { calculateFullBalance } from '../../../../util/calculateFullBalance';
-import { getShortCurrencySymbol } from '../../../../util/formatNumber';
+import { toDecimal } from '../../../../util/decimals';
+import { formatCurrencyWithZero, getShortCurrencySymbol } from '../../../../util/formatNumber';
+import { isPlatformAccountEnabled, usePlatformAccount } from '../../../../platform/accountStore';
 
 import useLang from '../../../../hooks/useLang';
 
@@ -49,11 +51,45 @@ function AccountSelector({
   const { openAccountSelector } = getActions();
 
   const lang = useLang();
+  const platformAccount = usePlatformAccount();
   const balanceValues = useMemo(() => {
-    return tokens ? calculateFullBalance(tokens, stakingStates, currencyRates[baseCurrency]) : undefined;
-  }, [tokens, stakingStates, currencyRates, baseCurrency]);
+    return tokens
+      ? calculateFullBalance(tokens, stakingStates, currencyRates[baseCurrency], platformAccount?.balances)
+      : undefined;
+  }, [tokens, stakingStates, currencyRates, baseCurrency, platformAccount?.balances]);
   const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
   const { primaryWholePart, primaryFractionPart } = balanceValues || {};
+  const internalTon = platformAccount?.balance ? (() => {
+    try {
+      const nano = BigInt(platformAccount.balance);
+      const whole = nano / 1_000_000_000n;
+      const fraction = (nano % 1_000_000_000n).toString().padStart(9, '0').replace(/0+$/, '');
+      return `${whole}${fraction ? `.${fraction}` : ''} TON`;
+    } catch {
+      return undefined;
+    }
+  })() : undefined;
+  const internalEth = platformAccount?.balances?.ETH !== undefined ? (() => {
+    try {
+      return formatCurrencyWithZero(toDecimal(BigInt(platformAccount.balances.ETH!), 18, true), 'ETH', 6, true);
+    } catch {
+      return undefined;
+    }
+  })() : undefined;
+  const hasInternalBalance = internalTon !== undefined || internalEth !== undefined;
+  const shouldUseInternalBalance = isPlatformAccountEnabled();
+  const displayedInternalTon = internalTon ?? '— TON';
+  const displayedInternalBalance = (
+    <div className={styles.internalBalances}>
+      <span>{displayedInternalTon}</span>
+      {internalEth && <span className={styles.internalSecondary}>{internalEth}</span>}
+    </div>
+  );
+  const shouldHideDisplayedBalance = Boolean(
+    isSensitiveDataHidden && (shouldUseInternalBalance && hasInternalBalance
+      ? platformAccount?.balance !== '0' || platformAccount?.balances?.ETH !== '0'
+      : balanceValues?.primaryValue !== undefined && balanceValues.primaryValue !== '0'),
+  );
 
   function handleOpenAccountSelector() {
     openAccountSelector();
@@ -75,7 +111,7 @@ function AccountSelector({
       {withBalance && (
         <div className={buildClassName(styles.balance, 'rounded-font')}>
           <SensitiveData
-            isActive={isSensitiveDataHidden}
+            isActive={shouldHideDisplayedBalance}
             shouldHoldSize
             align="center"
             cols={10}
@@ -85,16 +121,22 @@ function AccountSelector({
             <span
               className={styles.currencySwitcher}
             >
-              {shortBaseSymbol.length === 1 && (
-                <span className={buildClassName(styles.balanceCurrency, styles.balanceCurrencyPrefix)}>
-                  {shortBaseSymbol}
-                </span>
-              )}
-              {primaryWholePart}
-              {primaryFractionPart && <span className={styles.balanceFractionPart}>.{primaryFractionPart}</span>}
-              {shortBaseSymbol.length > 1 && (
-                <span className={styles.balanceCurrency}>&nbsp;{shortBaseSymbol}</span>
-              )}
+              {shouldUseInternalBalance ? displayedInternalBalance : (balanceValues?.primaryValue === '0'
+                ? formatCurrencyWithZero(0, shortBaseSymbol)
+                : (
+                  <>
+                    {shortBaseSymbol.length === 1 && (
+                      <span className={buildClassName(styles.balanceCurrency, styles.balanceCurrencyPrefix)}>
+                        {shortBaseSymbol}
+                      </span>
+                    )}
+                    {primaryWholePart}
+                    {primaryFractionPart && <span className={styles.balanceFractionPart}>.{primaryFractionPart}</span>}
+                    {shortBaseSymbol.length > 1 && (
+                      <span className={styles.balanceCurrency}>&nbsp;{shortBaseSymbol}</span>
+                    )}
+                  </>
+                ))}
             </span>
           </SensitiveData>
         </div>

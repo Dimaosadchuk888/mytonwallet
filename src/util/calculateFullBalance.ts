@@ -11,11 +11,13 @@ import { round } from './math';
 import { getFullStakingBalance } from './staking';
 
 type ChangePrefix = 'up' | 'down' | undefined;
+export type PlatformBalances = Partial<Record<'TON' | 'USDT' | 'ETH', string>>;
 
 export function calculateFullBalance(
   tokens?: UserToken[],
   stakingStates?: ApiStakingState[],
   baseCurrencyRate: string = '1',
+  platformBalances?: PlatformBalances,
 ) {
   const stakingStateBySlug = buildArrayCollectionByKey(stakingStates ?? [], 'tokenSlug');
 
@@ -34,7 +36,28 @@ export function calculateFullBalance(
 
     return acc.plus(toBig(token.amount, token.decimals).mul(token.priceUsd));
   }, Big(0));
-  const primaryValue = primaryValueUsd.mul(baseCurrencyRate);
+  const platformValueUsd = Object.entries(platformBalances ?? {}).reduce((acc, [asset, amount]) => {
+    if (!amount) return acc;
+
+    const decimals = asset === 'USDT' ? 6 : asset === 'ETH' ? 18 : 9;
+    const priceUsd = asset === 'USDT'
+      ? 1
+      : tokens?.find((token) => (
+        asset === 'TON'
+          ? token.slug === 'toncoin'
+          : token.chain === 'ethereum' && !token.tokenAddress
+      ))?.priceUsd;
+
+    if (priceUsd === undefined) return acc;
+
+    try {
+      return acc.plus(toBig(BigInt(amount), decimals).mul(priceUsd));
+    } catch {
+      return acc;
+    }
+  }, Big(0));
+  const totalValueUsd = primaryValueUsd.plus(platformValueUsd);
+  const primaryValue = totalValueUsd.mul(baseCurrencyRate);
 
   const [primaryWholePart, primaryFractionPart] = formatNumber(primaryValue).split('.');
   const changeValue = (tokens ?? []).reduce((acc, token) => {
@@ -46,7 +69,7 @@ export function calculateFullBalance(
 
   return {
     primaryValue: primaryValue.toString(),
-    primaryValueUsd: primaryValueUsd.toString(),
+    primaryValueUsd: totalValueUsd.toString(),
     primaryWholePart,
     primaryFractionPart,
     changePrefix,

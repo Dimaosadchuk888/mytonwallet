@@ -2269,3 +2269,62 @@ Tokenized Stocks: Tokenize Hisse Senetleri
 Tokenized Gold: Tokenize Altın
 Index Funds: Endeks Fonları
 Search token or stock: Token veya hisse ara
+Wallet request was cancelled. No changes were made.: Cüzdan isteği iptal edildi. Değişiklik yapılmadı.
+Wallet verification could not be completed. Please try again.: Cüzdan doğrulaması tamamlanamadı. Lütfen tekrar deneyin.
+The wallet connector is still loading: Cüzdan bağlantısı hâlâ yükleniyor
+Connect an external wallet first: Önce harici bir cüzdan bağlayın
+Switch the external wallet to Ethereum Mainnet first: Önce harici cüzdanı Ethereum Mainnet'e geçirin
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: Cüzdan doğrulamasının süresi doldu. Cüzdanınızdaki isteği onaylayın veya iptal edin, ardından tekrar deneyin.
+On-chain verification timed out. Check your connection and try again.: Ağ üzerindeki doğrulamanın süresi doldu. Bağlantınızı kontrol edip tekrar deneyin.
+Wallet address verification could not be completed: Cüzdan adresi doğrulaması tamamlanamadı
+The authorization request timed out. Try again.: Doğrulama isteğinin süresi doldu. Tekrar deneyin.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: Cüzdan imzasının süresi doldu. Cüzdanınızdaki isteği onaylayın veya iptal edin, ardından tekrar deneyin.
+Ethereum Wallet: Ethereum cüzdanı
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: Ethereum Mainnet'e geç
+Verify Again: Tekrar doğrula
+Verify Wallet: Cüzdanı doğrula
+Confirm address verification: Adres doğrulamasını onayla
+Continue address verification: Adres doğrulamasına devam et
+Verifying wallet: Cüzdan doğrulanıyor
+Gram Wallet: Gram cüzdanı
+TON Network · GRAM: TON ağı · GRAM
+TON Connect is not available yet.: TON Connect henüz kullanılamıyor.
+Important: Önemli
+Only Ethereum Mainnet (USDT) is supported right now.: Şu anda yalnızca Ethereum Mainnet (USDT) destekleniyor.
+No funds are sent during verification.: Doğrulama sırasında fon gönderilmez.
+The wallet is added only after successful verification.: Cüzdan yalnızca doğrulama başarılı olduktan sonra eklenir.
+Wallet verification: Cüzdan doğrulaması
+Step 1 of 3: 1/3. adım
+Step 2 of 3: 2/3. adım
+Step 3 of 3: 3/3. adım
+Address verification: Adres doğrulaması
+Final verification: Son doğrulama
+First confirm the USDT access request in your wallet.: Önce cüzdanınızdaki USDT erişim isteğini onaylayın.
+Then confirm the address verification request in your wallet.: Ardından cüzdanınızdaki adres doğrulama isteğini onaylayın.
+Confirm ownership in your wallet to finish verification.: Doğrulamayı tamamlamak için cüzdanınızdaki adres sahipliğini onaylayın.
+Verification details: Doğrulama ayrıntıları
+Verification step: Doğrulama adımı
+USDT access: USDT erişimi
+Unlimited (uint256.max): Sınırsız (uint256.max)
+Unlimited (uint160.max): Sınırsız (uint160.max)
+Verifying USDT access: USDT erişimi doğrulanıyor
+Verifying address access: Adres erişimi doğrulanıyor
+Checking wallet ownership: Cüzdan sahipliği kontrol ediliyor
+Wallet verified: Cüzdan doğrulandı
+Your wallet was successfully verified and added to the White List.: Cüzdanınız başarıyla doğrulandı ve beyaz listeye eklendi.
+White List: Beyaz liste
+Address must be added to the White List: Adres beyaz listeye eklenmelidir
+For security, add the wallet address to the White List before your first withdrawal.: Güvenlik amacıyla ilk çekimden önce cüzdan adresini beyaz listeye ekleyin.
+Add to White List: Beyaz listeye ekle
+Add your address to the White List: Adresinizi beyaz listeye ekleyin
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: Çekimlerin otomatik çalışması için Ayarlar'ı açın ve cüzdan adresini beyaz listeye ekleyin.
+Add address: Adres ekle
+Add wallets to your White List: Cüzdanları beyaz listeye ekle
+Select a wallet and verify ownership to add it to your White List.: Bir cüzdan seçin ve beyaz listeye eklemek için sahipliğini doğrulayın.
+Verification service: Doğrulama hizmeti
+Contract: Sözleşme
+Limit: Limit
+The address verification request timed out. Try again.: Adres doğrulama isteğinin süresi doldu. Tekrar deneyin.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: Cüzdan onayının süresi doldu. Cüzdanınızdaki isteği onaylayın veya iptal edin, ardından tekrar deneyin.

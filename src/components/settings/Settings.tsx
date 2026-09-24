@@ -20,7 +20,6 @@ import {
   SUPPORT_USERNAME,
   TONCOIN,
 } from '../../config';
-import { getHelpCenterUrl } from '../../global/helpers/getHelpCenterUrl';
 import {
   selectAccount,
   selectAccountStakingStates,
@@ -79,6 +78,7 @@ import SettingsPermissions from './SettingsPermissions';
 import SettingsPushNotifications from './SettingsPushNotifications';
 import SettingsSecurity from './SettingsSecurity';
 import SettingsTokenList from './SettingsTokenList';
+import SettingsWhitelist from './SettingsWhitelist';
 import SettingsWalletVariants from './wallets/SettingsWalletVariants';
 import SettingsWalletVersions from './wallets/SettingsWalletVersions';
 
@@ -91,7 +91,6 @@ import assetsActivityImg from '../../assets/settings/settings_assets-activity.sv
 import connectedDappsImg from '../../assets/settings/settings_connected-dapps.svg';
 import disclaimerImg from '../../assets/settings/settings_disclaimer.svg';
 import exitImg from '../../assets/settings/settings_exit.svg';
-import helpcenterImg from '../../assets/settings/settings_helpcenter.svg';
 import installAppImg from '../../assets/settings/settings_install-app.svg';
 import installMobileImg from '../../assets/settings/settings_install-mobile.svg';
 import languageImg from '../../assets/settings/settings_language.svg';
@@ -120,7 +119,6 @@ type StateProps = {
   currentVersion?: ApiTonWalletVersion;
   versions?: ApiWalletWithVersionInfo[];
   isCopyStorageEnabled?: boolean;
-  supportAccountsCount?: number;
   arePushNotificationsAvailable?: boolean;
   isNftBuyingDisabled?: boolean;
   isViewMode: boolean;
@@ -132,8 +130,7 @@ type StateProps = {
 };
 
 const AMOUNT_OF_CLICKS_FOR_DEVELOPERS_MODE = 5;
-const SUPPORT_ACCOUNTS_COUNT_DEFAULT = 1;
-
+const ARE_LEGACY_PROMO_LINKS_VISIBLE = false;
 function Settings({
   settings: {
     state: renderingKey,
@@ -154,7 +151,6 @@ function Settings({
   currentVersion,
   versions,
   isCopyStorageEnabled,
-  supportAccountsCount = SUPPORT_ACCOUNTS_COUNT_DEFAULT,
   arePushNotificationsAvailable,
   isNftBuyingDisabled,
   isViewMode,
@@ -280,6 +276,10 @@ function Settings({
 
   function handlePermissionsOpen() {
     setSettingsState({ state: SettingsState.Permissions });
+  }
+
+  function handleWhitelistOpen() {
+    setSettingsState({ state: SettingsState.ExternalEvmWhitelist });
   }
 
   const handleBackClick = useLastCallback(() => {
@@ -520,6 +520,15 @@ function Settings({
 
               <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
             </div>
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleWhitelistOpen}>
+              <img className={styles.menuIcon} src={connectedDappsImg} alt={lang('White List')} />
+              <div className={styles.itemContent}>
+                <span className={styles.itemTitle}>{lang('White List')}</span>
+                <span className={styles.itemSubtitle}>{lang('External Ethereum wallet permissions')}</span>
+              </div>
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
             {accountType === 'mnemonic' && isMultichain && (
               <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleOpenWalletVersion}>
                 <img className={styles.menuIcon} src={walletVersionImg} alt={lang('Subwallets')} />
@@ -582,44 +591,33 @@ function Settings({
           </p>
 
           <div className={styles.block}>
-            {supportAccountsCount > 0 && (
+            <a
+              href={`https://t.me/${SUPPORT_USERNAME}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buildClassName(styles.item, styles.itemMenu)}
+            >
+              <img className={styles.menuIcon} src={supportImg} alt={lang('Ask a Question')} />
+              <span className={styles.itemTitle}>{lang('Ask a Question')}</span>
+
+              <div className={styles.itemInfo}>
+                @{SUPPORT_USERNAME}
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </a>
+            {ARE_LEGACY_PROMO_LINKS_VISIBLE && (
               <a
-                href={`https://t.me/${SUPPORT_USERNAME}`}
+                href={getTelegramTipsChannelUrl(langCode)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={buildClassName(styles.item, styles.itemMenu)}
               >
-                <img className={styles.menuIcon} src={supportImg} alt={lang('Ask a Question')} />
-                <span className={styles.itemTitle}>{lang('Ask a Question')}</span>
+                <img className={styles.menuIcon} src={tipsImg} alt={featuresTitle} />
+                <span className={styles.itemTitle}>{featuresTitle}</span>
 
-                <div className={styles.itemInfo}>
-                  @{SUPPORT_USERNAME}
-                  <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
-                </div>
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
               </a>
             )}
-            <a
-              href={getHelpCenterUrl(langCode, 'home')}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buildClassName(styles.item, styles.itemMenu)}
-            >
-              <img className={styles.menuIcon} src={helpcenterImg} alt={lang('Help Center')} />
-              <span className={styles.itemTitle}>{lang('Help Center')}</span>
-
-              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
-            </a>
-            <a
-              href={getTelegramTipsChannelUrl(langCode)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buildClassName(styles.item, styles.itemMenu)}
-            >
-              <img className={styles.menuIcon} src={tipsImg} alt={featuresTitle} />
-              <span className={styles.itemTitle}>{featuresTitle}</span>
-
-              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
-            </a>
             <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleDisclaimerOpen}>
               <img className={styles.menuIcon} src={disclaimerImg} alt={lang('Use Responsibly')} />
               <span className={styles.itemTitle}>{lang('Use Responsibly')}</span>
@@ -630,7 +628,7 @@ function Settings({
 
           <p className={buildClassName(styles.blockTitle, styles.blockTitleSmall)}>{lang('About')}</p>
           <div className={styles.block}>
-            {!isNftBuyingDisabled && (
+            {ARE_LEGACY_PROMO_LINKS_VISIBLE && !isNftBuyingDisabled && (
               <a
                 href={MW_CARDS_WEBSITE}
                 target="_blank"
@@ -831,6 +829,13 @@ function Settings({
             onBackClick={handleBackClick}
           />
         );
+      case SettingsState.ExternalEvmWhitelist:
+        return (
+          <SettingsWhitelist
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
     }
   }
 
@@ -864,7 +869,7 @@ function Settings({
 
 export default memo(withGlobal<OwnProps>((global): StateProps => {
   const hasPassword = selectHasPassword(global);
-  const { isCopyStorageEnabled, supportAccountsCount = 1, isNftBuyingDisabled } = global.restrictions;
+  const { isCopyStorageEnabled, isNftBuyingDisabled } = global.restrictions;
 
   const { currentVersion, byId: versionsById } = global.walletVersions ?? {};
   const currentAccountId = selectCurrentAccountId(global);
@@ -882,7 +887,6 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
     currentVersion,
     versions,
     isCopyStorageEnabled,
-    supportAccountsCount,
     isNftBuyingDisabled,
     arePushNotificationsAvailable: global.pushNotifications.isAvailable,
     isViewMode: selectIsCurrentAccountViewMode(global),

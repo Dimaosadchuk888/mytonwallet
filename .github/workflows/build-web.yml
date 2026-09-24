@@ -101,3 +101,22 @@ jobs:
         with:
           name: my.tt
           path: dist
+
+  deploy-hostinger:
+    name: Deploy mytonwallet.shop to Hostinger
+    needs: build-web
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Deploy production site
+        env:
+          HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          HOSTINGER_DOMAIN: mytonwallet.shop
+        run: bash deploy/hostinger_api_deploy.sh

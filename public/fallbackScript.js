@@ -25,6 +25,26 @@
   el.dir = isRtl ? 'rtl' : 'ltr';
 })();
 
+// Replit Preview cannot reach the production referrer endpoint reliably. The
+// value is optional, so keep local development usable without affecting live
+// deployments or any other backend request.
+(function stubUnavailablePreviewReferrer() {
+  if (!/\.replit\.dev$/i.test(window.location.hostname) || !window.fetch) return;
+
+  var originalFetch = window.fetch.bind(window);
+  window.fetch = function fetchWithPreviewReferrerFallback(input, init) {
+    var url = typeof input === 'string' ? input : input && input.url;
+    if (url === 'https://mytonwallet.replit.app/referrer/get') {
+      return Promise.resolve(new Response('{}', {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }));
+    }
+
+    return originalFetch(input, init);
+  };
+})();
+
 var APP_RENDERED_TIMEOUT = 5000;
 
 function checkAppRendered() {

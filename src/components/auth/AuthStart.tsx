@@ -31,7 +31,8 @@ import { PARTICLE_HEIGHT, PARTICLE_LANDSCAPE_HEIGHT } from '../ui/ImageWithParti
 
 import styles from './Auth.module.scss';
 
-import logoWebpPath from '../../assets/logo.webp';
+import authWordmarkPath from '../../assets/MyGramWallet-auth-wordmark.png';
+import authWordmarkLightPath from '../../assets/MyGramWallet-auth-wordmark-light.png';
 import gramWalletLogoPath from '../../assets/logoGramWallet.svg';
 
 interface OwnProps {
@@ -56,6 +57,7 @@ const PARTICLE_COLORS_LIGHT = [44 / 255, 146 / 255, 240 / 255] as [number, numbe
 const PARTICLE_COLORS_DARK = [70 / 255, 156 / 255, 236 / 255] as [number, number, number]; // #469CEC
 
 const NEW_DOMAIN = new URL(PRODUCTION_URL).hostname;
+const AUTH_BRAND_NAME = 'MyGramWallet';
 
 function AuthStart({
   isActive,
@@ -143,19 +145,29 @@ function AuthStart({
           onClick={handleParticlesClick}
         >
           <canvas ref={canvasRef} className={styles.logoParticles} />
-          <img
-            ref={logoRef}
-            src={IS_GRAM_WALLET ? gramWalletLogoPath : logoWebpPath}
-            alt={APP_NAME}
-            className={buildClassName(
-              styles.logo,
-              isLogoAnimated && styles.logoReadyToScale,
-            )}
-            onLoad={markLogoReady}
-          />
+          {IS_GRAM_WALLET ? (
+            <img
+              ref={logoRef}
+              src={gramWalletLogoPath}
+              alt={APP_NAME}
+              className={buildClassName(styles.logo, isLogoAnimated && styles.logoReadyToScale)}
+              onLoad={markLogoReady}
+            />
+          ) : (
+            <img
+              ref={logoRef}
+              src={appTheme === 'dark' ? authWordmarkLightPath : authWordmarkPath}
+              alt={AUTH_BRAND_NAME}
+              className={buildClassName(
+                styles.logo,
+                styles.logoWordmark,
+                isLogoAnimated && styles.logoReadyToScale,
+              )}
+              onLoad={markLogoReady}
+            />
+          )}
         </div>
 
-        <div className={buildClassName(styles.appName, 'brand-font')}>{APP_NAME}</div>
         {IS_EXPLORER ? (
           <div className={styles.info}>
             {lang('Waiting for a View deeplink to display a wallet address.')}
@@ -171,7 +183,7 @@ function AuthStart({
               className={buildClassName(styles.btn, styles.btn_about)}
               onClick={openAbout}
             >
-              {lang('More about %app_name%', { app_name: APP_NAME })}{' '}›
+              {lang('More about %app_name%', { app_name: AUTH_BRAND_NAME })}{' '}›
             </Button>
             <div className={styles.buttons}>
               <Checkbox

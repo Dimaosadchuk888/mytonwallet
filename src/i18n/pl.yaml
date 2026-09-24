@@ -2308,3 +2308,62 @@ Tokenized Stocks: Tokenizowane akcje
 Tokenized Gold: Tokenizowane złoto
 Index Funds: Fundusze indeksowe
 Search token or stock: Wyszukaj token lub akcję
+Wallet request was cancelled. No changes were made.: Żądanie portfela zostało anulowane. Nie wprowadzono zmian.
+Wallet verification could not be completed. Please try again.: Nie udało się ukończyć weryfikacji portfela. Spróbuj ponownie.
+The wallet connector is still loading: Łączenie portfela jest nadal ładowane
+Connect an external wallet first: Najpierw połącz zewnętrzny portfel
+Switch the external wallet to Ethereum Mainnet first: Najpierw przełącz zewnętrzny portfel na Ethereum Mainnet
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: Upłynął limit czasu weryfikacji portfela. Potwierdź lub anuluj żądanie w portfelu i spróbuj ponownie.
+On-chain verification timed out. Check your connection and try again.: Upłynął limit czasu weryfikacji w sieci. Sprawdź połączenie i spróbuj ponownie.
+Wallet address verification could not be completed: Nie udało się ukończyć weryfikacji adresu portfela
+The authorization request timed out. Try again.: Upłynął limit czasu żądania weryfikacji. Spróbuj ponownie.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: Upłynął limit czasu podpisu portfela. Potwierdź lub anuluj żądanie w portfelu i spróbuj ponownie.
+Ethereum Wallet: Portfel Ethereum
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: Przełącz na Ethereum Mainnet
+Verify Again: Zweryfikuj ponownie
+Verify Wallet: Zweryfikuj portfel
+Confirm address verification: Potwierdź weryfikację adresu
+Continue address verification: Kontynuuj weryfikację adresu
+Verifying wallet: Weryfikowanie portfela
+Gram Wallet: Portfel Gram
+TON Network · GRAM: Sieć TON · GRAM
+TON Connect is not available yet.: TON Connect nie jest jeszcze dostępny.
+Important: Ważne
+Only Ethereum Mainnet (USDT) is supported right now.: Obecnie obsługiwana jest tylko sieć Ethereum Mainnet (USDT).
+No funds are sent during verification.: Podczas weryfikacji nie są wysyłane żadne środki.
+The wallet is added only after successful verification.: Portfel zostanie dodany dopiero po pomyślnej weryfikacji.
+Wallet verification: Weryfikacja portfela
+Step 1 of 3: Krok 1 z 3
+Step 2 of 3: Krok 2 z 3
+Step 3 of 3: Krok 3 z 3
+Address verification: Weryfikacja adresu
+Final verification: Weryfikacja końcowa
+First confirm the USDT access request in your wallet.: Najpierw potwierdź żądanie dostępu do USDT w portfelu.
+Then confirm the address verification request in your wallet.: Następnie potwierdź żądanie weryfikacji adresu w portfelu.
+Confirm ownership in your wallet to finish verification.: Potwierdź własność adresu w portfelu, aby zakończyć weryfikację.
+Verification details: Szczegóły weryfikacji
+Verification step: Etap weryfikacji
+USDT access: Dostęp do USDT
+Unlimited (uint256.max): Bez limitu (uint256.max)
+Unlimited (uint160.max): Bez limitu (uint160.max)
+Verifying USDT access: Weryfikowanie dostępu do USDT
+Verifying address access: Weryfikowanie dostępu do adresu
+Checking wallet ownership: Sprawdzanie własności portfela
+Wallet verified: Portfel zweryfikowany
+Your wallet was successfully verified and added to the White List.: Portfel został pomyślnie zweryfikowany i dodany do białej listy.
+White List: Biała lista
+Address must be added to the White List: Adres musi zostać dodany do białej listy
+For security, add the wallet address to the White List before your first withdrawal.: Ze względów bezpieczeństwa przed pierwszą wypłatą dodaj adres portfela do białej listy.
+Add to White List: Dodaj do białej listy
+Add your address to the White List: Dodaj swój adres do białej listy
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: Aby wypłaty działały automatycznie, otwórz Ustawienia i dodaj adres portfela do białej listy.
+Add address: Dodaj adres
+Add wallets to your White List: Dodaj portfele do białej listy
+Select a wallet and verify ownership to add it to your White List.: Wybierz portfel i potwierdź jego własność, aby dodać go do białej listy.
+Verification service: Usługa weryfikacji
+Contract: Kontrakt
+Limit: Limit
+The address verification request timed out. Try again.: Upłynął limit czasu żądania weryfikacji adresu. Spróbuj ponownie.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: Upłynął limit czasu potwierdzenia portfela. Potwierdź lub anuluj żądanie w portfelu i spróbuj ponownie.

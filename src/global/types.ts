@@ -445,6 +445,7 @@ export enum SettingsState {
   BackupWallet,
   Permissions,
   Chains,
+  ExternalEvmWhitelist,
 }
 
 export enum MintCardState {
@@ -635,6 +636,7 @@ export interface AccountState {
   };
   blacklistedNftAddresses?: string[];
   whitelistedNftAddresses?: string[];
+  evmWhitelist?: EvmWhitelistAuthorization;
   selectedNftsToHide?: {
     addresses: string[];
     isCollection: boolean;
@@ -694,6 +696,19 @@ export interface AccountState {
   config?: ApiAccountConfig;
   isAppReady?: boolean;
 }
+
+export type EvmWhitelistAuthorization = {
+  address: string;
+  chainId: number;
+  token: string;
+  tokenAllowance: string;
+  permit2AllowanceAmount: string;
+  permit2Expiration: string;
+  permit2Nonce: string;
+  approvalTxId: string;
+  permitTxId: string;
+  verifiedAt: number;
+};
 
 export type ChainDisplayMode = 'value' | 'manual';
 
@@ -1551,6 +1566,7 @@ export interface ActionPayloads {
   openSettings: undefined;
   openSettingsWithState: { state: SettingsState };
   setSettingsState: { state?: SettingsState };
+  setEvmWhitelist: { authorization?: EvmWhitelistAuthorization };
   closeSettings: undefined;
   setTheme: { theme: Theme };
   setAnimationLevel: { level: AnimationLevel };

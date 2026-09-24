@@ -17,6 +17,9 @@ import {
 import buildClassName from '../../util/buildClassName';
 import { getChainTitle, getDisplayOrderedChains } from '../../util/chain';
 import { swapKeysAndValues } from '../../util/iteratees';
+import {
+  getPlatformAddress, getPlatformInvoiceComment, usePlatformAccount,
+} from '../../platform/accountStore';
 
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
 import useLang from '../../hooks/useLang';
@@ -37,6 +40,7 @@ interface StateProps {
   isLedger?: boolean;
   isViewMode: boolean;
   receiveModalChain?: ApiChain;
+  isTestnet: boolean;
 }
 
 type OwnProps = {
@@ -51,9 +55,10 @@ const tabIdByChain = Object.fromEntries(
 const chainByTabId = swapKeysAndValues(tabIdByChain);
 
 function Content({
-  isOpen, accountChains, chainDisplay, receiveModalChain, isLedger, isViewMode, onClose,
+  isOpen, accountChains, chainDisplay, receiveModalChain, isLedger, isViewMode, isTestnet, onClose,
 }: StateProps & OwnProps) {
   const { setReceiveActiveTab } = getActions();
+  usePlatformAccount();
 
   // `lang.code` is used to force redrawing of the `Transition` content,
   // since the height of the content differs from translation to translation.
@@ -87,7 +92,8 @@ function Content({
         isActive={isOpen && isActive}
         isLedger={isLedger}
         isViewMode={isViewMode}
-        address={accountChains?.[chain]?.address ?? ''}
+        address={getPlatformAddress(chain, accountChains?.[chain]?.address ?? '', isTestnet)}
+        comment={chain === 'ton' ? getPlatformInvoiceComment('') : undefined}
         onClose={onClose}
       />
     );
@@ -132,6 +138,7 @@ export default memo(
       chainDisplay: selectCurrentAccountChainDisplay(global),
       isLedger: account?.type === 'hardware',
       isViewMode: selectIsCurrentAccountViewMode(global),
+      isTestnet: global.settings.isTestnet,
       receiveModalChain,
     };
   },

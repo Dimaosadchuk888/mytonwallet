@@ -27,6 +27,7 @@ interface OwnProps {
 
 interface StateProps {
   orderedAccounts: Array<[string, Account]>;
+  isTestnet: boolean;
   canPlaySounds?: boolean;
   settingsByAccountId?: Record<string, AccountSettings>;
   pushNotifications: GlobalState['pushNotifications'];
@@ -35,6 +36,7 @@ interface StateProps {
 function SettingsPushNotifications({
   isActive,
   orderedAccounts,
+  isTestnet,
   canPlaySounds,
   pushNotifications: {
     enabledAccounts,
@@ -100,6 +102,7 @@ function SettingsPushNotifications({
         )}
         titleClassName={styles.pushAccountName}
         accountType={accountType}
+        isTestnet={isTestnet}
         withCheckbox
         isLoading={isDisabled}
         isActive={isActive}
@@ -177,6 +180,7 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
 
   return {
     orderedAccounts,
+    isTestnet: global.settings.isTestnet,
     canPlaySounds: global.settings.canPlaySounds,
     pushNotifications: global.pushNotifications,
     settingsByAccountId: global.settings.byAccountId,

@@ -62,7 +62,9 @@ export default async function init(onUpdate: OnApiUpdate, args: ApiInitArgs) {
     onDappsChanged: protocolManager.resetupRemoteConnection.bind(protocolManager),
   });
 
-  void saveReferrer(args, runtimeStorage);
+  // Referrer attribution is optional and must not turn a temporary backend
+  // outage into an unhandled rejection that crashes the application runtime.
+  void saveReferrer(args, runtimeStorage).catch(() => undefined);
   void claimInstallAttribution(args, runtimeStorage);
 }
 

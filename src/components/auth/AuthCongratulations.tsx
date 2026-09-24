@@ -5,15 +5,15 @@ import renderText from '../../global/helpers/renderText';
 import buildClassName from '../../util/buildClassName';
 import captureKeyboardListeners from '../../util/captureKeyboardListeners';
 import { vibrateOnSuccess } from '../../util/haptics';
-import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 
 import useLang from '../../hooks/useLang';
 import useLastCallback from '../../hooks/useLastCallback';
 
-import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
 import Button from '../ui/Button';
 
 import styles from './Auth.module.scss';
+
+import authSquareLogoPath from '../../assets/MyGramWallet-auth-square.png';
 
 interface OwnProps {
   isActive?: boolean;
@@ -60,14 +60,7 @@ function AuthCongratulations({
 
   return (
     <div className={buildClassName(styles.container, 'custom-scroll')}>
-      <AnimatedIconWithPreview
-        play={isActive}
-        tgsUrl={ANIMATED_STICKERS_PATHS.guard}
-        previewUrl={ANIMATED_STICKERS_PATHS.guardPreview}
-        noLoop={false}
-        nonInteractive
-        className={styles.sticker}
-      />
+      <img src={authSquareLogoPath} alt="MyGramWallet" className={styles.authLogo} />
       <div className={styles.title}>{lang('All Set!')}</div>
       <div className={styles.info}>
         <p><b>{getInfo()}</b></p>

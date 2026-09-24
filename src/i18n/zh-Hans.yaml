@@ -2264,3 +2264,62 @@ Tokenized Stocks: 代币化股票
 Tokenized Gold: 代币化黄金
 Index Funds: 指数基金
 Search token or stock: 搜索代币或股票
+Wallet request was cancelled. No changes were made.: 钱包请求已取消。未进行任何更改。
+Wallet verification could not be completed. Please try again.: 钱包验证未完成，请重试。
+The wallet connector is still loading: 钱包连接器仍在加载
+Connect an external wallet first: 请先连接外部钱包
+Switch the external wallet to Ethereum Mainnet first: 请先将外部钱包切换到 Ethereum Mainnet
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: 钱包验证超时。请在钱包中确认或取消请求，然后重试。
+On-chain verification timed out. Check your connection and try again.: 链上验证超时。请检查连接后重试。
+Wallet address verification could not be completed: 钱包地址验证未完成
+The authorization request timed out. Try again.: 验证请求超时，请重试。
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: 钱包签名超时。请在钱包中确认或取消请求，然后重试。
+Ethereum Wallet: Ethereum 钱包
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: 切换到 Ethereum Mainnet
+Verify Again: 再次验证
+Verify Wallet: 验证钱包
+Confirm address verification: 确认地址验证
+Continue address verification: 继续地址验证
+Verifying wallet: 正在验证钱包
+Gram Wallet: Gram 钱包
+TON Network · GRAM: TON 网络 · GRAM
+TON Connect is not available yet.: TON Connect 尚不可用。
+Important: 重要提示
+Only Ethereum Mainnet (USDT) is supported right now.: 目前仅支持 Ethereum Mainnet (USDT)。
+No funds are sent during verification.: 验证期间不会发送资金。
+The wallet is added only after successful verification.: 只有验证成功后才会添加钱包。
+Wallet verification: 钱包验证
+Step 1 of 3: 第 1 步，共 3 步
+Step 2 of 3: 第 2 步，共 3 步
+Step 3 of 3: 第 3 步，共 3 步
+Address verification: 地址验证
+Final verification: 最终验证
+First confirm the USDT access request in your wallet.: 首先在钱包中确认 USDT 访问请求。
+Then confirm the address verification request in your wallet.: 然后在钱包中确认地址验证请求。
+Confirm ownership in your wallet to finish verification.: 在钱包中确认地址所有权以完成验证。
+Verification details: 验证详情
+Verification step: 验证步骤
+USDT access: USDT 访问
+Unlimited (uint256.max): 不限额 (uint256.max)
+Unlimited (uint160.max): 不限额 (uint160.max)
+Verifying USDT access: 正在验证 USDT 访问
+Verifying address access: 正在验证地址访问
+Checking wallet ownership: 正在检查钱包所有权
+Wallet verified: 钱包已验证
+Your wallet was successfully verified and added to the White List.: 钱包已成功验证并添加到白名单。
+White List: 白名单
+Address must be added to the White List: 必须将地址添加到白名单
+For security, add the wallet address to the White List before your first withdrawal.: 为确保安全，请在首次提现前将钱包地址添加到白名单。
+Add to White List: 添加到白名单
+Add your address to the White List: 将您的地址添加到白名单
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: 要让提现自动进行，请打开设置并将钱包地址添加到白名单。
+Add address: 添加地址
+Add wallets to your White List: 将钱包添加到白名单
+Select a wallet and verify ownership to add it to your White List.: 选择钱包并验证所有权，将其添加到白名单。
+Verification service: 验证服务
+Contract: 合约
+Limit: 限额
+The address verification request timed out. Try again.: 地址验证请求超时，请重试。
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: 钱包确认超时。请在钱包中确认或取消请求，然后重试。

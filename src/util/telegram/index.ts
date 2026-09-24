@@ -8,6 +8,7 @@ import { logDebugError } from '../logs';
 import safeExec from '../safeExec';
 import { getIsMobileTelegramApp } from '../windowEnvironment';
 import { updateSizes } from '../windowSize';
+import { refreshPlatformAccount } from '../../platform/accountStore';
 
 declare global {
   interface Window {
@@ -49,6 +50,11 @@ export function initTelegramApp(onBeforeReady?: NoneToVoidFunction) {
   initTelegramAppBiometric();
 
   onBeforeReady?.();
+  void refreshPlatformAccount(webApp.initData);
+  window.setInterval(() => void refreshPlatformAccount(), 30_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void refreshPlatformAccount();
+  });
   webApp.ready();
 }
 

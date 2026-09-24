@@ -149,6 +149,8 @@ const SIZE_MEDIUM = 1.33;
 const SIZE_LARGE = 2.0;
 
 const canvasManagers = new Map<HTMLCanvasElement, ParticleSystemManager>();
+const canvasesWithoutWebgl = new WeakSet<HTMLCanvasElement>();
+const NOOP: NoneToVoidFunction = () => {};
 
 export async function getAccentColorFromImage(imageUrl: string) {
   let bitmap: ImageBitmap | undefined;
@@ -184,9 +186,21 @@ export function setupParticles(
   canvas: HTMLCanvasElement,
   options: Partial<ParticleConfig>,
 ) {
+  if (canvasesWithoutWebgl.has(canvas)) return NOOP;
+
   let manager = canvasManagers.get(canvas);
   if (!manager) {
-    manager = createParticleSystemManager(canvas);
+    try {
+      manager = createParticleSystemManager(canvas);
+    } catch (error) {
+      if (error instanceof Error && error.message === 'WebGL not supported') {
+        canvasesWithoutWebgl.add(canvas);
+        return NOOP;
+      }
+
+      throw error;
+    }
+
     canvasManagers.set(canvas, manager);
   }
 

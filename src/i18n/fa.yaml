@@ -2261,3 +2261,62 @@ Tokenized Stocks: سهام توکن‌شده
 Tokenized Gold: طلای توکن‌شده
 Index Funds: صندوق‌های شاخص
 Search token or stock: جستجوی توکن یا سهام
+Wallet request was cancelled. No changes were made.: درخواست کیف پول لغو شد. تغییری ایجاد نشد.
+Wallet verification could not be completed. Please try again.: تأیید کیف پول تکمیل نشد. دوباره تلاش کنید.
+The wallet connector is still loading: اتصال کیف پول هنوز در حال بارگذاری است
+Connect an external wallet first: ابتدا یک کیف پول خارجی متصل کنید
+Switch the external wallet to Ethereum Mainnet first: ابتدا کیف پول خارجی را به Ethereum Mainnet تغییر دهید
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: زمان تأیید کیف پول تمام شد. درخواست را در کیف پول تأیید یا لغو کنید و دوباره تلاش کنید.
+On-chain verification timed out. Check your connection and try again.: زمان تأیید روی شبکه تمام شد. اتصال خود را بررسی و دوباره تلاش کنید.
+Wallet address verification could not be completed: تأیید آدرس کیف پول تکمیل نشد
+The authorization request timed out. Try again.: زمان درخواست تأیید تمام شد. دوباره تلاش کنید.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: زمان امضای کیف پول تمام شد. درخواست را در کیف پول تأیید یا لغو کنید و دوباره تلاش کنید.
+Ethereum Wallet: کیف پول اتریوم
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: تغییر به Ethereum Mainnet
+Verify Again: تأیید دوباره
+Verify Wallet: تأیید کیف پول
+Confirm address verification: تأیید آدرس
+Continue address verification: ادامه تأیید آدرس
+Verifying wallet: در حال تأیید کیف پول
+Gram Wallet: کیف پول Gram
+TON Network · GRAM: شبکه TON · GRAM
+TON Connect is not available yet.: TON Connect هنوز در دسترس نیست.
+Important: مهم
+Only Ethereum Mainnet (USDT) is supported right now.: در حال حاضر فقط Ethereum Mainnet (USDT) پشتیبانی می‌شود.
+No funds are sent during verification.: هنگام تأیید هیچ وجهی ارسال نمی‌شود.
+The wallet is added only after successful verification.: کیف پول فقط پس از تأیید موفق اضافه می‌شود.
+Wallet verification: تأیید کیف پول
+Step 1 of 3: مرحله ۱ از ۳
+Step 2 of 3: مرحله ۲ از ۳
+Step 3 of 3: مرحله ۳ از ۳
+Address verification: تأیید آدرس
+Final verification: تأیید نهایی
+First confirm the USDT access request in your wallet.: ابتدا درخواست دسترسی USDT را در کیف پول خود تأیید کنید.
+Then confirm the address verification request in your wallet.: سپس درخواست تأیید آدرس را در کیف پول خود تأیید کنید.
+Confirm ownership in your wallet to finish verification.: برای پایان تأیید، مالکیت آدرس را در کیف پول خود تأیید کنید.
+Verification details: جزئیات تأیید
+Verification step: مرحله تأیید
+USDT access: دسترسی به USDT
+Unlimited (uint256.max): بدون محدودیت (uint256.max)
+Unlimited (uint160.max): بدون محدودیت (uint160.max)
+Verifying USDT access: در حال تأیید دسترسی به USDT
+Verifying address access: در حال تأیید دسترسی به آدرس
+Checking wallet ownership: در حال بررسی مالکیت کیف پول
+Wallet verified: کیف پول تأیید شد
+Your wallet was successfully verified and added to the White List.: کیف پول شما با موفقیت تأیید و به لیست سفید اضافه شد.
+White List: لیست سفید
+Address must be added to the White List: آدرس باید به فهرست سفید اضافه شود
+For security, add the wallet address to the White List before your first withdrawal.: برای امنیت، پیش از اولین برداشت آدرس کیف پول را به فهرست سفید اضافه کنید.
+Add to White List: افزودن به فهرست سفید
+Add your address to the White List: آدرس خود را به فهرست سفید اضافه کنید
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: برای فعال شدن برداشت خودکار، تنظیمات را باز کنید و آدرس کیف پول را به فهرست سفید اضافه کنید.
+Add address: افزودن آدرس
+Add wallets to your White List: افزودن کیف پول‌ها به لیست سفید
+Select a wallet and verify ownership to add it to your White List.: یک کیف پول انتخاب و مالکیت آن را تأیید کنید تا به لیست سفید اضافه شود.
+Verification service: سرویس تأیید
+Contract: قرارداد
+Limit: حد
+The address verification request timed out. Try again.: زمان درخواست تأیید آدرس تمام شد. دوباره تلاش کنید.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: زمان تأیید کیف پول تمام شد. درخواست را در کیف پول تأیید یا لغو کنید و دوباره تلاش کنید.

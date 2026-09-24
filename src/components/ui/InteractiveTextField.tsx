@@ -54,6 +54,7 @@ interface OwnProps {
   isScam?: boolean;
   isTransaction?: boolean;
   text?: string;
+  copyText?: string;
   spoiler?: string;
   spoilerRevealText?: string;
   onSpoilerReveal?: NoneToVoidFunction;
@@ -88,6 +89,7 @@ function InteractiveTextField({
   isScam,
   isTransaction,
   text = '',
+  copyText,
   spoiler,
   spoilerRevealText,
   onSpoilerReveal,
@@ -155,7 +157,7 @@ function InteractiveTextField({
   const handleCopy = useLastCallback(() => {
     if (!copyNotification) return;
     showToast({ message: copyNotification, icon: 'icon-copy' });
-    void copyTextToClipboard(address || text);
+    void copyTextToClipboard(copyText || address || text);
   });
 
   const handleShareTransaction = useLastCallback(() => {

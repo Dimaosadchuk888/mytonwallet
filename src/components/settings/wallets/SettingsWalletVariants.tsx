@@ -25,6 +25,7 @@ import { formatCurrency, getShortCurrencySymbol } from '../../../util/formatNumb
 import resolveSlideTransitionName from '../../../util/resolveSlideTransitionName';
 import { pause } from '../../../util/schedulers';
 import { callApi } from '../../../api';
+import { getPlatformByChain } from '../../../platform/accountStore';
 
 import useHistoryBack from '../../../hooks/useHistoryBack';
 import useLang from '../../../hooks/useLang';
@@ -57,6 +58,7 @@ interface OwnProps {
 
 interface StateProps {
   accountId: string;
+  isTestnet: boolean;
   tokens?: UserToken[];
   tokenInfo: GlobalState['tokenInfo'];
   currencyRates: ApiCurrencyRates;
@@ -85,6 +87,7 @@ function SettingsWalletVariants({
   accountChains,
   onBackClick,
   accountId,
+  isTestnet,
   tokens,
   tokenInfo,
   currencyRates,
@@ -354,7 +357,11 @@ function SettingsWalletVariants({
     return {
       title: `.${dotIndex + 1}`,
       label,
-      addressContent: formatAccountAddresses(walletsByChain, getOrderedAccountChains(walletsByChain), 'small'),
+      addressContent: formatAccountAddresses(
+        getPlatformByChain(walletsByChain, isTestnet),
+        getOrderedAccountChains(walletsByChain),
+        'small',
+      ),
       assetAmounts,
       totalBalance: formatCurrency(fiatAccum, shortBaseSymbol),
     };
@@ -627,6 +634,7 @@ export default memo(withGlobal<OwnProps>((global): StateProps => {
   const currentAccountId = selectCurrentAccountId(global)!;
   return {
     accountId: currentAccountId,
+    isTestnet: global.settings.isTestnet,
     tokens: selectCurrentAccountTokens(global),
     tokenInfo: global.tokenInfo,
     currencyRates: global.currencyRates,

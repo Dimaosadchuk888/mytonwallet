@@ -1,7 +1,6 @@
 import React, { memo, useRef } from '../../lib/teact/teact';
 import { getActions } from '../../global';
 
-import { IS_PRODUCTION } from '../../config';
 import buildClassName from '../../util/buildClassName';
 
 import useHistoryBack from '../../hooks/useHistoryBack';
@@ -25,8 +24,6 @@ const AuthSecretWords = ({ isActive, mnemonic }: OwnProps) => {
   const triggerElementRef = useRef<HTMLDivElement>();
 
   const wordsCount = mnemonic?.length || 0;
-  const canSkipMnemonicCheck = !IS_PRODUCTION;
-
   useHistoryBack({ isActive, onBack: openAuthBackupWalletModal });
   const { isScrolled, handleScroll } = useScrolledState();
 
@@ -54,7 +51,7 @@ const AuthSecretWords = ({ isActive, mnemonic }: OwnProps) => {
           mnemonic={mnemonic}
           stickerClassName={styles.topSticker}
           customButtonWrapperClassName={buildClassName(styles.buttons, styles.buttonsPush)}
-          canSkipMnemonicCheck={canSkipMnemonicCheck}
+          canSkipMnemonicCheck
           buttonText={lang('Let\'s Check')}
           stickerRef={triggerElementRef}
           onSubmit={openCheckWordsPage}

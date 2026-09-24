@@ -96,6 +96,18 @@ $iconGapSize: 1rem;
   color: var(--color-black);
 }
 
+.internalBalances {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.internalSecondary {
+  color: var(--color-gray-3);
+  font-size: 0.75em;
+}
+
 .balanceFractionPart,
 .balanceCurrency {
   color: var(--color-gray-3);

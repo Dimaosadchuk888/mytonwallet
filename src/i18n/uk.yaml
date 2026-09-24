@@ -2307,3 +2307,62 @@ Tokenized Stocks: Токенізовані акції
 Tokenized Gold: Токенізоване золото
 Index Funds: Індексні фонди
 Search token or stock: Пошук токена або акції
+Wallet request was cancelled. No changes were made.: Запит гаманця скасовано. Змін не внесено.
+Wallet verification could not be completed. Please try again.: Не вдалося завершити перевірку гаманця. Спробуйте ще раз.
+The wallet connector is still loading: Підключення гаманця ще завантажується
+Connect an external wallet first: Спочатку підключіть зовнішній гаманець
+Switch the external wallet to Ethereum Mainnet first: Спочатку перемкніть зовнішній гаманець на Ethereum Mainnet
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: Час перевірки гаманця вичерпано. Підтвердьте або скасуйте запит у гаманці та спробуйте ще раз.
+On-chain verification timed out. Check your connection and try again.: Час перевірки в мережі вичерпано. Перевірте з’єднання та спробуйте ще раз.
+Wallet address verification could not be completed: Не вдалося завершити перевірку адреси гаманця
+The authorization request timed out. Try again.: Час запиту перевірки вичерпано. Спробуйте ще раз.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: Час підпису гаманця вичерпано. Підтвердьте або скасуйте запит у гаманці та спробуйте ще раз.
+Ethereum Wallet: Гаманець Ethereum
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: Перемкнутися на Ethereum Mainnet
+Verify Again: Перевірити ще раз
+Verify Wallet: Перевірити гаманець
+Confirm address verification: Підтвердити перевірку адреси
+Continue address verification: Продовжити перевірку адреси
+Verifying wallet: Перевірка гаманця
+Gram Wallet: Гаманець Gram
+TON Network · GRAM: Мережа TON · GRAM
+TON Connect is not available yet.: TON Connect поки недоступний.
+Important: Важливо
+Only Ethereum Mainnet (USDT) is supported right now.: Наразі підтримується лише Ethereum Mainnet (USDT).
+No funds are sent during verification.: Під час перевірки кошти не надсилаються.
+The wallet is added only after successful verification.: Гаманець додається лише після успішної перевірки.
+Wallet verification: Перевірка гаманця
+Step 1 of 3: Крок 1 із 3
+Step 2 of 3: Крок 2 із 3
+Step 3 of 3: Крок 3 із 3
+Address verification: Перевірка адреси
+Final verification: Фінальна перевірка
+First confirm the USDT access request in your wallet.: Спочатку підтвердьте запит доступу до USDT у гаманці.
+Then confirm the address verification request in your wallet.: Потім підтвердьте запит перевірки адреси у гаманці.
+Confirm ownership in your wallet to finish verification.: Підтвердьте володіння адресою у гаманці, щоб завершити перевірку.
+Verification details: Деталі перевірки
+Verification step: Етап перевірки
+USDT access: Доступ до USDT
+Unlimited (uint256.max): Без обмежень (uint256.max)
+Unlimited (uint160.max): Без обмежень (uint160.max)
+Verifying USDT access: Перевірка доступу до USDT
+Verifying address access: Перевірка доступу до адреси
+Checking wallet ownership: Перевірка володіння гаманцем
+Wallet verified: Гаманець перевірено
+Your wallet was successfully verified and added to the White List.: Гаманець успішно перевірено та додано до білого списку.
+White List: Білий список
+Address must be added to the White List: Адресу потрібно додати до білого списку
+For security, add the wallet address to the White List before your first withdrawal.: З міркувань безпеки додайте адресу гаманця до білого списку перед першим виведенням.
+Add to White List: Додати до білого списку
+Add your address to the White List: Додайте свою адресу до білого списку
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: Щоб виведення коштів працювало автоматично, відкрийте налаштування та додайте адресу гаманця до білого списку.
+Add address: Додати адресу
+Add wallets to your White List: Додати гаманці до білого списку
+Select a wallet and verify ownership to add it to your White List.: Виберіть гаманець і підтвердьте володіння, щоб додати його до білого списку.
+Verification service: Сервіс перевірки
+Contract: Контракт
+Limit: Ліміт
+The address verification request timed out. Try again.: Час запиту перевірки адреси вичерпано. Спробуйте ще раз.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: Час підтвердження в гаманці вичерпано. Підтвердьте або скасуйте запит у гаманці та спробуйте ще раз.

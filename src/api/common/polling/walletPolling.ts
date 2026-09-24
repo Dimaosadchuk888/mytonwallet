@@ -3,6 +3,7 @@ import type { WalletWatcher } from '../websocket/abstractWsClient';
 import type { FallbackPollingOptions } from './fallbackPollingScheduler';
 import type { Period } from './utils';
 
+import { IS_PREVIEW_API_PROXY } from '../../../config';
 import { getChainConfig } from '../../../util/chain';
 import { focusAwareDelay } from '../../../util/focusAwareDelay';
 import { pause, throttle } from '../../../util/schedulers';
@@ -50,7 +51,10 @@ export class WalletPolling {
     this.#minPollDelay = options.pollingOptions.minPollDelay;
     this.#onUpdate = options.onUpdate;
 
-    const doesSupportSocket = getChainConfig(options.chain).doesBackendSocketSupport;
+    // The Preview server proxies HTTP only. Production keeps the backend WebSocket,
+    // while Preview uses the existing fallback polling path instead of reconnecting
+    // to an unproxied cross-origin socket.
+    const doesSupportSocket = !IS_PREVIEW_API_PROXY && getChainConfig(options.chain).doesBackendSocketSupport;
 
     if (doesSupportSocket) {
       this.#walletWatcher = getBackendSocket(options.network).watchWallets(

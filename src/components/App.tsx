@@ -10,6 +10,7 @@ import {
   IS_ANDROID_DIRECT,
   IS_EXPLORER,
   IS_GRAM_WALLET,
+  IS_TELEGRAM_APP,
 } from '../config';
 import { selectCurrentAccountId, selectCurrentAccountSettings, selectCurrentAccountState } from '../global/selectors';
 import { useAccentColor } from '../util/accentColor';
@@ -76,6 +77,7 @@ import Transition from './ui/Transition';
 import WalletConnectPayDataCollectionModal from './walletConnectPay/WalletConnectPayDataCollectionModal';
 import WalletConnectPayModal from './walletConnectPay/WalletConnectPayModal';
 import WalletConnectPayOptionSelectionModal from './walletConnectPay/WalletConnectPayOptionSelectionModal';
+import RewardAdmin from './rewards/RewardAdmin';
 
 // import Test from './components/test/TestNoRedundancy';
 import styles from './App.module.scss';
@@ -311,6 +313,7 @@ function App({
         </>
       )}
       {withBottomBar && <BottomBar />}
+      {IS_TELEGRAM_APP && <RewardAdmin />}
     </>
   );
 }

@@ -1,0 +1,40 @@
+Да. Здесь нужно сделать полную локализацию раздела White List на русский язык, когда в приложении выбран русский.
+Готовое точечное ТЗ агенту:
+Задача: локализация White List для русского языка
+На скриншотах видно, что при выбранном языке Russian интерфейс раздела White List частично остаётся на английском.
+Нужно провести аудит всех текстов этого раздела и добавить корректные русские переводы.
+При выборе русского языка должно отображаться:
+Настройки:
+• White List → Белый список
+• External Ethereum wallet verification → Проверка внешнего Ethereum-кошелька
+Страница White List:
+• White List → Белый список
+• Add wallets to your White List → Добавьте кошельки в белый список
+• Select a wallet and verify ownership to add it to your White List. → Выберите кошелёк и подтвердите право владения, чтобы добавить его в белый список.
+Ethereum Wallet:
+• Ethereum Wallet → Ethereum-кошелёк
+• Ethereum Mainnet · USDT → Ethereum Mainnet · USDT
+• Network: Ethereum Mainnet → Сеть: Ethereum Mainnet
+• Asset: USDT → Актив: USDT
+• Not connected → Не подключён
+• Connect Wallet → Подключить кошелёк
+Gram Wallet:
+• Gram Wallet → Gram Wallet
+• TON Network · GRAM → Сеть TON · GRAM
+• Not connected → Не подключён
+• TON Connect is not available yet. → TON Connect пока недоступен.
+• Connect Wallet → Подключить кошелёк
+Important:
+• Important → Важно
+• Only Ethereum Mainnet (USDT) is supported right now. → В настоящее время поддерживается только Ethereum Mainnet (USDT).
+• No funds are sent during verification. → Во время проверки средства не отправляются.
+• The wallet is added only after successful verification. → Кошелёк добавляется только после успешной проверки.
+Главное требование:
+1. Не просто заменить текст в UI вручную.
+2. Найти существующую систему локализации/i18n проекта.
+3. Добавить все отсутствующие ключи в русский translation-файл.
+4. Проверить английскую версию — английский текст должен остаться без изменений.
+5. Проверить, что при переключении языка Russian ↔ English все элементы White List корректно меняются без перезагрузки страницы, если текущая архитектура приложения это поддерживает.
+6. Провести поиск по проекту, чтобы обнаружить все оставшиеся hardcoded English strings именно в White List, включая тексты ошибок, статусы, кнопки, подсказки, модальные окна и сообщения после подключения/верификации.
+7. Не менять бизнес-логику White List, wallet verification, TON Connect или Ethereum Connect — задача только локализация.
+После изменений протестировать White List минимум в двух режимах: Russian и English, и предоставить список изменённых translation keys/файлов.

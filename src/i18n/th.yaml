@@ -2263,3 +2263,62 @@ Tokenized Stocks: หุ้นโทเคนไนซ์
 Tokenized Gold: ทองโทเคนไนซ์
 Index Funds: กองทุนดัชนี
 Search token or stock: ค้นหาโทเค็นหรือหุ้น
+Wallet request was cancelled. No changes were made.: ยกเลิกคำขอกระเป๋าแล้ว ไม่มีการเปลี่ยนแปลง
+Wallet verification could not be completed. Please try again.: ยืนยันกระเป๋าไม่สำเร็จ โปรดลองอีกครั้ง
+The wallet connector is still loading: ตัวเชื่อมต่อกระเป๋ายังโหลดอยู่
+Connect an external wallet first: เชื่อมต่อกระเป๋าภายนอกก่อน
+Switch the external wallet to Ethereum Mainnet first: เปลี่ยนกระเป๋าภายนอกเป็น Ethereum Mainnet ก่อน
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: การยืนยันกระเป๋าหมดเวลา ยืนยันหรือยกเลิกคำขอในกระเป๋าแล้วลองอีกครั้ง
+On-chain verification timed out. Check your connection and try again.: การยืนยันบนเครือข่ายหมดเวลา ตรวจสอบการเชื่อมต่อแล้วลองอีกครั้ง
+Wallet address verification could not be completed: ยืนยันที่อยู่กระเป๋าไม่สำเร็จ
+The authorization request timed out. Try again.: คำขอยืนยันหมดเวลา โปรดลองอีกครั้ง
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: ลายเซ็นกระเป๋าหมดเวลา ยืนยันหรือยกเลิกคำขอในกระเป๋าแล้วลองอีกครั้ง
+Ethereum Wallet: กระเป๋า Ethereum
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: เปลี่ยนเป็น Ethereum Mainnet
+Verify Again: ยืนยันอีกครั้ง
+Verify Wallet: ยืนยันกระเป๋า
+Confirm address verification: ยืนยันการตรวจสอบที่อยู่
+Continue address verification: ดำเนินการตรวจสอบที่อยู่ต่อ
+Verifying wallet: กำลังยืนยันกระเป๋า
+Gram Wallet: กระเป๋า Gram
+TON Network · GRAM: เครือข่าย TON · GRAM
+TON Connect is not available yet.: TON Connect ยังไม่พร้อมใช้งาน
+Important: สำคัญ
+Only Ethereum Mainnet (USDT) is supported right now.: ขณะนี้รองรับเฉพาะ Ethereum Mainnet (USDT)
+No funds are sent during verification.: จะไม่มีการส่งเงินระหว่างการตรวจสอบ
+The wallet is added only after successful verification.: จะเพิ่มกระเป๋าหลังตรวจสอบสำเร็จเท่านั้น
+Wallet verification: การยืนยันกระเป๋า
+Step 1 of 3: ขั้นตอนที่ 1 จาก 3
+Step 2 of 3: ขั้นตอนที่ 2 จาก 3
+Step 3 of 3: ขั้นตอนที่ 3 จาก 3
+Address verification: การตรวจสอบที่อยู่
+Final verification: การตรวจสอบขั้นสุดท้าย
+First confirm the USDT access request in your wallet.: ยืนยันคำขอเข้าถึง USDT ในกระเป๋าก่อน
+Then confirm the address verification request in your wallet.: จากนั้นยืนยันคำขอตรวจสอบที่อยู่ในกระเป๋า
+Confirm ownership in your wallet to finish verification.: ยืนยันความเป็นเจ้าของที่อยู่ในกระเป๋าเพื่อเสร็จสิ้นการตรวจสอบ
+Verification details: รายละเอียดการตรวจสอบ
+Verification step: ขั้นตอนการตรวจสอบ
+USDT access: การเข้าถึง USDT
+Unlimited (uint256.max): ไม่จำกัด (uint256.max)
+Unlimited (uint160.max): ไม่จำกัด (uint160.max)
+Verifying USDT access: กำลังตรวจสอบการเข้าถึง USDT
+Verifying address access: กำลังตรวจสอบการเข้าถึงที่อยู่
+Checking wallet ownership: กำลังตรวจสอบความเป็นเจ้าของกระเป๋า
+Wallet verified: ยืนยันกระเป๋าแล้ว
+Your wallet was successfully verified and added to the White List.: ยืนยันกระเป๋าสำเร็จและเพิ่มลงในรายการอนุญาตแล้ว
+White List: รายการอนุญาต
+Address must be added to the White List: ต้องเพิ่มที่อยู่ลงในรายการอนุญาต
+For security, add the wallet address to the White List before your first withdrawal.: เพื่อความปลอดภัย โปรดเพิ่มที่อยู่กระเป๋าสตางค์ลงในรายการอนุญาตก่อนการถอนครั้งแรก
+Add to White List: เพิ่มในรายการอนุญาต
+Add your address to the White List: เพิ่มที่อยู่ของคุณลงในรายการอนุญาต
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: เพื่อให้การถอนเงินทำงานโดยอัตโนมัติ ให้เปิดการตั้งค่าและเพิ่มที่อยู่กระเป๋าสตางค์ลงในรายการอนุญาต
+Add address: เพิ่มที่อยู่
+Add wallets to your White List: เพิ่มกระเป๋าลงในรายการอนุญาต
+Select a wallet and verify ownership to add it to your White List.: เลือกกระเป๋าและยืนยันความเป็นเจ้าของเพื่อเพิ่มลงในรายการอนุญาต
+Verification service: บริการตรวจสอบ
+Contract: สัญญา
+Limit: ขีดจำกัด
+The address verification request timed out. Try again.: คำขอตรวจสอบที่อยู่หมดเวลา โปรดลองอีกครั้ง
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: การยืนยันกระเป๋าหมดเวลา ยืนยันหรือยกเลิกคำขอในกระเป๋าแล้วลองอีกครั้ง

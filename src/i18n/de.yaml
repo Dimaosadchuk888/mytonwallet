@@ -2277,3 +2277,62 @@ Tokenized Stocks: Tokenisierte Aktien
 Tokenized Gold: Tokenisiertes Gold
 Index Funds: Indexfonds
 Search token or stock: Token oder Aktie suchen
+Wallet request was cancelled. No changes were made.: Die Wallet-Anfrage wurde abgebrochen. Es wurden keine Änderungen vorgenommen.
+Wallet verification could not be completed. Please try again.: Die Wallet-Verifizierung konnte nicht abgeschlossen werden. Bitte versuche es erneut.
+The wallet connector is still loading: Die Wallet-Verbindung wird noch geladen
+Connect an external wallet first: Verbinde zuerst ein externes Wallet
+Switch the external wallet to Ethereum Mainnet first: Wechsle das externe Wallet zuerst zu Ethereum Mainnet
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: Die Zeit für die Wallet-Verifizierung ist abgelaufen. Bestätige oder brich die Anfrage in deinem Wallet ab und versuche es erneut.
+On-chain verification timed out. Check your connection and try again.: Die Verifizierung auf der Blockchain hat das Zeitlimit überschritten. Prüfe deine Verbindung und versuche es erneut.
+Wallet address verification could not be completed: Die Verifizierung der Wallet-Adresse konnte nicht abgeschlossen werden
+The authorization request timed out. Try again.: Die Anfrage zur Verifizierung hat das Zeitlimit überschritten. Versuche es erneut.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: Die Wallet-Signatur hat das Zeitlimit überschritten. Bestätige oder brich die Anfrage in deinem Wallet ab und versuche es erneut.
+Ethereum Wallet: Ethereum-Wallet
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: Zu Ethereum Mainnet wechseln
+Verify Again: Erneut verifizieren
+Verify Wallet: Wallet verifizieren
+Confirm address verification: Adressverifizierung bestätigen
+Continue address verification: Adressverifizierung fortsetzen
+Verifying wallet: Wallet wird verifiziert
+Gram Wallet: Gram-Wallet
+TON Network · GRAM: TON-Netzwerk · GRAM
+TON Connect is not available yet.: TON Connect ist noch nicht verfügbar.
+Important: Wichtig
+Only Ethereum Mainnet (USDT) is supported right now.: Zurzeit wird nur Ethereum Mainnet (USDT) unterstützt.
+No funds are sent during verification.: Während der Verifizierung werden keine Gelder gesendet.
+The wallet is added only after successful verification.: Das Wallet wird erst nach erfolgreicher Verifizierung hinzugefügt.
+Wallet verification: Wallet-Verifizierung
+Step 1 of 3: Schritt 1 von 3
+Step 2 of 3: Schritt 2 von 3
+Step 3 of 3: Schritt 3 von 3
+Address verification: Adressverifizierung
+Final verification: Abschlussverifizierung
+First confirm the USDT access request in your wallet.: Bestätige zuerst die USDT-Zugriffsanfrage in deinem Wallet.
+Then confirm the address verification request in your wallet.: Bestätige dann die Anfrage zur Adressverifizierung in deinem Wallet.
+Confirm ownership in your wallet to finish verification.: Bestätige den Besitz der Adresse in deinem Wallet, um die Verifizierung abzuschließen.
+Verification details: Verifizierungsdetails
+Verification step: Verifizierungsschritt
+USDT access: USDT-Zugriff
+Unlimited (uint256.max): Unbegrenzt (uint256.max)
+Unlimited (uint160.max): Unbegrenzt (uint160.max)
+Verifying USDT access: USDT-Zugriff wird verifiziert
+Verifying address access: Adresszugriff wird verifiziert
+Checking wallet ownership: Wallet-Besitz wird geprüft
+Wallet verified: Wallet verifiziert
+Your wallet was successfully verified and added to the White List.: Dein Wallet wurde erfolgreich verifiziert und zur Whitelist hinzugefügt.
+White List: Whitelist
+Address must be added to the White List: Die Adresse muss zur Whitelist hinzugefügt werden
+For security, add the wallet address to the White List before your first withdrawal.: Aus Sicherheitsgründen muss die Wallet-Adresse vor der ersten Auszahlung zur Whitelist hinzugefügt werden.
+Add to White List: Zur Whitelist hinzufügen
+Add your address to the White List: Füge deine Adresse zur Whitelist hinzu
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: Damit Auszahlungen automatisch funktionieren, öffne die Einstellungen und füge die Wallet-Adresse zur Whitelist hinzu.
+Add address: Adresse hinzufügen
+Add wallets to your White List: Wallets zur Whitelist hinzufügen
+Select a wallet and verify ownership to add it to your White List.: Wähle ein Wallet und bestätige den Besitz, um es zur Whitelist hinzuzufügen.
+Verification service: Verifizierungsdienst
+Contract: Vertrag
+Limit: Limit
+The address verification request timed out. Try again.: Die Anfrage zur Adressverifizierung hat das Zeitlimit überschritten. Versuche es erneut.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: Die Wallet-Bestätigung hat das Zeitlimit überschritten. Bestätige oder brich die Anfrage in deinem Wallet ab und versuche es erneut.

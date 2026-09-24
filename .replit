@@ -1,0 +1,53 @@
+modules = ["swift-5.8", "java-graalvm22.3", "nodejs-24", "python-base-3.13", "postgresql-16"]
+
+[nix]
+channel = "stable-25_05"
+
+[agent]
+expertMode = true
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "IS_TELEGRAM_APP=1 PREVIEW_API_PROXY=1 npm run build:dev && npm start"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+BOT_USERNAME = "MyTonWaletBot"
+SUPABASE_URL = "https://idilzkvkmltyhjaqzlgb.supabase.co/"
+ADMIN_TON_DEPOSIT_ADDRESS = "UQDcOfkpDEWZaqsIupryExPtDyJWAInk2wwHydkCv6LcFThu"
+TON_MONITOR_ENABLED = "1"
+ADMIN_TELEGRAM_IDS = "425855744"
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["npm", "start"]
+build = ["bash", "-c", "IS_TELEGRAM_APP=1 PREVIEW_API_PROXY=1 npm run build"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000

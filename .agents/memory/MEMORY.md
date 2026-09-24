@@ -1,0 +1,28 @@
+- [Replit preview WebSockets](replit-preview-websocket.md) — HTTPS previews need an automatic secure dev-server socket URL.
+- [Preview dependency installation](preview-dependency-installation.md) — the committed dependency tree may require a temporary security-approved runtime install.
+- [Preview browser fallback](preview-browser-fallback.md) — Playwright may lack its bundled browser; use the managed Chromium binary for isolated screenshots.
+- [Production API origin allowlist](production-api-origin-allowlist.md) — retained backend CORS must allow the branded frontend origin or use an owned proxy.
+- [Solana backend host split](solana-backend-host-split.md) — the Solana DNS target and the SSH-accessible server are currently different hosts.
+- [Temporary API proxy](temporary-api-proxy.md) — production can route central calls through our domain, but it still depends on original My Wallet services.
+- [Internal USDT platform balance](internal-usdt-platform-balance.md) — reward USDT is shared platform money, not an on-chain token or wallet asset.
+- [Ethereum reward balance](ethereum-reward-balance.md) — ETH rewards are an internal 18-decimal platform balance until a separate payout system exists.
+- [Supabase ETH rewards](supabase-eth-rewards.md) — ETH checks share the Supabase reward ledger with asset=ETH; claims use the atomic Supabase RPC.
+- [Chain API proxy paths](chain-api-proxy-paths.md) — activity history needs same-origin Toncenter/TonAPI proxy paths, not only the central API proxy.
+- [Internal TON database namespace](internal-ton-database-namespace.md) — keep deposit tables and RPCs under the internal_ton_ prefix in the shared Supabase project.
+- [Platform balance display](platform-balance-display.md) — DB-backed TON/ETH amounts must override only visual balances in lists/details, never on-chain operation amounts.
+- [Hostinger static releases](hostinger-static-releases.md) — deploy a verified exact-commit dist archive through Hostinger’s API when GitHub artifact downloads are unavailable.
+- [VPS frontend rebuilds](vps-frontend-rebuilds.md) — prefer the VPS’s existing dependency tree when the workspace package firewall blocks a locked install.
+- [PL/pgSQL output-name shadowing](plpgsql-output-name-shadowing.md) — qualify columns in RETURNS TABLE functions because output names behave like local variables.
+- [Ethereum USDT Permit2 architecture](permit2-usdt-architecture.md) — recurring USDT permissions use canonical Permit2; native permit and custom payment contracts are out of scope for this phase.
+- [EVM authorization registry](evm-authorization-registry.md) — wallet linking needs a fresh challenge signature plus on-chain state; manual charges remain fail-closed.
+- [Reown relay project validity](reown-relay-project-validity.md) — relay code 3000 can reject a stale project before pairing even when AppKit config endpoints return 200.
+- [Reown remote authentication](reown-remote-authentication.md) — AppKit project remote features can inject SIWX/Auth into external-wallet connect even without local siwx configuration.
+- [External wallet session boundary](external-wallet-session-boundary.md) — disconnecting MetaMask transport does not revoke persisted on-chain authorization.
+- [Long-lived wallet customer registry](long-lived-wallet-customer-registry.md) — retain wallet relationships and authorization records indefinitely; mark transport sessions stale instead of deleting them.
+- [Mobile WalletConnect request redirects](mobile-walletconnect-request-redirects.md) — let WalletConnect open the request-specific wallet URL; never open the stored base deep-link directly.
+- [TON Connect completion](ton-connect-external-wallet.md) — await the official connection result and keep restore/status subscriptions for external wallet state.
+- [TON Connect production manifest](ton-connect-production-manifest.md) — production manifest is served from the legacy app host; the branded gramwallet.io manifest route currently returns 404.
+- [White List UI boundaries](white-list-ui-boundaries.md) — redesign the UI without replacing EVM handlers; keep TON explicitly not_configured until real TON Connect exists.
+- [Telegram preview authentication](telegram-preview-auth.md) — Telegram-mode previews boot, but internal balances require a real Telegram Mini App initData session.
+- [Replit publish security scan](replit-publish-security-scan.md) — web publishes can be blocked by vulnerable Android Gradle lockfile entries outside the web build.
+- [GitHub workflow OAuth scope](github-workflow-oauth-scope.md) — repo-only OAuth may reject writes to GitHub Actions workflow files.

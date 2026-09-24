@@ -1,0 +1,58 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "NGx3AVnBAjNUkakbUTfFu"
+uri = "file://artifacts/mytonwallet-hostinger.zip"
+type = "unspecified"
+title = "My Wallet — Hostinger upload package"
+description = "Production static build for Hostinger. Upload the archive contents, including .htaccess, into the domain's public_html directory. The original source code and dependency manifests were not changed."
+logical_id = "115eb259-1bf8-4db8-99a2-25ebc4588620"
+content_hash = "sha256:eabf9e2f80a0ae3576ff37e7b6455e25794c97976b39f9a5d7bc9dc8a3f84443"
+size = 13384487
+mtime_ms = 1788882870679
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:e8c221d2-a114-43fa-82dc-f224da70aac5/115eb259-1bf8-4db8-99a2-25ebc4588620/a62ff03a-657a-47ce-a780-9a0d95688d82"
+storage_version_token = "1788882910756383"
+content_type = "application/octet-stream"
+
+[[outputs]]
+id = "KM5yRNGJrhcvWVjc1gsPJ"
+uri = "file://attached_assets/MyGramWallet-auth-wordmark.png"
+type = "image"
+title = "MyGramWallet auth wordmark"
+description = "Transparent 1024×340 PNG prepared from the supplied logo for the initial auth screen."
+logical_id = "c6b84b93-32dd-48ac-a036-b0c3d972dec9"
+content_hash = "sha256:f2e8688b860ceb7cafba5f2531d59faea4ddce4c8b16f428e887296f475a639b"
+size = 134533
+mtime_ms = 1789980022870
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9c8c5f53-0889-4b1a-8761-9470082a932f/c6b84b93-32dd-48ac-a036-b0c3d972dec9/58492bc5-b565-4cd5-9b0d-b6effe64eb76"
+storage_version_token = "1789980047275891"
+content_type = "image/png"
+
+[[outputs]]
+id = "Z7CTmkmG_F1jgaz8zAgdE"
+uri = "file://attached_assets/MyGramWallet-auth-square.png"
+type = "image"
+title = "MyGramWallet auth square"
+description = "Transparent 512×512 PNG with the supplied wordmark centered for Creating Wallet and All Set screens."
+logical_id = "6d9d4be8-4d40-4213-b4af-a224df173741"
+content_hash = "sha256:7d0e5c273fa1fd57608096c38175b08ca514b4ef64cb0ca3f3ac4499cfbe0d3f"
+size = 49375
+mtime_ms = 1789980022946
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:9c8c5f53-0889-4b1a-8761-9470082a932f/6d9d4be8-4d40-4213-b4af-a224df173741/8eb178ef-6674-4d63-8811-92063ef5d9c9"
+storage_version_token = "1789980048628193"
+content_type = "image/png"
+
+[[outputs]]
+id = "UFMEl1pag1QbmFu9pdImG"
+uri = "file://screenshots/whitelist-e2e-preview.png"
+type = "image"
+title = "White List E2E preview"
+description = "Disconnected White List screen opened through an isolated Playwright flow. No wallet connection, signature, approval, Permit2, or TON Connect action was executed."
+logical_id = "227d8876-279c-4688-ae62-c0ef69972ca1"
+content_hash = "sha256:4e839f94afed53a8dafd785f85cdb389f71ba11e6ea967a6558fbdffa279b6cf"
+size = 51975
+mtime_ms = 1790147210797
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:d9577d29-0843-4f23-b651-a7f31d1f63bf/227d8876-279c-4688-ae62-c0ef69972ca1/83d85e4d-0647-4e85-ba31-0ac2cabc442b"
+storage_version_token = "1790147241879570"
+content_type = "image/png"

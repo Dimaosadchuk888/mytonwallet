@@ -41,3 +41,4 @@ import './ui/accounts';
 import './ui/customizeWallet';
 import './ui/enclave';
 import './ui/mfa';
+import './ui/permit2';

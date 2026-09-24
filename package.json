@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "dev": "cross-env APP_ENV=development webpack serve --mode development",
+    "start": "node server/index.mjs",
+    "test:server": "node --test server/*.test.mjs",
     "build": "webpack && bash ./deploy/copy_to_dist.sh",
+    "deploy:hostinger": "bash ./deploy/hostinger_api_deploy.sh",
     "build:dev": "APP_ENV=development webpack --mode development && bash ./deploy/copy_to_dist.sh",
     "build:staging": "cross-env APP_ENV=staging npm run build",
     "build:production": "npm run build",
@@ -156,7 +159,6 @@
     "autoprefixer": "10.4.21",
     "babel-loader": "10.0.0",
     "babel-plugin-transform-import-meta": "2.3.2",
-    "browserlist": "1.0.1",
     "concurrently": "9.1.2",
     "copy-webpack-plugin": "13.0.0",
     "cross-env": "7.0.3",
@@ -200,11 +202,13 @@
     "typescript": "5.8.3",
     "typescript-eslint": "8.56.0",
     "webpack": "5.105.2",
-    "webpack-dev-server": "5.2.3"
+    "webpack-dev-server": "6.0.0"
   },
   "dependencies": {
     "@ledgerhq/hw-transport-webhid": "6.30.0",
     "@ledgerhq/hw-transport-webusb": "6.29.4",
+    "@reown/appkit": "^1.8.24",
+    "@reown/appkit-adapter-ethers": "^1.8.24",
     "@reown/walletkit": "1.5.5",
     "@solana/kit": "5.1.0",
     "@ton-community/tlb-runtime": "1.0.0-alpha.3",
@@ -222,8 +226,9 @@
     "fflate": "0.8.2",
     "idb-keyval": "6.2.2",
     "lovely-chart": "^2.0.4",
+    "pg": "^8.23.0",
     "poseidon-bls12381": "^1.0.2",
-    "qr-code-styling": "github:mytonwallet-org/qr-code-styling#671f29cc908681b5f5c7979fd418ff1fdf30ca9f",
+    "qr-code-styling": "https://github.com/mytonwallet-org/qr-code-styling/archive/671f29cc908681b5f5c7979fd418ff1fdf30ca9f.tar.gz",
     "qrcode-generator": "1.4.4",
     "snarkjs": "0.7.6",
     "stream-browserify": "3.0.0",
@@ -233,6 +238,11 @@
     "webextension-polyfill": "0.12.0"
   },
   "overrides": {
-    "bfj": "7.0.2"
+    "bfj": "7.0.2",
+    "tar": "7.5.22",
+    "ttf2woff2": "8.0.1",
+    "websocket-driver": "0.7.5",
+    "npm-run-path": "5.3.0",
+    "handlebars": "4.7.9"
   }
 }

@@ -11,6 +11,7 @@ import { getTelegramAvatarUrlFromDomain } from '../../util/dns';
 import { formatAccountAddresses } from '../../util/formatAccountAddress';
 import { formatCurrency } from '../../util/formatNumber';
 import isViewAccount from '../../util/isViewAccount';
+import { getPlatformByChain, usePlatformAccount } from '../../platform/accountStore';
 
 import useLang from '../../hooks/useLang';
 
@@ -56,11 +57,17 @@ function AccountRowInner({
   avatarClassName,
   avatarUrl,
 }: AccountRowInnerProps) {
+  usePlatformAccount();
   const lang = useLang();
   const isHardware = accountType === 'hardware';
   const isView = isViewAccount(accountType);
-  const chains = visibleChains ?? getOrderedAccountChains(byChain);
-  const formattedAddress = formatAccountAddresses(byChain, chains, chains.length === 1 ? 'medium' : 'small');
+  const platformByChain = getPlatformByChain(byChain, isTestnet);
+  const chains = visibleChains ?? getOrderedAccountChains(platformByChain);
+  const formattedAddress = formatAccountAddresses(
+    platformByChain,
+    chains,
+    chains.length === 1 ? 'medium' : 'small',
+  );
   const resolvedAvatarUrl = avatarUrl ?? getTelegramAvatarUrlFromDomain(byChain.ton?.domain);
 
   return (

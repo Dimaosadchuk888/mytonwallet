@@ -3,28 +3,22 @@ import React, { memo, useRef } from '../../lib/teact/teact';
 import {
   APP_ENV_MARKER,
   APP_NAME,
-  APP_PROMO_URL,
-  APP_REPO_URL,
   APP_VERSION,
-  APP_WEBSITE_HOST,
-  IS_EXTENSION,
   IS_GRAM_WALLET,
 } from '../../config';
 import { getHelpCenterUrl } from '../../global/helpers/getHelpCenterUrl';
 import renderText from '../../global/helpers/renderText';
 import buildClassName from '../../util/buildClassName';
 import { handleUrlClick } from '../../util/openUrl';
-import { getBlogUrl, getTelegramNewsChannelUrl, getTelegramTipsChannelUrl } from '../../util/url';
+import { getBlogUrl, getTelegramTipsChannelUrl } from '../../util/url';
 
 import { useDeviceScreen } from '../../hooks/useDeviceScreen';
 import useHistoryBack from '../../hooks/useHistoryBack';
 import useLang from '../../hooks/useLang';
 
 import Header from '../auth/Header';
-import Emoji from '../ui/Emoji';
 import SettingsHeader from './SettingsHeader';
 
-import activityStyles from '../main/sections/Content/Activity.module.scss';
 import styles from './Settings.module.scss';
 
 import logoWebpPath from '../../assets/logo.webp';
@@ -48,8 +42,6 @@ function SettingsAbout({
 
   const { isPortrait } = useDeviceScreen();
   const headerRef = useRef<HTMLHeadingElement>();
-  const aboutExtensionTitle = lang('$about_extension_link_text', { app_name: APP_NAME });
-
   useHistoryBack({
     isActive,
     onBack: onBackClick,
@@ -74,9 +66,6 @@ function SettingsAbout({
         <img src={LOGO_PATH} alt={lang('Logo')} className={styles.logo} />
         <h2 ref={headerRef} className={styles.title}>
           {APP_NAME} {APP_VERSION} {APP_ENV_MARKER}
-          <a href={APP_PROMO_URL} target="_blank" className={styles.titleLink} rel="noreferrer">
-            {APP_WEBSITE_HOST}
-          </a>
         </h2>
         <div className={buildClassName(styles.settingsBlock, styles.settingsBlock_text)}>
           <p className={styles.text}>
@@ -125,75 +114,6 @@ function SettingsAbout({
 
             <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
           </a>
-        </div>
-
-        <p className={styles.blockTitle}>{lang('Frequent Questions & Answers')}</p>
-        <div className={buildClassName(styles.settingsBlock, styles.settingsBlock_text)}>
-          {IS_EXTENSION ? (
-            <>
-              <h3 className={buildClassName(activityStyles.comment, styles.heading)}>
-                <Emoji from="🥷" /> {lang('What is TON Proxy?')}
-              </h3>
-              <p className={buildClassName(styles.text, styles.textInChat)}>
-                {renderText(lang('$about_extension_description1'))}{' '}
-                <a
-                  href="https://telegra.ph/TON-Sites-TON-WWW-and-TON-Proxy-09-29-2"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {lang('More info and demo.')}
-                </a>
-              </p>
-            </>
-          ) : (
-            <>
-              <h3 className={buildClassName(activityStyles.comment, activityStyles.colorIn, styles.heading)}>
-                <Emoji from="🥷" /> {lang('What is TON Proxy?')}
-              </h3>
-              <p className={buildClassName(styles.text, styles.textInChat)}>
-                {lang('$about_proxy_magic_description', {
-                  extension_link: (
-                    <a href={APP_PROMO_URL} target="_blank" rel="noreferrer">
-                      {renderText(aboutExtensionTitle)}
-                    </a>
-                  ),
-                })}
-              </p>
-            </>
-          )}
-          <hr className={styles.separator} />
-          <h3 className={buildClassName(activityStyles.comment, activityStyles.colorIn, styles.heading)}>
-            <i className={buildClassName(styles.github, 'icon-github')} aria-hidden /> {lang('Is it open source?')}
-          </h3>
-          <p className={buildClassName(styles.text, styles.textInChat)}>
-            {lang('$about_wallet_github', {
-              github_link: (
-                <a href={APP_REPO_URL} target="_blank" rel="noreferrer">
-                  {renderText(lang('$about_github_link_text'))}
-                </a>
-              ),
-            })}
-          </p>
-          <hr className={styles.separator} />
-          <h3 className={buildClassName(activityStyles.comment, activityStyles.colorIn, styles.heading)}>
-            <i
-              className={buildClassName(styles.telegram, 'icon-telegram')}
-              aria-hidden
-            /> {lang('Is there a community?')}
-          </h3>
-          <p className={buildClassName(styles.text, styles.textInChat)}>
-            {lang('$about_wallet_community', {
-              community_link: (
-                <a
-                  href={getTelegramNewsChannelUrl(lang.code!)}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {renderText(lang('$about_community_link_text'))}
-                </a>
-              ),
-            })}
-          </p>
         </div>
       </div>
     </div>

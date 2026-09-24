@@ -1,27 +1,32 @@
 import React, { memo } from '../../lib/teact/teact';
 
+import type { Theme } from '../../global/types';
+
 import buildClassName from '../../util/buildClassName';
 import { SECOND } from '../../util/dateFormat';
-import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
 
+import useAppTheme from '../../hooks/useAppTheme';
 import useFlag from '../../hooks/useFlag';
 import useLang from '../../hooks/useLang';
 import useMediaTransition from '../../hooks/useMediaTransition';
 import useTimeout from '../../hooks/useTimeout';
 
-import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
-
 import styles from './Auth.module.scss';
+
+import authWordmarkPath from '../../assets/MyGramWallet-auth-wordmark.png';
+import authWordmarkLightPath from '../../assets/MyGramWallet-auth-wordmark-light.png';
 
 interface OwnProps {
   isActive?: boolean;
+  theme: Theme;
 }
 
 const START_DELAY = 700;
 const INTERVAL = SECOND;
 
-const AuthCreatingWallet = ({ isActive }: OwnProps) => {
+const AuthCreatingWallet = ({ isActive, theme }: OwnProps) => {
   const lang = useLang();
+  const appTheme = useAppTheme(theme);
   const [one, markOne] = useFlag();
   const [two, markTwo] = useFlag();
   const [three, markThree] = useFlag();
@@ -36,12 +41,10 @@ const AuthCreatingWallet = ({ isActive }: OwnProps) => {
 
   return (
     <div className={buildClassName(styles.container, 'custom-scroll')}>
-      <AnimatedIconWithPreview
-        play={isActive}
-        tgsUrl={ANIMATED_STICKERS_PATHS.hello}
-        previewUrl={ANIMATED_STICKERS_PATHS.helloPreview}
-        nonInteractive
-        noLoop={false}
+      <img
+        src={appTheme === 'dark' ? authWordmarkLightPath : authWordmarkPath}
+        alt="MyGramWallet"
+        className={styles.authLogo}
       />
       <div className={styles.title}>{lang('Creating Wallet...')}</div>
 

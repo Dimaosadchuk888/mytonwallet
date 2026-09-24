@@ -26,7 +26,6 @@ import BackButton from './actionButtons/BackButton';
 import QrScannerButton from './actionButtons/QrScannerButton';
 import ToggleFullscreenButton from './actionButtons/ToggleFullscreenButton';
 import ToggleLayoutButton from './actionButtons/ToggleLayoutButton';
-import ToggleSensitiveDataButton from './actionButtons/ToggleSensitiveDataButton';
 
 import styles from './Header.module.scss';
 
@@ -43,7 +42,6 @@ interface OwnProps {
 interface StateProps {
   isViewMode?: boolean;
   isAppLockEnabled?: boolean;
-  isSensitiveDataHidden: boolean;
   isFullscreen: boolean;
   isTemporaryAccount: boolean;
 }
@@ -54,7 +52,6 @@ function Header({
   areTabsStuck,
   isScrolled,
   isAppLockEnabled,
-  isSensitiveDataHidden,
   isFullscreen,
   isTemporaryAccount,
 }: OwnProps & StateProps) {
@@ -121,7 +118,6 @@ function Header({
       <div className={styles.headerInner} style={`--icons-amount: ${buttonsAmount}`}>
         <div className={actionsStartClassName}>
           {showBackButton && <BackButton isIconOnly />}
-          {!IS_EXPLORER && <ToggleSensitiveDataButton isSensitiveDataHidden={isSensitiveDataHidden} />}
           {isAppLockEnabled && <AppLockButton />}
         </div>
 
@@ -144,7 +140,6 @@ export default memo(withGlobal<OwnProps>(
       currentTemporaryViewAccountId,
       settings: {
         isAppLockEnabled,
-        isSensitiveDataHidden,
       },
     } = global;
 
@@ -155,7 +150,6 @@ export default memo(withGlobal<OwnProps>(
       isViewMode,
       isAppLockEnabled: isAppLockEnabled && hasPassword,
       isFullscreen: Boolean(isFullscreen),
-      isSensitiveDataHidden: Boolean(isSensitiveDataHidden),
       isTemporaryAccount: Boolean(currentTemporaryViewAccountId),
     };
   },

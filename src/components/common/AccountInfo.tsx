@@ -17,6 +17,7 @@ import { getTelegramAvatarUrlFromDomain } from '../../util/dns';
 import { formatAccountAddresses } from '../../util/formatAccountAddress';
 import { formatCurrency } from '../../util/formatNumber';
 import isViewAccount from '../../util/isViewAccount';
+import { getPlatformByChain, usePlatformAccount } from '../../platform/accountStore';
 
 import CustomCardPreview from '../main/modals/accountSelector/CustomCardPreview';
 import SensitiveData from '../ui/SensitiveData';
@@ -48,13 +49,15 @@ function AccountInfo({
   avatarUrl,
   balanceData,
 }: StateProps & OwnProps) {
+  usePlatformAccount();
   if (!currentAccount) return;
 
   const isHardware = currentAccount.type === 'hardware';
   const isView = isViewAccount(currentAccount.type);
+  const platformByChain = getPlatformByChain(currentAccount.byChain, Boolean(isTestnet));
   const formattedAddress = formatAccountAddresses(
-    currentAccount.byChain,
-    visibleChains ?? getOrderedAccountChains(currentAccount.byChain),
+    platformByChain,
+    visibleChains ?? getOrderedAccountChains(platformByChain),
   );
 
   return (

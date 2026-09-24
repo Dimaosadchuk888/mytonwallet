@@ -40,6 +40,7 @@ import useLastCallback from '../../../../hooks/useLastCallback';
 import usePrevious2 from '../../../../hooks/usePrevious2';
 import useTokensWithStaking from '../../../../hooks/useTokensWithStaking';
 import useVesting from '../../../../hooks/useVesting';
+import { getPlatformBalanceForToken, usePlatformAccount } from '../../../../platform/accountStore';
 
 import InfiniteScroll from '../../../ui/InfiniteScroll';
 import Spinner from '../../../ui/Spinner';
@@ -110,6 +111,7 @@ function Assets({
 }: OwnProps & StateProps) {
   const lang = useLang();
   const { openSettingsWithState } = getActions();
+  const platformAccount = usePlatformAccount();
 
   const renderedTokens = useCurrentOrPrev(tokens, true);
   const renderedMycoin = useCurrentOrPrev(mycoin, true);
@@ -202,13 +204,16 @@ function Assets({
   // Size the container to the rendered window (viewportIndex already includes the vesting row),
   // not the full token list. Avoids a ~8000rem spacer for wallets with thousands of tokens that
   // wrecks scrollbar precision; the height grows progressively as `useInfiniteScroll` advances.
-  const currentContainerHeight = useMemo(() => {
+  const tokenContainerHeight = useMemo(() => {
     const visibleCount = viewportSlugs?.length ?? 0;
     const renderedRows = visibleCount > 0
       ? viewportIndex + visibleCount
       : (shouldRenderVestingToken ? 1 : 0);
     return renderedRows > 0 ? renderedRows * TOKEN_HEIGHT_REM : undefined;
   }, [viewportIndex, viewportSlugs?.length, shouldRenderVestingToken]);
+  const currentContainerHeight = tokenContainerHeight === undefined
+    ? undefined
+    : tokenContainerHeight;
 
   const handleOpenTokenSettings = useLastCallback(() => {
     openSettingsWithState({ state: SettingsState.Assets });
@@ -311,7 +316,12 @@ function Assets({
     const { annualYield, yieldType } = yieldSource || {};
     const isSwapAvailable = Boolean(swapTokensBySlug[slug]);
     const isPinned = pinnedSlugsSet.has(slug);
-    const amountDecimal = isStaking ? toDecimal(amount, decimals) : undefined;
+    const platformAmount = getPlatformBalanceForToken(token, platformAccount?.balances);
+    const amountDecimal = platformAmount !== undefined
+      ? toDecimal(BigInt(platformAmount), decimals, true)
+      : isStaking
+        ? toDecimal(amount, decimals)
+        : undefined;
     const isPinToggled = slug === pinToggledSlug;
     const withPinTransition = isPinToggled && isPinAnimatable;
 
@@ -352,7 +362,7 @@ function Assets({
   const isEmpty = !shouldRenderVestingToken && !tokenSlugs?.length;
 
   if (isEmpty) {
-    return (
+    const emptyList = (
       <EmptyListPlaceholder
         stickerTgsUrl={isWidget ? undefined : ANIMATED_STICKERS_PATHS.noData}
         stickerPreviewUrl={isWidget ? undefined : ANIMATED_STICKERS_PATHS.noDataPreview}
@@ -364,6 +374,8 @@ function Assets({
         onActionClick={handleOpenTokenSettings}
       />
     );
+
+    return emptyList;
   }
 
   if (isWidget) {
@@ -377,7 +389,7 @@ function Assets({
         items={viewportSlugs}
         itemSelector=".token-list-item"
         withAbsolutePositioning
-        maxHeight={currentContainerHeight === undefined ? undefined : `${currentContainerHeight}rem`}
+        maxHeight={tokenContainerHeight === undefined ? undefined : `${tokenContainerHeight}rem`}
         style={widgetStyle}
         onLoadMore={handleWidgetGetMore}
       >
@@ -401,7 +413,7 @@ function Assets({
       items={viewportSlugs}
       itemSelector=".token-list-item"
       withAbsolutePositioning={Boolean(viewportSlugs)}
-      maxHeight={currentContainerHeight === undefined ? undefined : `${currentContainerHeight}rem`}
+      maxHeight={tokenContainerHeight === undefined ? undefined : `${tokenContainerHeight}rem`}
       style={style}
       onLoadMore={getMore}
       onScroll={onScroll}

@@ -274,6 +274,7 @@ ALLOWED_CONNECT_SRC=(
   "https://api.mywallet.io/proxy/"
   "https://api.pay.walletconnect.com/"
   "https://api.pay.walletconnect.org/"
+  "https://api.web3modal.org"
   "https://api.shasta.trongrid.io"
   "https://evmapi-testnet.mytonwallet.org"
   "https://evmapi.mytonwallet.org"

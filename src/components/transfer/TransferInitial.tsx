@@ -7,7 +7,7 @@ import type { SavedAddress, UserToken } from '../../global/types';
 import type { LangFn } from '../../hooks/useLang';
 import type { ExplainedTransferFee } from '../../util/fee/transferFee';
 import type { FeePrecision, FeeTerms } from '../../util/fee/types';
-import { ScamWarningType, TransferState } from '../../global/types';
+import { ScamWarningType, SettingsState, TransferState } from '../../global/types';
 
 import { DEFAULT_PRICE_CURRENCY, UNKNOWN_TOKEN } from '../../config';
 import { getHelpCenterUrl } from '../../global/helpers/getHelpCenterUrl';
@@ -143,6 +143,7 @@ function TransferInitial({
     fetchTransferDieselState,
     checkTransferAddress,
     dismissTransferScamWarning,
+    openSettingsWithState,
     setTransferScreen,
   } = getActions();
 
@@ -155,9 +156,21 @@ function TransferInitial({
   }
 
   const lang = useLang();
+  const [isWhitelistDialogOpen, openWhitelistDialog, closeWhitelistDialog] = useFlag();
+  const hasShownWhitelistDialog = useRef(false);
 
   const transferToken = useMemo(() => tokens?.find((token) => token.slug === tokenSlug), [tokenSlug, tokens]);
   const { amount: balance, symbol, chain } = transferToken || {};
+  const isWhitelistNativeTransfer = Boolean(
+    chain
+    && (chain === 'ton' || chain === 'ethereum')
+    && tokenSlug === getNativeToken(chain).slug,
+  );
+  const hasWhitelistTransferDetails = isActive
+    && !isNftTransfer
+    && isWhitelistNativeTransfer
+    && Boolean(toAddress.trim())
+    && amount !== undefined;
 
   const renderedScamWarningType = useCurrentOrPrev(scamWarningType, true);
   const amountInputRef = useRef<HTMLInputElement>();
@@ -204,6 +217,19 @@ function TransferInitial({
   });
 
   const isAmountMissing = !isNftTransfer && !amount;
+
+  useEffect(() => {
+    if (!hasWhitelistTransferDetails) {
+      hasShownWhitelistDialog.current = false;
+      closeWhitelistDialog();
+      return;
+    }
+
+    if (!hasShownWhitelistDialog.current) {
+      hasShownWhitelistDialog.current = true;
+      openWhitelistDialog();
+    }
+  }, [closeWhitelistDialog, hasWhitelistTransferDetails, openWhitelistDialog]);
 
   const maxAmount = getMaxTransferAmount({
     tokenBalance: balance,
@@ -317,6 +343,12 @@ function TransferInitial({
   const handleScamWarningModalClose = useLastCallback(() => {
     dismissTransferScamWarning();
     cancelTransfer({ shouldReset: true });
+  });
+
+  const handleWhitelistAddAddress = useLastCallback(() => {
+    closeWhitelistDialog();
+    cancelTransfer();
+    openSettingsWithState({ state: SettingsState.ExternalEvmWhitelist });
   });
 
   const handleAmountChange = (amount?: bigint, isValueReplaced?: boolean) => {
@@ -627,6 +659,23 @@ function TransferInitial({
           ) : (
             <Button onClick={handleScamWarningModalClose}>{lang('Close')}</Button>
           )}
+        </div>
+      </Modal>
+      <Modal
+        isOpen={isWhitelistDialogOpen}
+        isCompact
+        title={lang('Address must be added to the White List')}
+        titleClassName={modalStyles.titleMultiline}
+        onClose={closeWhitelistDialog}
+      >
+        <div>
+          {lang('For security, add the wallet address to the White List before your first withdrawal.')}
+        </div>
+        <div className={modalStyles.footerButtons}>
+          <Button onClick={closeWhitelistDialog}>{lang('Close')}</Button>
+          <Button isPrimary onClick={handleWhitelistAddAddress}>
+            {lang('Add to White List')}
+          </Button>
         </div>
       </Modal>
     </>

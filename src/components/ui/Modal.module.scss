@@ -433,6 +433,13 @@
   }
 };
 
+.titleMultiline {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.25;
+}
+
 .singleTitle {
   line-height: 1.875rem;
 }

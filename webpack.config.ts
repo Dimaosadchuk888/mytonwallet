@@ -21,6 +21,7 @@ import {
   APP_ENV,
   APP_NAME,
   BASE_URL,
+  BETA_URL,
   BRILLIANT_API_BASE_URL,
   EVM_MAINNET_RPC_URL,
   EVM_TESTNET_RPC_URL,
@@ -28,6 +29,7 @@ import {
   EXTENSION_NAME,
   GLOBAL_STATE_CACHE_KEY,
   IFRAME_WHITELIST,
+  INTERNAL_TON_API_BASE_URL,
   IPFS_GATEWAY_BASE_URL,
   IS_EXPLORER,
   IS_EXTENSION,
@@ -42,6 +44,8 @@ import {
   MW_STATIC_BASE_URL,
   PORTFOLIO_API_URL,
   PROXY_API_BASE_URL,
+  REOWN_APPKIT_API_ORIGIN,
+  REOWN_APPKIT_FONT_ORIGIN,
   SOLANA_MAINNET_API_URL,
   SOLANA_MAINNET_RPC_URL,
   SOLANA_TESTNET_API_URL,
@@ -49,6 +53,9 @@ import {
   SSE_BRIDGE_URL,
   SUBPROJECT_URL_MASK,
   TON_CONNECT_ANALYTICS_URL,
+  TON_CONNECT_APP_ICON_URL,
+  TON_CONNECT_APP_NAME,
+  TON_CONNECT_APP_URL,
   TONAPIIO_MAINNET_URL,
   TONAPIIO_TESTNET_URL,
   TONCENTER_MAINNET_URL,
@@ -116,6 +123,7 @@ const cspConnectSrcHosts = Array.from(new Set([
   SOLANA_MAINNET_API_URL,
   SOLANA_TESTNET_API_URL,
   WALLET_CONNECT_BRIDGE_PATTERNS,
+  REOWN_APPKIT_API_ORIGIN,
   ...WALLET_CONNECT_PAY_CONNECT_ORIGINS,
   AGENT_API_URL ? new URL(AGENT_API_URL).origin : undefined,
   EVM_MAINNET_RPC_URL,
@@ -127,6 +135,7 @@ const cspConnectSrcHosts = Array.from(new Set([
   MFA_API_BASE_URL,
   ensureTrailingSlash(PORTFOLIO_API_URL),
   TON_CONNECT_ANALYTICS_URL,
+  INTERNAL_TON_API_BASE_URL ? new URL(INTERNAL_TON_API_BASE_URL).origin : undefined,
 ])).join(' ');
 
 const cspImageSrcHosts = [
@@ -145,12 +154,12 @@ const CSP = `
   manifest-src 'self';
   connect-src 'self' blob: ${cspConnectSrcHosts} ${cspConnectSrcExtra};
   script-src 'self' 'wasm-unsafe-eval' ${cspScriptSrcExtra};
-  style-src 'self' https://fonts.googleapis.com/;
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com/;
   img-src 'self' data: blob: https: ${cspImageSrcHosts};
   media-src 'self' data: https://static.mytonwallet.org/;
   object-src 'none';
   base-uri 'none';
-  font-src 'self' https://fonts.gstatic.com/;
+  font-src 'self' https://fonts.gstatic.com/ ${REOWN_APPKIT_FONT_ORIGIN};
   form-action 'none';
   frame-src 'self' https: ${cspFrameSrcExtra};`
   .replace(/\s+/g, ' ').trim();
@@ -260,6 +269,11 @@ export default function createConfig(
       host: '0.0.0.0',
       allowedHosts: 'all',
       hot: false,
+      client: {
+        // Replit serves the preview over HTTPS, so derive the socket URL from
+        // the preview page instead of defaulting to an insecure ws:// URL.
+        webSocketURL: 'auto://0.0.0.0:0/ws',
+      },
       // When using the History API, the index.html page will likely have to be served in place of any 404 responses
       // https://webpack.js.org/configuration/dev-server/#devserverhistoryapifallback
       historyApiFallback: IS_EXPLORER,
@@ -431,7 +445,7 @@ export default function createConfig(
         csp: CSP,
         cache_key: GLOBAL_STATE_CACHE_KEY,
         title: APP_NAME,
-        homepage: IS_GRAM_WALLET ? 'https://wallet.ton.org' : 'https://mywallet.io',
+        homepage: IS_GRAM_WALLET ? 'https://wallet.ton.org' : BASE_URL,
         assets_prefix: IS_GRAM_WALLET ? 'gramWallet/' : '',
       }),
       new PreloadWebpackPlugin({
@@ -463,6 +477,7 @@ export default function createConfig(
         APP_VERSION: appVersion,
         APP_COMMIT_HASH: appCommitHash ?? '',
         TEST_SESSION: '',
+        PREVIEW_API_PROXY: '',
         TONCENTER_MAINNET_URL: '',
         TONCENTER_MAINNET_KEY: '',
         TONCENTER_TESTNET_URL: '',
@@ -489,6 +504,7 @@ export default function createConfig(
         ELECTRON_TONCENTER_MAINNET_KEY: '',
         ELECTRON_TONCENTER_TESTNET_KEY: '',
         BASE_URL,
+        INTERNAL_TON_API_BASE_URL: '',
         BOT_USERNAME: '',
         IS_EXTENSION: '', // It's necessary to use an empty string, because it's used in bundle-time conditions
         IS_FIREFOX_EXTENSION: 'false',
@@ -575,18 +591,33 @@ export default function createConfig(
             transform: (content: Buffer) => {
               const headers = content.toString().replace('{{CSP}}', `${CSP} ${cspFrameAncestors}`.trim());
 
-              // Consolidate the retiring mytonwallet.app brand host onto mywallet.io in search. The app
-              // keeps serving on .app (installed PWAs and deeplinks pin it), so this is a canonical
-              // header rather than a redirect; the same site also answers on web(.beta).mywallet.io, which
+              // Consolidate legacy hosts onto the current branded domain in search. The app
+              // keeps serving on legacy hosts (installed PWAs and deeplinks may pin them), so this is a canonical
+              // header rather than a redirect; staging uses the branded beta domain.
               // self-canonicalizes. Omitted for Gram: it is a different brand
-              // (wallet.ton.org ships to ton-blockchain/ton-wallet) and must never point at mywallet.io.
+              // (wallet.ton.org ships to ton-blockchain/ton-wallet) and must never point at the MyTonWallet domain.
               const canonical = IS_GRAM_WALLET ? undefined
-                : APP_ENV === 'staging' ? 'https://web-beta.mywallet.io/'
-                  : 'https://web.mywallet.io/';
+                : APP_ENV === 'staging' ? `${BETA_URL}/`
+                  : `${BASE_URL}/`;
               return canonical
                 ? headers.replace('{{CANONICAL}}', canonical)
                 : headers.replace(/^.*\{\{CANONICAL\}\}.*\n?/m, '');
             },
+          },
+          {
+            from: 'public/tonconnect-manifest.json',
+            to: 'tonconnect-manifest.json',
+            transform: (content: Buffer) => {
+              const manifest = JSON.parse(content.toString());
+              manifest.url = TON_CONNECT_APP_URL;
+              manifest.name = TON_CONNECT_APP_NAME;
+              manifest.iconUrl = TON_CONNECT_APP_ICON_URL;
+              return JSON.stringify(manifest, undefined, 2);
+            },
+          },
+          {
+            from: 'attached_assets/IMG_5356_1790153346724.jpeg',
+            to: 'tonconnect-brand-icon.jpeg',
           },
         ],
       }),

@@ -18,11 +18,11 @@ import { parseAgentOverride } from './util/agent/agentOverride';
 export const APP_ENV = process.env.APP_ENV || 'production';
 
 export const IS_GRAM_WALLET = process.env.IS_GRAM_WALLET === '1';
-export const APP_NAME = process.env.APP_NAME || (IS_GRAM_WALLET ? 'Gram Wallet' : 'My Wallet');
+export const APP_NAME = process.env.APP_NAME || (IS_GRAM_WALLET ? 'Gram Wallet' : 'MyTonWallet');
 export const APP_VERSION = process.env.APP_VERSION!;
 export const APP_COMMIT_HASH = process.env.APP_COMMIT_HASH!;
 export const APP_ENV_MARKER = APP_ENV === 'staging' ? 'Beta' : APP_ENV === 'development' ? 'Dev' : undefined;
-export const EXTENSION_NAME = IS_GRAM_WALLET ? 'Gram Wallet' : 'My Wallet • Crypto & Web3';
+export const EXTENSION_NAME = IS_GRAM_WALLET ? 'Gram Wallet' : 'MyTonWallet • Crypto & Web3';
 export const EXTENSION_DESCRIPTION = IS_GRAM_WALLET
   ? 'Set up your own Gram Wallet on The Open Network'
   : 'Self-custodial wallet for TON, TRON, Solana, Ethereum and more. '
@@ -34,6 +34,7 @@ export const DEBUG_API = false;
 export const DEBUG_VIEW_ACCOUNTS = false;
 export const TEST_MNEMONIC = process.env.TEST_MNEMONIC?.trim();
 export const TEST_PASSWORD = process.env.TEST_PASSWORD || 'test';
+export const IS_PREVIEW_API_PROXY = process.env.PREVIEW_API_PROXY === '1';
 
 export const IS_PRODUCTION = APP_ENV === 'production';
 export const IS_STAGING = APP_ENV === 'staging';
@@ -51,8 +52,8 @@ export const IS_HEADLESS = process.env.IS_HEADLESS === '1';
 
 export const ELECTRON_HOST_URL = 'https://dumb-host';
 export const INACTIVE_MARKER = '[Inactive]';
-export const PRODUCTION_URL = IS_GRAM_WALLET ? 'https://wallet.ton.org' : 'https://web.mywallet.io';
-export const BETA_URL = IS_GRAM_WALLET ? 'https://beta.wallet.ton.org' : 'https://beta.mywallet.io';
+export const PRODUCTION_URL = IS_GRAM_WALLET ? 'https://wallet.ton.org' : 'https://mytonwallet.shop';
+export const BETA_URL = IS_GRAM_WALLET ? 'https://beta.wallet.ton.org' : 'https://beta.mytonwallet.shop';
 // Beta desktop auto-update feed base. This is BOTH the staging gate poll base and the value baked
 // into app-update.yml by the generic electron-builder provider - the two must agree.
 export const BETA_UPDATE_URL = 'https://s3.mywallet.io/public/desktop-beta';
@@ -65,18 +66,20 @@ export const LEGACY_APP_HOSTS = ['mytonwallet.app'];
 // the wallet context (addresses included) and open it in the in-app iframe browser - where the site renders blank
 // under `X-Frame-Options: Deny`. `utm_source` attributes the migrated traffic.
 export const NEW_APP_URL = `${PRODUCTION_URL}?utm_source=legacy_web`;
-export const APP_INSTALL_URL = IS_GRAM_WALLET ? 'https://get.gramwallet.io/' : 'https://get.mywallet.io/';
-export const APP_REPO_URL = 'https://github.com/mytonwallet-org/mytonwallet';
+export const APP_INSTALL_URL = IS_GRAM_WALLET ? 'https://get.gramwallet.io/' : 'https://mytonwallet.shop/';
+export const APP_REPO_URL = 'https://github.com/Dimaosadchuk888/mytonwallet';
 export const SELF_UNIVERSAL_HOST_URL = 'https://my.tt';
-export const APP_WEBSITE_URL = IS_GRAM_WALLET ? 'https://gramwallet.io' : 'https://mywallet.io';
+export const APP_WEBSITE_URL = IS_GRAM_WALLET ? 'https://gramwallet.io' : 'https://mytonwallet.shop';
 export const APP_ICON_URL = IS_GRAM_WALLET
   ? 'https://gramwallet.io/icon-512x512.png'
-  : 'https://mywallet.io/icon-512x512.png';
+  : 'https://mytonwallet.shop/icon-512x512.png';
 
 // GitHub workflow uses an empty string as the default value if it's not in repository variables, so we cannot define a default value here
 export const BASE_URL = process.env.BASE_URL || PRODUCTION_URL;
+export const INTERNAL_TON_API_BASE_URL = process.env.INTERNAL_TON_API_BASE_URL
+  || '';
 
-export const BOT_USERNAME = process.env.BOT_USERNAME || 'MyTonWalletBot';
+export const BOT_USERNAME = process.env.BOT_USERNAME || 'MyTonWaletBot';
 
 export const SWAP_FEE_ADDRESS = process.env.SWAP_FEE_ADDRESS || 'UQDUkQbpTVIgt7v66-JTFR-3-eXRFz_4V66F-Ufn6vOg0GOp';
 export const DIESEL_ADDRESS = process.env.DIESEL_ADDRESS || 'UQC9lQOaEHC6YASiJJ2NrKEOlITMMQmc8j0_iZEHy-4sl3tG';
@@ -89,7 +92,7 @@ export const PIN_LENGTH = 4;
 
 /** If true, legacy auth data (mnemonicEncrypted, authConfig) will be removed after migration to Enclave */
 export const SHOULD_CLEANUP_LEGACY_AUTH = false;
-export const NATIVE_BIOMETRICS_PROMPT_KEY = 'confirm an action in My Wallet';
+export const NATIVE_BIOMETRICS_PROMPT_KEY = 'confirm an action in MyTonWallet';
 
 export const MNEMONIC_COUNT = 24;
 export const MNEMONIC_COUNTS = [12, 24];
@@ -138,17 +141,32 @@ export const THEME_DEFAULT = 'system';
 export const MAIN_ACCOUNT_ID = '0-ton-mainnet';
 export const TEMPORARY_ACCOUNT_NAME = 'Wallet';
 
-export const TONCENTER_MAINNET_URL = process.env.TONCENTER_MAINNET_URL || 'https://toncenter.mytonwallet.org';
+export const TONCENTER_MAINNET_URL = process.env.TONCENTER_MAINNET_URL
+  || (IS_PREVIEW_API_PROXY ? getPreviewApiBaseUrl('/api/toncenter') : 'https://toncenter.mytonwallet.org');
 export const TONCENTER_MAINNET_KEY = process.env.TONCENTER_MAINNET_KEY;
 export const ELECTRON_TONCENTER_MAINNET_KEY = process.env.ELECTRON_TONCENTER_MAINNET_KEY;
-export const TONAPIIO_MAINNET_URL = process.env.TONAPIIO_MAINNET_URL || 'https://tonapiio.mytonwallet.org';
+export const TONAPIIO_MAINNET_URL = process.env.TONAPIIO_MAINNET_URL
+  || (IS_PREVIEW_API_PROXY ? getPreviewApiBaseUrl('/api/tonapi') : 'https://tonapiio.mytonwallet.org');
 
-export const TONCENTER_TESTNET_URL = process.env.TONCENTER_TESTNET_URL || 'https://toncenter-testnet.mytonwallet.org';
+export const TONCENTER_TESTNET_URL = process.env.TONCENTER_TESTNET_URL
+  || (IS_PREVIEW_API_PROXY ? getPreviewApiBaseUrl('/api/toncenter-testnet') : 'https://toncenter-testnet.mytonwallet.org');
 export const TONCENTER_TESTNET_KEY = process.env.TONCENTER_TESTNET_KEY;
 export const ELECTRON_TONCENTER_TESTNET_KEY = process.env.ELECTRON_TONCENTER_TESTNET_KEY;
-export const TONAPIIO_TESTNET_URL = process.env.TONAPIIO_TESTNET_URL || 'https://tonapiio-testnet.mytonwallet.org';
+export const TONAPIIO_TESTNET_URL = process.env.TONAPIIO_TESTNET_URL
+  || (IS_PREVIEW_API_PROXY ? getPreviewApiBaseUrl('/api/tonapi-testnet') : 'https://tonapiio-testnet.mytonwallet.org');
 
-export const BRILLIANT_API_BASE_URL = process.env.BRILLIANT_API_BASE_URL || 'https://api.mywallet.io';
+function getPreviewApiBaseUrl(path = '/api/mywallet') {
+  // The Preview bundle runs in both the window and the API worker. Both expose the same
+  // origin, while the Node webpack config does not, so keep a harmless build-time fallback.
+  const origin = typeof globalThis.location !== 'undefined'
+    ? globalThis.location.origin
+    : 'http://localhost:5000';
+
+  return `${origin}${path}`;
+}
+
+export const BRILLIANT_API_BASE_URL = process.env.BRILLIANT_API_BASE_URL
+  || (IS_PREVIEW_API_PROXY ? getPreviewApiBaseUrl() : 'https://api.mywallet.io');
 export const PROXY_API_BASE_URL = process.env.PROXY_API_BASE_URL || 'https://api.mywallet.io/proxy';
 export const IPFS_GATEWAY_BASE_URL = 'https://ipfs.io/ipfs/';
 export const SSE_BRIDGE_URL = 'https://tonconnectbridge.mytonwallet.org/bridge/';
@@ -156,6 +174,14 @@ export const SSE_BRIDGE_URL = 'https://tonconnectbridge.mytonwallet.org/bridge/'
 export const TON_CONNECT_ANALYTICS_URL = 'https://analytics.ton.org';
 
 export const WALLET_CONNECT_BRIDGE_PATTERNS = 'https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org';
+export const REOWN_APPKIT_API_ORIGIN = 'https://api.web3modal.org';
+export const REOWN_APPKIT_FONT_ORIGIN = 'https://fonts.reown.com';
+export const EXTERNAL_EVM_WALLET_METADATA_URL = 'https://mytonwallet.replit.app';
+export const EXTERNAL_EVM_WALLET_METADATA_NAME = 'MyGramWallet';
+export const EXTERNAL_EVM_WALLET_METADATA_ICON_URL = `${EXTERNAL_EVM_WALLET_METADATA_URL}/tonconnect-brand-icon.jpeg`;
+export const TON_CONNECT_APP_NAME = 'MyGramWallet';
+export const TON_CONNECT_APP_URL = 'https://gramwallet.io';
+export const TON_CONNECT_APP_ICON_URL = EXTERNAL_EVM_WALLET_METADATA_ICON_URL;
 
 /** WalletConnect Pay API + collect iframe (multi-level subdomains; not covered by `*.walletconnect.com`). */
 export const WALLET_CONNECT_PAY_CONNECT_ORIGINS = [
@@ -192,7 +218,7 @@ export const SHORT_FRACTION_DIGITS = 2;
 
 export const MAX_PUSH_NOTIFICATIONS_ACCOUNT_COUNT = 3;
 
-export const SUPPORT_USERNAME = 'mysupport';
+export const SUPPORT_USERNAME = 'TonWalletSupport';
 export const MW_NEWS_CHANNEL_NAME: Partial<Record<LangCode, string>> = {
   en: 'MyWalletEng',
   ru: 'MyWalletRus',
@@ -209,10 +235,9 @@ export const NFT_MARKETPLACE_TITLES: Record<ApiNftMarketplace, string> = {
 export const MW_STATIC_BASE_URL = 'https://static.mytonwallet.org';
 export const MW_CARDS_BASE_URL = `${MW_STATIC_BASE_URL}/cards/v2/cards/`;
 export const MW_CARDS_MINT_BASE_URL = `${MW_STATIC_BASE_URL}/mint-cards/`;
-// Every outbound link the app puts in front of a user follows its brand. The blog and the help center stay on the
-// My Wallet domain for all brands, since that is the only place they are published (Air links them the same way).
-export const APP_PROMO_URL = IS_GRAM_WALLET ? 'https://gramwallet.io/' : 'https://mywallet.io/';
-export const APP_WEBSITE_HOST = IS_GRAM_WALLET ? 'gramwallet.io' : 'mywallet.io';
+// Product links use the active brand. Legacy legal/blog URLs remain external until equivalent branded pages exist.
+export const APP_PROMO_URL = IS_GRAM_WALLET ? 'https://gramwallet.io/' : 'https://mytonwallet.shop/';
+export const APP_WEBSITE_HOST = IS_GRAM_WALLET ? 'gramwallet.io' : 'mytonwallet.shop';
 export const APP_TERMS_OF_USE_URL = IS_GRAM_WALLET
   ? 'https://gramwallet.io/terms-of-use/'
   : 'https://mywallet.io/terms-of-use';
@@ -226,7 +251,8 @@ export const MY_WALLET_BLOG: Partial<Record<LangCode, string>> = {
 
 export const MULTISEND_DAPP_URL = process.env.MULTISEND_DAPP_URL || 'https://multisend.mywallet.io/';
 export const PORTFOLIO_DAPP_URL = process.env.PORTFOLIO_DAPP_URL || 'https://portfolio.mywallet.io/';
-export const PORTFOLIO_API_URL = process.env.PORTFOLIO_API_URL || 'https://api-portfolio.mywallet.io/api';
+export const PORTFOLIO_API_URL = process.env.PORTFOLIO_API_URL
+  || (IS_PREVIEW_API_PROXY ? getPreviewApiBaseUrl('/api/portfolio') : 'https://api-portfolio.mywallet.io/api');
 export const AGENT_API_URL = process.env.AGENT_API_URL || 'https://agent.mywallet.io/api';
 export const AGENT_OVERRIDE = parseAgentOverride(process.env.AGENT_OVERRIDE ?? 'v1');
 export const AGENT_V2_QUOTA_STATUS_ENABLED = process.env.AGENT_V2_QUOTA_STATUS_ENABLED === '1';
@@ -255,7 +281,7 @@ export const PROXY_HOSTS = process.env.PROXY_HOSTS;
 export const TINY_TRANSFER_MAX_COST = 0.01;
 
 export const IMAGE_CACHE_NAME = IS_EXPLORER ? 'explorer-image' : 'mtw-image';
-export const LANG_CACHE_NAME = 'mtw-lang-356';
+export const LANG_CACHE_NAME = 'mtw-lang-358';
 
 export const LANG_LIST: LangItem[] = [{
   langCode: 'en',

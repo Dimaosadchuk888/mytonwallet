@@ -1,4 +1,4 @@
-# This file is for (beta.)mytonwallet.app hosted on Netlify
+# This file is for mytonwallet.shop and its branded beta host
 /
   Content-Security-Policy: {{CSP}}
   X-Content-Type-Options: nosniff

@@ -1,0 +1,36 @@
+root@srv1920273:~# SHA256:QuQZkRE+U9fTAck+IsamEQOCgaBzQafqqNvpvYhgves
+SHA256:QuQZkRE+U9fTAck+IsamEQOCgaBzQafqqNvpvYhgves: command not found
+root@srv1920273:~# ssh-keygen -lf /root/.ssh/authorized_keys | grep 'SHA256:QuQZkRE+U9fTAck+IsamEQOCgaBzQafqqNvpvYhgves'
+256 SHA256:QuQZkRE+U9fTAck+IsamEQOCgaBzQafqqNvpvYhgves mytonwallet-replit-backend (ED25519)
+root@srv1920273:~# journalctl -u ssh -n 50 --no-pager
+Sep 07 14:44:19 srv1920273 sshd[181225]: Invalid user admin from 171.231.176.227 port 37416
+Sep 07 14:44:20 srv1920273 sshd[181225]: pam_unix(sshd:auth): check pass; user unknown
+Sep 07 14:44:20 srv1920273 sshd[181225]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=171.231.176.227
+Sep 07 14:44:22 srv1920273 sshd[181225]: Failed password for invalid user admin from 171.231.176.227 port 37416 ssh2
+Sep 07 14:44:26 srv1920273 sshd[181225]: Connection closed by invalid user admin 171.231.176.227 port 37416 [preauth]
+Sep 07 14:46:34 srv1920273 sshd[181237]: Invalid user admin from 171.231.176.227 port 41038
+Sep 07 14:46:35 srv1920273 sshd[181237]: pam_unix(sshd:auth): check pass; user unknown
+Sep 07 14:46:35 srv1920273 sshd[181237]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=171.231.176.227
+Sep 07 14:46:38 srv1920273 sshd[181237]: Failed password for invalid user admin from 171.231.176.227 port 41038 ssh2
+Sep 07 14:46:43 srv1920273 sshd[181237]: Connection closed by invalid user admin 171.231.176.227 port 41038 [preauth]
+Sep 07 14:49:14 srv1920273 sshd[181253]: Invalid user admin from 171.231.176.227 port 51268
+Sep 07 14:49:16 srv1920273 sshd[181253]: pam_unix(sshd:auth): check pass; user unknown
+Sep 07 14:49:16 srv1920273 sshd[181253]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=171.231.176.227
+Sep 07 14:49:17 srv1920273 sshd[181253]: Failed password for invalid user admin from 171.231.176.227 port 51268 ssh2
+Sep 07 14:49:19 srv1920273 sshd[181253]: Connection closed by invalid user admin 171.231.176.227 port 51268 [preauth]
+Sep 07 14:51:06 srv1920273 sshd[181264]: Invalid user admin from 171.231.176.227 port 38186
+Sep 07 14:51:06 srv1920273 sshd[181264]: pam_unix(sshd:auth): check pass; user unknown
+Sep 07 14:51:06 srv1920273 sshd[181264]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=171.231.176.227
+Sep 07 14:51:08 srv1920273 sshd[181264]: Failed password for invalid user admin from 171.231.176.227 port 38186 ssh2
+Sep 07 14:51:12 srv1920273 sshd[181264]: Connection closed by invalid user admin 171.231.176.227 port 38186 [preauth]
+Sep 07 22:48:26 srv1920273 sshd[183487]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=74.235.117.97  user=root
+Sep 07 22:48:28 srv1920273 sshd[183487]: Failed password for root from 74.235.117.97 port 28681 ssh2
+Sep 07 22:48:29 srv1920273 sshd[183487]: Connection closed by authenticating user root 74.235.117.97 port 28681 [preauth]
+Sep 07 22:48:30 srv1920273 sshd[183489]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=74.235.117.97  user=root
+Sep 07 22:48:32 srv1920273 sshd[183489]: Failed password for root from 74.235.117.97 port 28682 ssh2
+Sep 07 22:48:32 srv1920273 sshd[183489]: Connection closed by authenticating user root 74.235.117.97 port 28682 [preauth]
+Sep 07 22:48:33 srv1920273 sshd[183492]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=74.235.117.97  user=root
+Sep 07 22:48:35 srv1920273 sshd[183492]: Failed password for root from 74.235.117.97 port 28680 ssh2
+Sep 07 22:48:36 srv1920273 sshd[183492]: Connection closed by authenticating user root 74.235.117.97 port 28680 [preauth]
+Sep 07 22:48:37 srv1920273 sshd[183494]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=74.235.117.97  user=root
+Sep 07 22:48:39 srv1920273 sshd[183494]: Failed password for root from 74.235.117.97 port 28681 ssh2
