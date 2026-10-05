@@ -1,0 +1,82 @@
+import SwiftUI
+import UIKit
+import UIComponents
+import WalletCore
+import WalletContext
+
+struct SwapCexProviderInfoView: View {
+    let providerName: String
+    let termsOfUseUrl: String?
+    let privacyPolicyUrl: String?
+    let amlKycPolicyUrl: String?
+    
+    var body: some View {
+        InsetSection {
+            InsetCell(
+                horizontalPadding: IOS_26_MODE_ENABLED ? 16 : nil,
+                verticalPadding: IOS_26_MODE_ENABLED ? 12 : nil
+            ) {
+                VStack(alignment: .leading, spacing: IOS_26_MODE_ENABLED ? 4 : 7) {
+                    header
+                        .frame(minHeight: IOS_26_MODE_ENABLED ? 22 : nil, alignment: .leading)
+                        .padding(.top, IOS_26_MODE_ENABLED ? 0 : 1)
+                    text
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, IOS_26_MODE_ENABLED ? 0 : 1)
+                        .environment(\.openURL, OpenURLAction { url in
+                            topViewController()?.view.endEditing(true)
+                            AppActions.openInBrowser(url, title: nil, injectDappConnect: false)
+                            return .handled
+                        })
+                }
+            }
+        } header: {} footer: {}
+            .textStyle(.footnote, scaling: .dynamic)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, -16)
+    }
+    
+    var header: some View {
+        Text(L10n.crossChainExchangeProvidedByProvider(provider: providerName))
+            .textStyle(IOS_26_MODE_ENABLED ? .subheadlineEmphasized : .body, scaling: .dynamic)
+            .foregroundStyle(Color.air.secondaryLabel)
+    }
+    
+    @ViewBuilder
+    var text: some View {
+        if let legalDisclaimer {
+            Text(LocalizedStringKey(legalDisclaimer))
+                .lineSpacing(3)
+                .foregroundStyle(Color.air.secondaryLabel)
+                .textStyle(.footnote, scaling: .dynamic)
+                .padding(.top, IOS_26_MODE_ENABLED ? 0 : 2)
+        }
+    }
+
+    private var legalDisclaimer: String? {
+        let terms = markdownLink(text: lang("$swap_cex_terms_of_use"), url: termsOfUseUrl)
+        let policy = markdownLink(text: lang("$swap_cex_privacy_policy"), url: privacyPolicyUrl)
+        let aml = markdownLink(text: lang("$swap_cex_aml_kyc_policy"), url: amlKycPolicyUrl)
+
+        guard terms != nil || policy != nil || aml != nil else {
+            return nil
+        }
+
+        if let terms, let policy, let aml {
+            return L10n.swapCexLegalMessageWithAml(terms: terms, policy: policy, aml: aml)
+        }
+
+        if let terms, let policy {
+            return L10n.swapCexLegalMessage(terms: terms, policy: policy)
+        }
+
+        return langJoin([terms, policy, aml].compactMap { $0 }, .and)
+    }
+
+    private func markdownLink(text: String, url rawUrl: String?) -> String? {
+        guard let url = URL.sanitizedHttpUrl(from: rawUrl) else {
+            return nil
+        }
+        return "[\(text)](\(url.absoluteString))"
+    }
+}

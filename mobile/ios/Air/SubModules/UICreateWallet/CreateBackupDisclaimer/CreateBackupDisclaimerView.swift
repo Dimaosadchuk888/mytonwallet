@@ -1,0 +1,143 @@
+//
+//  AboutView.swift
+//  UICreateWallet
+//
+//  Created by nikstar on 05.09.2025.
+//
+
+import UIKit
+import SwiftUI
+import UIComponents
+import WalletContext
+import WalletCore
+
+enum Step: Comparable {
+    case zero, one, two, three
+}
+
+struct CreateBackupDisclaimerView: View {
+
+    let introModel: IntroModel
+
+    @State private var currentStep: Step = .zero
+    @State private var isLoading = false
+    
+    var body: some View {
+        InsetList(topPadding: 0, spacing: 40) {
+            header
+            threeSteps
+        }
+        .backportScrollBounceBehaviorBasedOnSize()
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            goToWords
+        }
+    }
+    
+    @ViewBuilder
+    var header: some View {
+        VStack(spacing: 24) {
+            WUIAnimatedSticker("animation_snitch", size: 96, loop: false)
+                .frame(width: 96, height: 96)
+            Text(lang("Create Backup"))
+                .textStyle(.screenTitle)
+        }
+        .padding(.horizontal, 16)
+        .multilineTextAlignment(.center)
+    }
+    
+    @ViewBuilder
+    var threeSteps: some View {
+        VStack(spacing: 16) {
+            StepView(
+                isEnabled: currentStep >= .zero,
+                isCompleted: currentStep >= .one,
+                text: langMd("$safety_rules_one"),
+                onTap: setStep(.one)
+            )
+            StepView(
+                isEnabled: currentStep >= .one,
+                isCompleted: currentStep >= .two,
+                text: langMd("$safety_rules_two"),
+                onTap: setStep(.two)
+            )
+            StepView(
+                isEnabled: currentStep >= .two,
+                isCompleted: currentStep >= .three,
+                text: langMd("$safety_rules_three"),
+                onTap: setStep(.three)
+            )
+        }
+    }
+    
+    var goToWords: some View {
+        Button(action: onGoToWords) {
+            Text(lang("Go to Words"))
+        }
+        .buttonStyle(.airPrimary)
+        .disabled(currentStep != .three)
+        .environment(\.isLoading, isLoading)
+        .animation(.smooth(duration: 0.4), value: currentStep)
+        .padding(.horizontal, 32)
+        .padding(.bottom, 32)
+    }
+    
+    func setStep(_ step: Step) -> () -> () {
+        return {
+            withAnimation(.spring(duration: 0.3)) {
+                currentStep = step
+            }
+        }
+    }
+    
+    func onGoToWords() {
+        guard !isLoading else { return }
+        isLoading = true
+        Task { @MainActor in
+            do {
+                try await introModel.onGoToWords()
+            } catch {
+                isLoading = false
+                AppActions.showError(error: error)
+            }
+        }
+    }
+}
+
+
+private struct StepView: View {
+    
+    var isEnabled: Bool
+    var isCompleted: Bool
+    var text: LocalizedStringKey
+    var onTap: () -> ()
+
+    var body: some View {
+        InsetSection {
+            InsetButtonCell(verticalPadding: 12, action: onTap) {
+                HStack(spacing: 20) {
+                    Checkmark(isOn: isCompleted)
+                        .padding(.leading, 4)
+                        .allowsHitTesting(false) // handled by button
+                        .accessibilityHidden(true)
+                    Text(text)
+                        .textStyle(.callout)
+                        .contentShape(.rect(cornerRadius: 12))
+                        .foregroundStyle(Color.air.primaryLabel)
+                        .lineSpacing(4)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .backportGeometryGroup()
+            }
+            .accessibilityRepresentation {
+                Button(action: onTap) {
+                    Text(text)
+                }
+                .disabled(isCompleted || !isEnabled)
+                .accessibilityAddTraits(isCompleted ? .isSelected : [])
+            }
+        }
+        .opacity(isEnabled ? 1 : 0.4)
+        .animation(.smooth(duration: 0.4), value: isEnabled)
+        .allowsHitTesting(!isCompleted && isEnabled)
+    }
+}

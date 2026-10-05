@@ -1,0 +1,1088 @@
+@file:Suppress("ktlint:standard:backing-property-naming")
+
+package org.mytonwallet.app_air.uiassets.viewControllers.tokens
+
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
+import android.content.Context
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import androidx.constraintlayout.widget.ConstraintSet
+import androidx.core.view.doOnLayout
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
+import kotlin.math.min
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.mytonwallet.app_air.icons.R
+import org.mytonwallet.app_air.uiassets.viewControllers.assetsTab.AssetsTabVC
+import org.mytonwallet.app_air.uiassets.viewControllers.token.TokenVC
+import org.mytonwallet.app_air.uiassets.viewControllers.tokens.cells.TokenCell
+import org.mytonwallet.app_air.uicomponents.AnimationConstants
+import org.mytonwallet.app_air.uicomponents.base.WNavigationBar
+import org.mytonwallet.app_air.uicomponents.base.WNavigationController
+import org.mytonwallet.app_air.uicomponents.base.WRecyclerViewAdapter
+import org.mytonwallet.app_air.uicomponents.base.WViewController
+import org.mytonwallet.app_air.uicomponents.commonViews.WEmptyIconTitleSubtitleActionView
+import org.mytonwallet.app_air.uicomponents.commonViews.cells.ShowAllView
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.exactly
+import org.mytonwallet.app_air.uicomponents.extensions.unspecified
+import org.mytonwallet.app_air.uicomponents.helpers.CubicBezierInterpolator
+import org.mytonwallet.app_air.uicomponents.helpers.LastItemPaddingDecoration
+import org.mytonwallet.app_air.uicomponents.helpers.SelectiveItemAnimator
+import org.mytonwallet.app_air.uicomponents.viewControllers.selector.TokenSelectorHelper
+import org.mytonwallet.app_air.uicomponents.widgets.WCell
+import org.mytonwallet.app_air.uicomponents.widgets.WRecyclerView
+import org.mytonwallet.app_air.uicomponents.widgets.frameAsPath
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup
+import org.mytonwallet.app_air.uicomponents.widgets.segmentedController.WSegmentedController
+import org.mytonwallet.app_air.uicomponents.widgets.segmentedController.WSegmentedControllerItemVC
+import org.mytonwallet.app_air.uireceive.ReceiveVC
+import org.mytonwallet.app_air.uisend.send.SendVC
+import org.mytonwallet.app_air.uisettings.viewControllers.assetsAndActivities.AssetsAndActivitiesVC
+import org.mytonwallet.app_air.uistake.earn.EarnRootVC
+import org.mytonwallet.app_air.uistake.helpers.ClaimRewardsHelper
+import org.mytonwallet.app_air.uistake.staking.StakingVC
+import org.mytonwallet.app_air.uistake.staking.StakingViewModel
+import org.mytonwallet.app_air.uiswap.screens.swap.SwapVC
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.ThemeManager
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.utils.IndexPath
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.WalletEvent
+import org.mytonwallet.app_air.walletcore.models.MAccount
+import org.mytonwallet.app_air.walletcore.models.MAssetsAndActivityData
+import org.mytonwallet.app_air.walletcore.models.MScreenMode
+import org.mytonwallet.app_air.walletcore.models.MToken
+import org.mytonwallet.app_air.walletcore.models.MTokenBalance
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+import org.mytonwallet.app_air.walletcore.moshi.MApiSwapAsset
+import org.mytonwallet.app_air.walletcore.stores.AccountStore
+import org.mytonwallet.app_air.walletcore.stores.TokenStore
+
+@SuppressLint("ViewConstructor")
+class TokensVC(
+    context: Context,
+    private var showingAccountId: String,
+    private val mode: Mode,
+    private val onHeightChanged: (() -> Unit)? = null,
+    private val onAssetsShown: (() -> Unit)? = null,
+    private val onScroll: ((rv: RecyclerView) -> Unit)? = null
+) : WViewController(context),
+    WRecyclerViewAdapter.WRecyclerViewDataSource,
+    WalletCore.EventObserver,
+    WSegmentedControllerItemVC {
+    @Suppress("PropertyName")
+    override val TAG = "Tokens"
+
+    override var segmentedController: WSegmentedController? = null
+    override var badge: String? = null
+    var onScrollToVisibleRequested: (() -> Unit)? = null
+
+    // Replaces the default top-limit menu of the "Show All" row when the host has no tab-level menu.
+    var onShowAllMenuTap: ((anchorView: View) -> Unit)? = null
+
+    private var isShowingAccountMultichain = WGlobalStorage.isMultichain(showingAccountId)
+    private var _showingAccount: MAccount? = null
+    private fun fetchAccount(accountId: String): MAccount? {
+        _showingAccount?.let {
+            if (it.accountId == accountId) return it
+        }
+        val activeAccount = AccountStore.activeAccount
+        _showingAccount = if (activeAccount?.accountId == accountId) {
+            activeAccount
+        } else {
+            AccountStore.accountById(accountId)
+        }
+        return _showingAccount
+    }
+
+    enum class Mode {
+        HOME,
+        ALL
+    }
+
+    companion object {
+        val TOKEN_CELL = WCell.Type(1)
+        private val HOME_ASSETS_TOP_LIMITS = listOf(5, 10, 30)
+    }
+
+    override var title: String?
+        get() {
+            return LocaleController.getString("Assets")
+        }
+        set(_) {
+        }
+
+    override val shouldDisplayTopBar = false
+
+    override val shouldDisplayBottomBar: Boolean
+        get() = mode != Mode.HOME && super.shouldDisplayBottomBar
+
+    override val isSwipeBackAllowed = false
+
+    private val queueDispatcher =
+        Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val scope = CoroutineScope(SupervisorJob() + queueDispatcher)
+
+    private var walletTokens: Array<MTokenBalance> = emptyArray()
+    private var pinnedSlugs: Set<String> = emptySet()
+    var totalVisibleTokensCount: Int = 0
+        private set
+    private var currentHomeAssetsLimit = WGlobalStorage.getHomeAssetsTopLimit(showingAccountId)
+
+    private var thereAreMoreToShow: Boolean = false
+    private var effectiveHomeLimit = Int.MAX_VALUE
+    private var isScreenFullyVisible = false
+    private var emptyTokensViewHeight = 0
+    private var isEmptyStateVisible = false
+    private var currentHeight: Int = initialHomeHeightFromCache()
+    private var heightAnimator: ValueAnimator? = null
+
+    private fun isTokenVisible(
+        tokenBalance: MTokenBalance,
+        account: MAccount,
+        assetsAndActivityData: MAssetsAndActivityData
+    ): Boolean {
+        if (tokenBalance.isVirtualStakingRow) {
+            val slug = tokenBalance.virtualStakingToken ?: return false
+            return !assetsAndActivityData.hiddenTokens.contains(slug)
+        }
+        return TokenStore.getToken(tokenBalance.token)
+            ?.isHidden(account, assetsAndActivityData) != true
+    }
+
+    private fun calculateEffectiveHomeLimit(visibleTokenCount: Int): Int =
+        if (visibleTokenCount == currentHomeAssetsLimit + 1) {
+            visibleTokenCount
+        } else {
+            currentHomeAssetsLimit
+        }
+
+    private fun shouldShowAllRow(visibleTokenCount: Int, limit: Int): Boolean = mode == Mode.HOME &&
+        visibleTokenCount > 0 &&
+        (visibleTokenCount > limit || currentHomeAssetsLimit > HOME_ASSETS_TOP_LIMITS.first())
+
+    private fun initialHomeHeightFromCache(): Int {
+        if (mode != Mode.HOME) return 0
+        val cachedData = AccountStore.assetsAndActivityData
+        if (cachedData.accountId != showingAccountId) return 0
+        val account = fetchAccount(showingAccountId) ?: return 0
+
+        val visibleTokenCount = cachedData.getAllTokens(
+            addVirtualStakingTokens = true
+        ).count {
+            isTokenVisible(it, account, cachedData)
+        }
+        if (visibleTokenCount == 0) return 0
+        val initialLimit = calculateEffectiveHomeLimit(visibleTokenCount)
+        val hasMore = shouldShowAllRow(visibleTokenCount, initialLimit)
+        return (60 * min(visibleTokenCount, initialLimit)).dp +
+            (if (hasMore) 56 else 0).dp
+    }
+
+    private val rvAdapter =
+        WRecyclerViewAdapter(WeakReference(this), arrayOf(TOKEN_CELL)).apply {
+            setHasStableIds(true)
+        }
+
+    private val scrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+            super.onScrolled(recyclerView, dx, dy)
+            if (dx == 0 && dy == 0) return
+            updateBlurViews(recyclerView)
+            onScroll?.invoke(recyclerView)
+        }
+
+        override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+            super.onScrollStateChanged(recyclerView, newState)
+            if (recyclerView.scrollState != RecyclerView.SCROLL_STATE_IDLE) {
+                updateBlurViews(recyclerView)
+                onScroll?.invoke(recyclerView)
+            }
+        }
+    }
+
+    private val itemAnimator: SelectiveItemAnimator = SelectiveItemAnimator().apply {
+        setAll(WGlobalStorage.getAreAnimationsActive())
+    }
+
+    private val recyclerView: WRecyclerView by lazy {
+        val rv = WRecyclerView(this)
+        rv.adapter = rvAdapter
+        val layoutManager = object : LinearLayoutManager(context) {
+            override fun canScrollVertically() = mode != Mode.HOME && super.canScrollVertically()
+        }
+        layoutManager.isSmoothScrollbarEnabled = true
+        rv.setLayoutManager(layoutManager)
+        if (mode == Mode.ALL) {
+            rv.addItemDecoration(
+                LastItemPaddingDecoration(
+                    navigationController?.getSystemBars()?.bottom ?: 0
+                )
+            )
+        }
+        rv.itemAnimator = itemAnimator
+        if (mode == Mode.ALL) {
+            rv.setPadding(
+                0,
+                (navigationController?.getSystemBars()?.top ?: 0) +
+                    WNavigationBar.DEFAULT_HEIGHT.dp,
+                0,
+                0
+            )
+            rv.clipToPadding = false
+        }
+        rv.addOnScrollListener(scrollListener)
+        rv
+    }
+
+    private val showAllView: ShowAllView by lazy {
+        val v = ShowAllView(context)
+        v.configure(
+            icon = R.drawable.ic_show_assets,
+            text = LocaleController.getString("Show All Assets")
+        )
+        v.onTap = {
+            val window = this.window!!
+            val navVC = WNavigationController(
+                window,
+                WNavigationController.PresentationConfig.PreferredFullScreen
+            )
+            navVC.setRoot(
+                AssetsTabVC(
+                    context,
+                    showingAccountId = showingAccountId,
+                    defaultSelectedIdentifier = AssetsTabVC.TAB_COINS
+                )
+            )
+            window.present(navVC)
+        }
+        v.onMenuTap = { anchorView ->
+            onShowAllMenuTap?.invoke(anchorView) ?: presentHomeTopLimitMenu(anchorView)
+        }
+        v.visibility = View.GONE
+        v.setCounter(null)
+        v
+    }
+
+    private val emptyDataViewLazy = lazy {
+        WEmptyIconTitleSubtitleActionView(context).apply {
+            configure(
+                titleText = LocaleController.getString("No tokens yet"),
+                subtitleText = LocaleController.getString($$"$no_tokens_description"),
+                actionText = LocaleController.getString("Add Tokens"),
+                animation = org.mytonwallet.app_air.uicomponents.R.raw.animation_empty
+            ) {
+                openManageAssets()
+            }
+            isGone = true
+        }
+    }
+    private val emptyDataView by emptyDataViewLazy
+
+    override fun setupViews() {
+        super.setupViews()
+
+        view.addView(recyclerView, ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        if (mode == Mode.HOME) {
+            view.addView(showAllView, ViewGroup.LayoutParams(MATCH_PARENT, 56.dp))
+            showAllView.setupBlurBackground(recyclerView)
+        }
+        view.setConstraints {
+            allEdges(recyclerView)
+            if (mode == Mode.HOME) {
+                toTop(showAllView)
+                toCenterX(showAllView)
+            }
+        }
+
+        if (mode == Mode.ALL) recyclerView.disallowInterceptOnOverscroll()
+
+        WalletCore.registerObserver(this)
+        dataUpdated(forceUpdate = false)
+
+        updateTheme()
+        updateShowAllPosition()
+    }
+
+    private var _isDarkThemeApplied: Boolean? = null
+    override fun updateTheme() {
+        super.updateTheme()
+
+        val darkModeChanged = ThemeManager.isDark != _isDarkThemeApplied
+        if (!darkModeChanged) return
+        _isDarkThemeApplied = ThemeManager.isDark
+
+        if (mode == Mode.HOME) {
+            view.background = null
+            recyclerView.setBackgroundColor(WColor.Background.color)
+            showAllView.updateTheme()
+        } else {
+            view.setBackgroundColor(WColor.SecondaryBackground.color)
+        }
+        if (emptyDataViewLazy.isInitialized()) {
+            emptyDataView.updateTheme()
+        }
+        rvAdapter.reloadData()
+    }
+
+    override fun insetsUpdated() {
+        super.insetsUpdated()
+        if (mode == Mode.ALL) {
+            val hostHandlesSideInsets = segmentedController != null
+            recyclerView.setPaddingRelative(
+                if (hostHandlesSideInsets) 0 else systemBarStartInset,
+                (navigationController?.getSystemBars()?.top ?: 0) +
+                    WNavigationBar.DEFAULT_HEIGHT.dp,
+                if (hostHandlesSideInsets) 0 else systemBarEndInset,
+                navigationController?.bottomInset ?: 0
+            )
+        }
+    }
+
+    fun configure(accountId: String) {
+        if (showingAccountId == accountId) return
+        scope.coroutineContext.cancelChildren()
+        walletTokens = emptyArray()
+        totalVisibleTokensCount = 0
+        showAllView.setCounter(null)
+        rvAdapter.reloadData()
+        prevSize = -1
+        showingAccountId = accountId
+        isShowingAccountMultichain = WGlobalStorage.isMultichain(accountId)
+        currentHomeAssetsLimit = WGlobalStorage.getHomeAssetsTopLimit(accountId)
+        val previousHeight = currentHeight
+        heightAnimator?.cancel()
+        heightAnimator = null
+        currentHeight = initialHomeHeightFromCache()
+        if (currentHeight != previousHeight) {
+            onHeightChanged?.invoke()
+        }
+        dataUpdated(forceUpdate = true)
+    }
+
+    var prevSize = -1
+    private fun dataUpdated(forceUpdate: Boolean) {
+        scope.launch {
+            val accountId = showingAccountId
+            val showingAccount = fetchAccount(accountId) ?: return@launch
+            val isSingleWalletActive = MScreenMode.SingleWallet(accountId).isScreenActive
+
+            if (!forceUpdate && !isSingleWalletActive) {
+                return@launch
+            }
+
+            val cachedAssetsAndActivityData = AccountStore.assetsAndActivityData
+            val assetsAndActivityData = if (cachedAssetsAndActivityData.accountId == accountId) {
+                cachedAssetsAndActivityData
+            } else {
+                MAssetsAndActivityData(accountId)
+            }
+            val newPinnedSlugs = assetsAndActivityData.pinnedTokens.toSet()
+            val allWalletTokens: Array<MTokenBalance> = assetsAndActivityData.getAllTokens(
+                addVirtualStakingTokens = true
+            )
+
+            val filteredWalletTokens = allWalletTokens.filter {
+                isTokenVisible(it, showingAccount, assetsAndActivityData)
+            }
+            withContext(Dispatchers.Main) {
+                pinnedSlugs = newPinnedSlugs
+                totalVisibleTokensCount = filteredWalletTokens.size
+                val limit = calculateEffectiveHomeLimit(totalVisibleTokensCount)
+                val limitChanged = effectiveHomeLimit != limit
+                effectiveHomeLimit = limit
+                walletTokens = filteredWalletTokens.toTypedArray()
+                val moreToShow = shouldShowAllRow(totalVisibleTokensCount, limit)
+                val moreToShowChanged = thereAreMoreToShow != moreToShow
+                thereAreMoreToShow = moreToShow
+                showAllView.setCounter(totalVisibleTokensCount)
+                showAllView.visibility = if (thereAreMoreToShow) View.VISIBLE else View.GONE
+                if (mode == Mode.HOME) {
+                    val bottomPadding = if (moreToShow) 56.dp else 0
+                    if (recyclerView.paddingBottom != bottomPadding) {
+                        recyclerView.clipToPadding = false
+                        recyclerView.setPadding(0, 0, 0, bottomPadding)
+                    }
+                }
+                updateShowAllPosition()
+                updateEmptyTokensState()
+                if (walletTokens.size != prevSize || moreToShowChanged || limitChanged) {
+                    prevSize = walletTokens.size
+                    if (mode == Mode.HOME) {
+                        animateHeight()
+                    } else {
+                        onHeightChanged?.invoke()
+                    }
+                }
+                itemAnimator.with(recyclerView) {
+                    rvAdapter.reloadData()
+                }
+                onAssetsShown?.invoke()
+            }
+        }
+    }
+
+    val calculatedHeight: Int
+        get() {
+            return if (mode == Mode.HOME) {
+                currentHeight
+            } else {
+                finalHeight
+            }
+        }
+
+    private val finalHeight: Int
+        get() {
+            return if (mode == Mode.HOME && walletTokens.isEmpty()) {
+                if (view.width > 0 && emptyDataView.width != view.width) {
+                    emptyDataView.measure(view.width.exactly, view.height.unspecified)
+                    emptyTokensViewHeight = emptyDataView.measuredHeight
+                }
+                emptyTokensViewHeight
+            } else {
+                (60 * homeVisibleRowCount()).dp + (if (thereAreMoreToShow) 56 else 0).dp
+            }
+        }
+
+    private fun homeVisibleRowCount(): Int = if (mode == Mode.HOME) {
+        min(
+            walletTokens.size,
+            effectiveHomeLimit
+        )
+    } else {
+        walletTokens.size
+    }
+
+    private fun animateHeight() {
+        if (mode != Mode.HOME) {
+            return
+        }
+        val targetHeight = finalHeight
+        val startHeight = currentHeight
+        if (startHeight == 0) {
+            currentHeight = targetHeight
+            onHeightChanged?.invoke()
+            return
+        }
+        if (startHeight == targetHeight) {
+            return
+        }
+        heightAnimator?.cancel()
+        if (!WGlobalStorage.getAreAnimationsActive()) {
+            currentHeight = targetHeight
+            onHeightChanged?.invoke()
+            return
+        }
+        heightAnimator = ValueAnimator.ofInt(startHeight, targetHeight).apply {
+            duration = AnimationConstants.VERY_QUICK_ANIMATION
+            interpolator = CubicBezierInterpolator.EASE_BOTH
+            addUpdateListener { animator ->
+                currentHeight = animator.animatedValue as Int
+                onHeightChanged?.invoke()
+            }
+            start()
+        }
+    }
+
+    private var prevShowAllViewToTop = -1
+    private fun updateShowAllPosition() {
+        if (mode != Mode.HOME) {
+            return
+        }
+        if (showAllView.parent !== view) return
+        if (window?.isWideLayout == true) {
+            if (prevShowAllViewToTop == -2) return
+            prevShowAllViewToTop = -2
+            view.setConstraints {
+                clear(showAllView.id, ConstraintSet.TOP)
+                toBottom(showAllView)
+            }
+            return
+        }
+        val newShowAllViewToTop = (60 * homeVisibleRowCount()).dp
+        if (prevShowAllViewToTop == newShowAllViewToTop) {
+            return
+        }
+        prevShowAllViewToTop = newShowAllViewToTop
+        view.setConstraints {
+            toTopPx(showAllView, newShowAllViewToTop)
+        }
+    }
+
+    override fun onWalletEvent(walletEvent: WalletEvent) {
+        when (walletEvent) {
+            WalletEvent.BalanceChanged,
+            WalletEvent.AssetsAndActivityDataUpdated,
+            is WalletEvent.AccountChanged,
+            WalletEvent.StakingDataUpdated -> {
+                dataUpdated(forceUpdate = false)
+            }
+
+            WalletEvent.TokensChanged, WalletEvent.BaseCurrencyChanged -> {
+                dataUpdated(forceUpdate = true)
+            }
+
+            else -> {}
+        }
+    }
+
+    override fun recyclerViewNumberOfSections(rv: RecyclerView): Int = 1
+
+    private val displayedTokensCount: Int
+        get() = if (mode == Mode.HOME && window?.isWideLayout != true) {
+            min(walletTokens.size, homeVisibleRowCount())
+        } else {
+            walletTokens.size
+        }
+
+    override fun recyclerViewNumberOfItems(rv: RecyclerView, section: Int): Int =
+        displayedTokensCount
+
+    override fun recyclerViewCellType(rv: RecyclerView, indexPath: IndexPath): WCell.Type =
+        TOKEN_CELL
+
+    override fun recyclerViewCellView(rv: RecyclerView, cellType: WCell.Type): WCell {
+        when (cellType) {
+            TOKEN_CELL -> {
+                val cell = TokenCell(context, mode)
+                cell.onTap = { tokenBalance ->
+                    val token = TokenStore.getToken(tokenBalance.token)
+                    token?.let {
+                        if (tokenBalance.isVirtualStakingRow) {
+                            val navVC = WNavigationController(
+                                window!!,
+                                WNavigationController.PresentationConfig.PreferredFullScreen
+                            )
+                            navVC.setRoot(EarnRootVC(context, tokenSlug = token.slug))
+                            window?.present(navVC)
+                            return@let
+                        }
+                        val account = AccountStore.activeAccount ?: return@let
+                        val tokenVC = TokenVC(context, account, it)
+                        val targetNavigationController =
+                            navigationController?.tabBarController?.mainNavigationController
+                                ?: navigationController
+                        targetNavigationController?.push(tokenVC)
+                    }
+                }
+                cell.onLongPress = { tokenBalance ->
+                    TokenStore.getToken(tokenBalance.token)?.let { token ->
+                        onTokenPressed(cell, tokenBalance, token)
+                    }
+                }
+                return cell
+            }
+
+            else -> {
+                throw Exception()
+            }
+        }
+    }
+
+    override fun recyclerViewConfigureCell(
+        rv: RecyclerView,
+        cellHolder: WCell.Holder,
+        indexPath: IndexPath
+    ) {
+        val tokenBalance = walletTokens[indexPath.row]
+        val isPinned = tokenBalance.virtualStakingToken?.let { pinnedSlugs.contains(it) } == true
+        (cellHolder.cell as TokenCell).configure(
+            showingAccountId,
+            isShowingAccountMultichain,
+            tokenBalance,
+            isPinned,
+            isFirst = mode == Mode.ALL && indexPath.row == 0 && isScreenFullyVisible,
+            isLast = indexPath.row == displayedTokensCount - 1 && !thereAreMoreToShow
+        )
+    }
+
+    override fun recyclerViewCellItemId(rv: RecyclerView, indexPath: IndexPath): String? =
+        walletTokens.getOrNull(indexPath.row)?.virtualStakingToken
+
+    override fun onDestroy() {
+        super.onDestroy()
+        scope.cancel()
+        queueDispatcher.close()
+        heightAnimator?.cancel()
+        WalletCore.unregisterObserver(this)
+        recyclerView.onDestroy()
+        recyclerView.adapter = null
+        recyclerView.removeAllViews()
+        showAllView.onTap = null
+        showAllView.onMenuTap = null
+    }
+
+    override fun onFullyVisible() {
+        updateScreenVisibility(true)
+    }
+
+    override fun onPartiallyVisible() {
+        updateScreenVisibility(false)
+    }
+
+    private fun updateScreenVisibility(isFullyVisible: Boolean) {
+        isScreenFullyVisible = isFullyVisible
+        if (walletTokens.isNotEmpty()) {
+            rvAdapter.notifyItemChanged(0)
+        }
+    }
+
+    private fun updateEmptyTokensState() {
+        val shouldShowEmptyState = walletTokens.isEmpty()
+        if (shouldShowEmptyState != isEmptyStateVisible) {
+            isEmptyStateVisible = shouldShowEmptyState
+            onHeightChanged?.invoke()
+        }
+        if (shouldShowEmptyState) {
+            ensureEmptyDataViewAdded()
+        }
+        if (emptyDataViewLazy.isInitialized()) {
+            emptyDataView.isVisible = shouldShowEmptyState
+        }
+        recyclerView.isGone = shouldShowEmptyState
+        onHeightChanged?.invoke()
+    }
+
+    private fun ensureEmptyDataViewAdded() {
+        if (emptyDataView.parent != null) {
+            return
+        }
+        view.addView(emptyDataView, ViewGroup.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        view.constraintSet().apply {
+            toCenterX(emptyDataView)
+            if (mode == Mode.HOME) {
+                toTop(emptyDataView)
+            } else {
+                toCenterY(emptyDataView)
+            }
+        }.layout()
+        emptyDataView.updateTheme()
+        if (mode == Mode.HOME && view.width == 0) {
+            view.doOnLayout {
+                if (walletTokens.isEmpty()) {
+                    animateHeight()
+                }
+            }
+        }
+    }
+
+    fun setHomeAssetsTopLimit(limit: Int) {
+        if (mode != Mode.HOME) {
+            return
+        }
+        val safeLimit =
+            if (HOME_ASSETS_TOP_LIMITS.contains(limit)) limit else HOME_ASSETS_TOP_LIMITS.first()
+        if (safeLimit == currentHomeAssetsLimit) {
+            return
+        }
+        val isReducing = safeLimit < currentHomeAssetsLimit
+        currentHomeAssetsLimit = safeLimit
+        WGlobalStorage.setHomeAssetsTopLimit(showingAccountId, safeLimit)
+        dataUpdated(forceUpdate = true)
+        if (isReducing) {
+            onScrollToVisibleRequested?.invoke()
+        }
+    }
+
+    fun presentHomeTopLimitMenu(anchorView: View) {
+        if (mode != Mode.HOME) {
+            return
+        }
+        currentHomeAssetsLimit = WGlobalStorage.getHomeAssetsTopLimit(showingAccountId)
+        WMenuPopup.present(
+            anchorView,
+            buildHomeTopLimitItems(),
+            popupWidth = WRAP_CONTENT,
+            positioning = WMenuPopup.Positioning.ALIGNED,
+            centerHorizontally = true,
+            windowBackgroundStyle = WMenuPopup.BackgroundStyle.Cutout.fromView(
+                anchorView,
+                roundRadius = 16f.dp
+            ),
+            backdropStyle = WMenuPopup.BackdropStyle.Transparent,
+            usePillShadow = true
+        )
+    }
+
+    fun presentHomeAssetsMenu(anchorView: View, onReorderTapped: (() -> Unit)? = null) {
+        if (mode != Mode.HOME) {
+            return
+        }
+        currentHomeAssetsLimit = WGlobalStorage.getHomeAssetsTopLimit(showingAccountId)
+        val items = buildHomeTopLimitItems().toMutableList()
+        if (items.isNotEmpty()) {
+            items[items.lastIndex].hasSeparator = true
+        }
+        items.add(
+            WMenuPopup.Item(
+                WMenuPopup.Item.Config.Item(
+                    icon = WMenuPopup.Item.Config.Icon(
+                        R.drawable.ic_plus_30,
+                        WColor.PrimaryLightText
+                    ),
+                    title = LocaleController.getString("Add Token")
+                )
+            ) {
+                openAddToken()
+            }
+        )
+        items.add(
+            WMenuPopup.Item(
+                WMenuPopup.Item.Config.Item(
+                    icon = WMenuPopup.Item.Config.Icon(
+                        R.drawable.ic_manage_30,
+                        WColor.PrimaryLightText
+                    ),
+                    title = LocaleController.getString("Manage Assets")
+                ),
+                hasSeparator = onReorderTapped != null
+            ) {
+                openManageAssets()
+            }
+        )
+        if (onReorderTapped != null) {
+            items.add(
+                WMenuPopup.Item(
+                    WMenuPopup.Item.Config.Item(
+                        icon = WMenuPopup.Item.Config.Icon(
+                            R.drawable.ic_reorder,
+                            WColor.PrimaryLightText
+                        ),
+                        title = LocaleController.getString("Reorder Tabs")
+                    ),
+                    hasSeparator = false
+                ) {
+                    onReorderTapped()
+                }
+            )
+        }
+        WMenuPopup.present(
+            anchorView,
+            items,
+            popupWidth = WRAP_CONTENT,
+            positioning = WMenuPopup.Positioning.BELOW,
+            centerHorizontally = true,
+            windowBackgroundStyle = WMenuPopup.BackgroundStyle.Cutout.fromView(
+                anchorView,
+                roundRadius = 16f.dp
+            )
+        )
+    }
+
+    private fun buildHomeTopLimitItems(): List<WMenuPopup.Item> =
+        HOME_ASSETS_TOP_LIMITS.mapIndexed {
+                index,
+                option
+            ->
+            WMenuPopup.Item(
+                WMenuPopup.Item.Config.SelectableItem(
+                    title = LocaleController.getString("Top $option"),
+                    subtitle = null,
+                    isSelected = currentHomeAssetsLimit == option
+                ),
+                hasSeparator = false
+            ) {
+                setHomeAssetsTopLimit(option)
+            }.apply {
+                if (index == HOME_ASSETS_TOP_LIMITS.lastIndex) {
+                    hasSeparator = false
+                }
+            }
+        }
+
+    private fun onTokenPressed(tokenView: View, tokenBalance: MTokenBalance, token: MToken) {
+        val items = buildActions(tokenBalance, token)
+        if (items.isEmpty()) {
+            return
+        }
+        WMenuPopup.present(
+            tokenView,
+            items = items,
+            popupWidth = WRAP_CONTENT,
+            positioning = WMenuPopup.Positioning.BELOW,
+            centerHorizontally = true,
+            windowBackgroundStyle = WMenuPopup.BackgroundStyle.Cutout(
+                tokenView.frameAsPath(
+                    ViewConstants.BLOCK_RADIUS.dp
+                )
+            )
+        )
+    }
+
+    private fun buildActions(tokenBalance: MTokenBalance, token: MToken): List<WMenuPopup.Item> {
+        val accountType = _showingAccount?.accountType ?: return emptyList()
+        return if (accountType != MAccount.AccountType.VIEW) {
+            buildUserAccountActions(tokenBalance, token)
+        } else {
+            emptyList()
+        }.toMutableList().apply {
+            val isPinned =
+                tokenBalance.virtualStakingToken?.let { pinnedSlugs.contains(it) } == true
+            if (isPinned) {
+                add(
+                    WMenuPopup.Item(
+                        R.drawable.ic_unpin_30,
+                        LocaleController.getString("Unpin")
+                    ) { unPin(tokenBalance) }
+                )
+            } else {
+                add(
+                    WMenuPopup.Item(
+                        R.drawable.ic_pin_30,
+                        LocaleController.getString("Pin")
+                    ) { pin(tokenBalance) }
+                )
+            }
+            add(
+                WMenuPopup.Item(
+                    R.drawable.ic_manage_30,
+                    LocaleController.getString("Manage Assets")
+                ) { openManageAssets() }
+            )
+        }
+    }
+
+    private fun buildUserAccountActions(
+        tokenBalance: MTokenBalance,
+        token: MToken
+    ): List<WMenuPopup.Item> {
+        val actions = if (tokenBalance.isVirtualStakingRow) {
+            buildStakingActions(tokenBalance)
+        } else {
+            buildTokenActions(token)
+        }.toMutableList()
+        actions.last().hasSeparator = true
+        return actions
+    }
+
+    private fun buildTokenActions(token: MToken): List<WMenuPopup.Item> {
+        val actions: MutableList<WMenuPopup.Item> = mutableListOf()
+        actions.add(
+            WMenuPopup.Item(
+                R.drawable.ic_plus_30,
+                LocaleController.getString("Add")
+            ) { openAdd(token) }
+        )
+        actions.add(
+            WMenuPopup.Item(
+                R.drawable.ic_arrow_up_thin_30,
+                LocaleController.getString("Send")
+            ) { openSend(token) }
+        )
+        actions.add(
+            WMenuPopup.Item(
+                R.drawable.ic_swap_30,
+                LocaleController.getString("Swap")
+            ) { openSwap(token) }
+        )
+        if (token.isEarnAvailable) {
+            val hasActiveStaking = AccountStore.stakingData?.hasActiveStaking(token.slug) == true
+            actions.add(
+                WMenuPopup.Item(
+                    R.drawable.ic_stake_30,
+                    LocaleController.getString("Stake")
+                ) { openStake(token, hasActiveStaking) }
+            )
+        }
+        return actions
+    }
+
+    private fun buildStakingActions(tokenBalance: MTokenBalance): List<WMenuPopup.Item> {
+        val actions = mutableListOf<WMenuPopup.Item>()
+        if (TokenStore.getToken(tokenBalance.token)?.isEarnAvailable == true) {
+            actions.add(
+                WMenuPopup.Item(
+                    R.drawable.ic_arrow_up_thin_30,
+                    LocaleController.getString("Stake More")
+                ) { stakeMore(tokenBalance) }
+            )
+        }
+        actions.add(
+            WMenuPopup.Item(
+                R.drawable.ic_arrow_down_thin_30,
+                LocaleController.getString("Unstake")
+            ) { unstake(tokenBalance) }
+        )
+        val stakingState = AccountStore.stakingData?.stakingState(tokenBalance.token)
+        if (ClaimRewardsHelper.canClaimRewards(stakingState)) {
+            actions.add(
+                WMenuPopup.Item(
+                    R.drawable.ic_diamond_30,
+                    LocaleController.getString("Claim Rewards")
+                ) { claimRewards(tokenBalance) }
+            )
+        }
+        return actions
+    }
+
+    private fun openAdd(token: MToken) {
+        val window = this.window ?: return
+        val chain = MBlockchain.valueOfOrNull(token.chain) ?: return
+        val receiveVC = ReceiveVC.createIfAvailable(context, chain) ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            setRoot(receiveVC)
+        }
+        window.present(navVC)
+    }
+
+    private fun openSend(token: MToken) {
+        val window = this.window ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            setRoot(SendVC(context, token.slug))
+        }
+        window.present(navVC)
+    }
+
+    private fun openSwap(token: MToken) {
+        val window = this.window ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        )
+        navVC.setRoot(
+            SwapVC(
+                context,
+                defaultSendingToken = MApiSwapAsset.from(token)
+            )
+        )
+        window.present(navVC)
+    }
+
+    private fun openStake(token: MToken, hasActiveStaking: Boolean) {
+        val window = this.window ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            if (hasActiveStaking) {
+                setRoot(EarnRootVC(context, token.slug))
+            } else {
+                setRoot(StakingVC(context, token.slug, StakingViewModel.Mode.STAKE))
+            }
+        }
+        window.present(navVC)
+    }
+
+    private fun openManageAssets() {
+        val window = this.window ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            setRoot(AssetsAndActivitiesVC(context))
+        }
+        window.present(navVC)
+    }
+
+    private fun openAddToken() {
+        val window = this.window ?: return
+        val account = fetchAccount(showingAccountId) ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            setRoot(
+                TokenSelectorHelper.buildAddTokenSelector(
+                    context = context,
+                    account = account
+                )
+            )
+        }
+        window.present(navVC)
+    }
+
+    private fun pin(tokenBalance: MTokenBalance) {
+        updatePinnedToken(tokenBalance, shouldPin = true)
+    }
+
+    private fun unPin(tokenBalance: MTokenBalance) {
+        updatePinnedToken(tokenBalance, shouldPin = false)
+    }
+
+    private fun stakeMore(tokenBalance: MTokenBalance) {
+        val token = tokenBalance.token ?: return
+        val window = this.window ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            setRoot(StakingVC(context, token, StakingViewModel.Mode.STAKE))
+        }
+        window.present(navVC)
+    }
+
+    private fun unstake(tokenBalance: MTokenBalance) {
+        val token = tokenBalance.token ?: return
+        val window = this.window ?: return
+        val navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        ).apply {
+            setRoot(StakingVC(context, token, StakingViewModel.Mode.UNSTAKE))
+        }
+        window.present(navVC)
+    }
+
+    private fun claimRewards(tokenBalance: MTokenBalance) {
+        val tokenSlug = tokenBalance.token ?: return
+        val stakingState = AccountStore.stakingData?.stakingState(tokenSlug) ?: return
+        ClaimRewardsHelper.presentClaimRewards(
+            viewController = this,
+            tokenSlug = tokenSlug,
+            stakingState = stakingState,
+            amountToClaim = stakingState.amountToClaim,
+            onError = { error ->
+                showError(error)
+            }
+        )
+    }
+
+    private fun updatePinnedToken(tokenBalance: MTokenBalance, shouldPin: Boolean) {
+        val accountId = showingAccountId
+        if (AccountStore.activeAccountId != accountId) {
+            return
+        }
+        val virtualStakingSlug = tokenBalance.virtualStakingToken ?: return
+        val currentData = AccountStore.assetsAndActivityData
+        val pinned = currentData.pinnedTokens.toMutableList()
+        val isPinned = pinned.contains(virtualStakingSlug)
+        if (shouldPin == isPinned) {
+            return
+        }
+        pinned.removeAll { it == virtualStakingSlug }
+        if (shouldPin) {
+            pinned.add(0, virtualStakingSlug)
+        }
+        currentData.pinnedTokens = ArrayList(pinned)
+        AccountStore.updateAssetsAndActivityData(
+            newValue = currentData,
+            notify = true,
+            saveToStorage = true
+        )
+    }
+}

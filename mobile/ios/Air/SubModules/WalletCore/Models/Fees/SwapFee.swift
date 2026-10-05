@@ -1,0 +1,253 @@
+import WalletContext
+import WalletCoreTypes
+
+public struct ExplainSwapFeeInput {
+    public var swapType: SwapType
+    public var tokenIn: ApiToken
+    public var networkFee: MDouble?
+    public var realNetworkFee: MDouble?
+    public var dieselStatus: DieselStatus?
+    public var dieselFee: MDouble?
+    public var nativeTokenInBalance: BigInt?
+    
+    public init(
+        swapType: SwapType,
+        tokenIn: ApiToken,
+        networkFee: MDouble?,
+        realNetworkFee: MDouble?,
+        dieselStatus: DieselStatus?,
+        dieselFee: MDouble?,
+        nativeTokenInBalance: BigInt?
+    ) {
+        self.swapType = swapType
+        self.tokenIn = tokenIn
+        self.networkFee = networkFee
+        self.realNetworkFee = realNetworkFee
+        self.dieselStatus = dieselStatus
+        self.dieselFee = dieselFee
+        self.nativeTokenInBalance = nativeTokenInBalance
+    }
+}
+
+public struct MaxSwapAmountInput {
+    public var swapType: SwapType
+    public var tokenBalance: BigInt?
+    public var tokenIn: ApiToken?
+    public var fullNetworkFee: MFee.FeeTerms?
+    public var maxAmountFromBackend: BigInt?
+
+    public init(
+        swapType: SwapType,
+        tokenBalance: BigInt? = nil,
+        tokenIn: ApiToken? = nil,
+        fullNetworkFee: MFee.FeeTerms? = nil,
+        maxAmountFromBackend: BigInt? = nil
+    ) {
+        self.swapType = swapType
+        self.tokenBalance = tokenBalance
+        self.tokenIn = tokenIn
+        self.fullNetworkFee = fullNetworkFee
+        self.maxAmountFromBackend = maxAmountFromBackend
+    }
+}
+
+public struct SwapFeeDetails: Equatable, Hashable, Codable, Sendable {
+    public var precision: MFee.FeePrecision
+    public var terms: MFee.FeeTerms
+    public var networkTerms: MFee.FeeTerms
+    
+    public init(precision: MFee.FeePrecision, terms: MFee.FeeTerms, networkTerms: MFee.FeeTerms) {
+        self.precision = precision
+        self.terms = terms
+        self.networkTerms = networkTerms
+    }
+}
+
+public struct ExplainedSwapFee: Equatable, Hashable, Codable, Sendable {
+    public var isGasless: Bool
+    public var fullFee: SwapFeeDetails?
+    public var realFee: SwapFeeDetails?
+    public var fullNetworkFee: MFee?
+    public var realNetworkFee: MFee?
+    public var excessFee: BigInt?
+    
+    public init(
+        isGasless: Bool,
+        fullFee: SwapFeeDetails? = nil,
+        realFee: SwapFeeDetails? = nil,
+        fullNetworkFee: MFee? = nil,
+        realNetworkFee: MFee? = nil,
+        excessFee: BigInt? = nil
+    ) {
+        self.isGasless = isGasless
+        self.fullFee = fullFee
+        self.realFee = realFee
+        self.fullNetworkFee = fullNetworkFee
+        self.realNetworkFee = realNetworkFee
+        self.excessFee = excessFee
+    }
+    
+    public var networkFeeDetails: ExplainedTransferFee? {
+        guard fullNetworkFee != nil || realNetworkFee != nil else { return nil }
+        return ExplainedTransferFee(
+            isGasless: isGasless,
+            canTransferFullBalance: false,
+            fullFee: fullNetworkFee,
+            realFee: realNetworkFee,
+            excessFee: excessFee
+        )
+    }
+}
+
+public func explainSwapFee(_ input: ExplainSwapFeeInput) -> ExplainedSwapFee {
+    let tokenIn = input.tokenIn
+    let nativeToken = TokenStore.tokens[tokenIn.nativeTokenSlug]
+    let nativeDecimals = nativeToken?.decimals ?? 0
+    let networkFee = input.networkFee.map { doubleToBigInt($0.value, decimals: nativeDecimals) }
+    let realNetworkFee = input.realNetworkFee.map { doubleToBigInt($0.value, decimals: nativeDecimals) }
+    let isStarsDiesel = input.dieselStatus == .starsFee
+    let dieselDecimals = isStarsDiesel ? 0 : tokenIn.decimals
+    let dieselFee = input.dieselFee.map { doubleToBigInt($0.value, decimals: dieselDecimals) }
+    let nativeTokenInBalance = input.nativeTokenInBalance
+    let excessFee: BigInt? = if let networkFee, let realNetworkFee {
+        max(.zero, networkFee - realNetworkFee)
+    } else {
+        nil
+    }
+    let isExact = excessFee == .zero
+    
+    if shouldSwapBeGasless(
+        swapType: input.swapType,
+        tokenIn: tokenIn,
+        networkFee: networkFee,
+        dieselStatus: input.dieselStatus,
+        nativeTokenInBalance: nativeTokenInBalance
+    ) {
+        return explainGaslessSwapFee(
+            networkFee: networkFee,
+            realNetworkFee: realNetworkFee,
+            dieselFee: dieselFee,
+            nativeTokenInBalance: nativeTokenInBalance,
+            isExact: isExact,
+            isStarsDiesel: isStarsDiesel
+        )
+    }
+    
+    return explainGasfullSwapFee(
+        networkFee: networkFee,
+        realNetworkFee: realNetworkFee,
+        isExact: isExact
+    )
+}
+
+public func getMaxSwapAmount(_ input: MaxSwapAmountInput) -> BigInt? {
+    if let maxAmountFromBackend = input.maxAmountFromBackend {
+        return maxAmountFromBackend
+    }
+
+    guard input.swapType.cexTopology != .toWallet, let tokenBalance = input.tokenBalance else {
+        return nil
+    }
+
+    var maxAmount = tokenBalance
+
+    if let fullNetworkFee = input.fullNetworkFee {
+        guard let tokenIn = input.tokenIn else {
+            return nil
+        }
+
+        if input.swapType.route == .cex {
+            maxAmount -= fullNetworkFee.token ?? .zero
+        }
+
+        if tokenIn.isNative {
+            maxAmount -= fullNetworkFee.native ?? .zero
+        }
+    }
+
+    return max(.zero, maxAmount)
+}
+
+private func explainGasfullSwapFee(
+    networkFee: BigInt?,
+    realNetworkFee: BigInt?,
+    isExact: Bool
+) -> ExplainedSwapFee {
+    var result = ExplainedSwapFee(isGasless: false)
+    if let networkFee {
+        let networkTerms = MFee.FeeTerms(token: nil, native: networkFee, stars: nil)
+        let fullPrecision: MFee.FeePrecision = isExact ? .exact : .lessThan
+        result.fullFee = .init(precision: fullPrecision, terms: networkTerms, networkTerms: networkTerms)
+        result.fullNetworkFee = .init(precision: fullPrecision, terms: networkTerms, nativeSum: networkFee)
+    }
+    if let realNetworkFee {
+        let networkTerms = MFee.FeeTerms(token: nil, native: realNetworkFee, stars: nil)
+        let realPrecision: MFee.FeePrecision = isExact ? .exact : .approximate
+        result.realFee = .init(precision: realPrecision, terms: networkTerms, networkTerms: networkTerms)
+        result.realNetworkFee = .init(precision: realPrecision, terms: networkTerms, nativeSum: realNetworkFee)
+    }
+    if let networkFee, let realNetworkFee {
+        result.excessFee = max(.zero, networkFee - realNetworkFee)
+    }
+    return result
+}
+
+private func explainGaslessSwapFee(
+    networkFee: BigInt?,
+    realNetworkFee: BigInt?,
+    dieselFee: BigInt?,
+    nativeTokenInBalance: BigInt?,
+    isExact: Bool,
+    isStarsDiesel: Bool
+) -> ExplainedSwapFee {
+    var result = ExplainedSwapFee(isGasless: true)
+    guard let networkFee, let dieselFee, let nativeTokenInBalance else {
+        return result
+    }
+    let dieselKeyTerms = MFee.FeeTerms(
+        token: isStarsDiesel ? nil : dieselFee,
+        native: nativeTokenInBalance,
+        stars: isStarsDiesel ? dieselFee : nil
+    )
+    let fullPrecision: MFee.FeePrecision = isExact ? .exact : .lessThan
+    result.fullFee = .init(precision: fullPrecision, terms: dieselKeyTerms, networkTerms: dieselKeyTerms)
+    result.realFee = result.fullFee
+    result.fullNetworkFee = .init(precision: fullPrecision, terms: dieselKeyTerms, nativeSum: networkFee)
+    
+    if let realNetworkFee {
+        let networkFeeCoveredByDiesel = max(.zero, networkFee - nativeTokenInBalance)
+        let realFeeInDiesel = convertFee(
+            amount: realNetworkFee,
+            exampleFromAmount: networkFeeCoveredByDiesel,
+            exampleToAmount: dieselFee
+        )
+        let dieselRealFee = min(dieselFee, realFeeInDiesel)
+        let nativeRealFee = max(.zero, realNetworkFee - networkFeeCoveredByDiesel)
+        let realNetworkTerms = MFee.FeeTerms(
+            token: isStarsDiesel ? nil : dieselRealFee,
+            native: nativeRealFee,
+            stars: isStarsDiesel ? dieselRealFee : nil
+        )
+        let realPrecision: MFee.FeePrecision = isExact ? .exact : .approximate
+        result.realFee = .init(precision: realPrecision, terms: realNetworkTerms, networkTerms: realNetworkTerms)
+        result.realNetworkFee = .init(precision: realPrecision, terms: realNetworkTerms, nativeSum: realNetworkFee)
+    }
+    if let realNetworkFee {
+        result.excessFee = max(.zero, networkFee - realNetworkFee)
+    }
+    return result
+}
+
+private func shouldSwapBeGasless(
+    swapType: SwapType,
+    tokenIn: ApiToken,
+    networkFee: BigInt?,
+    dieselStatus: DieselStatus?,
+    nativeTokenInBalance: BigInt?
+) -> Bool {
+    guard swapType.route == .dex else { return false }
+    guard !tokenIn.isNative else { return false }
+    guard let dieselStatus, dieselStatus != .notAvailable else { return false }
+    guard let networkFee, let nativeTokenInBalance else { return false }
+    return nativeTokenInBalance < networkFee
+}

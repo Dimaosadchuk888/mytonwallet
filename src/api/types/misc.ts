@@ -1,0 +1,548 @@
+import type { NftItem } from 'tonapi-sdk-js';
+import type { Base58EncodedBytes } from '@solana/kit';
+
+import type { LangCode } from '../../global/types';
+import type { AgentOverride } from '../../util/agent/agentOverride';
+import type { ApiTonWalletVersion } from '../chains/ton/types';
+import type { DappProtocolType } from '../dappProtocols';
+import type { ApiStorageConfig } from '../storages/types';
+import type { ApiTransactionActivity } from './activities';
+import type { ApiParsedPayload } from './payload';
+import type { ApiSseOptions, ApiWalletByChain } from './storage';
+import type { ApiUpdatingStatus } from './updates';
+
+export type EVMChain =
+  'ethereum'
+  | 'base'
+  | 'bnb'
+  | 'polygon'
+  | 'arbitrum'
+  | 'monad'
+  | 'avalanche'
+  | 'hyperliquid'
+  | 'robinhood';
+export type ApiChain = 'ton' | 'tron' | 'solana' | EVMChain;
+export type ApiNetwork = 'mainnet' | 'testnet';
+export type ApiLedgerDriver = 'HID' | 'USB';
+export type ApiTokenType = 'lp_token' | 'legacy_token' | 'token_2022';
+export type ApiDappConnectionType = 'connect' | 'sendTransaction' | 'signData';
+
+export interface AccountIdParsed {
+  id: number;
+  network: ApiNetwork;
+}
+
+export interface ApiInitArgs {
+  isElectron?: boolean;
+  isIosApp?: boolean;
+  isAndroidApp?: boolean;
+  agentOverride?: AgentOverride;
+  langCode?: LangCode;
+  referrer?: string;
+  channel?: string;
+  attributionKind?: 'utm' | 'referrer';
+  referrerDomain?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+  accountIds?: string[];
+  storage?: ApiStorageConfig;
+}
+
+export interface ApiToken {
+  name: string;
+  localizedName?: string;
+  symbol: string;
+  slug: string;
+  decimals: number;
+  chain: ApiChain;
+  type?: ApiTokenType;
+  tokenAddress?: string;
+  tokenWalletAddress?: string;
+  image?: string;
+  isPopular?: boolean;
+  keywords?: string[];
+  cmcSlug?: string;
+  color?: string;
+  isGaslessEnabled?: boolean;
+  isStarsEnabled?: boolean;
+  isTiny?: boolean;
+  customPayloadApiUrl?: string;
+  codeHash?: string;
+  /** A small dim label to show in the UI right after the token name */
+  label?: string;
+  /* Means the token is fetched from the backend by default and already includes price
+  and other details (`ApiTokenPriceDetails`), so no separate requests are needed. */
+  isFromBackend?: boolean;
+}
+
+export type ApiTokenWithPrice = ApiToken & {
+  priceUsd: number;
+  percentChange24h: number;
+};
+
+export type ApiTokenWithMaybePrice = ApiToken & {
+  priceUsd: undefined | ApiTokenWithPrice['priceUsd'];
+  percentChange24h: undefined | ApiTokenWithPrice['percentChange24h'];
+};
+
+export type ApiKnownAddresses = Record<string, ApiKnownAddressInfo>;
+
+export interface ApiKnownAddressInfo {
+  name?: string;
+  isScam?: boolean;
+  isMemoRequired?: boolean;
+}
+
+export interface ApiNftSuperCollection {
+  id: string;
+  name: string;
+  icon?: 'gift';
+}
+
+export type ApiActivityTimestamps = Record<string, number | undefined>;
+export type ApiTransactionType = 'stake' | 'unstake' | 'unstakeRequest'
+  | 'callContract' | 'approval' | 'excess' | 'contractDeploy' | 'bounced'
+  | 'mint' | 'burn' | 'auctionBid' | 'nftTrade'
+  | 'dnsChangeAddress' | 'dnsChangeSite' | 'dnsChangeSubdomains' | 'dnsChangeStorage' | 'dnsDelete' | 'dnsRenew'
+  | 'liquidityDeposit' | 'liquidityWithdraw'
+  | undefined;
+
+export interface ApiTransaction extends BaseApiTransaction {
+  timestamp: number;
+  comment?: string;
+  encryptedComment?: string;
+  /** Trace external message hash normalized. Only for TON. */
+  externalMsgHashNorm?: string;
+  shouldHide?: boolean;
+  type?: ApiTransactionType;
+  isApprovalUnlimited?: boolean;
+  metadata?: ApiTransactionMetadata;
+  nft?: ApiNft;
+  /**
+   * Transaction confirmation status
+   * Both 'pendingTrusted' and 'pending' mean the transaction is awaiting confirmation by the blockchain.
+   * - 'pendingTrusted' — awaiting confirmation and trusted (initiated by our app)
+   * - 'pending' — awaiting confirmation from an external/unauthenticated source, like TonConnect emulation
+   * - 'confirmed' — included in a shardblock but not yet finalized in the masterchain
+   */
+  status: 'pending' | 'pendingTrusted' | 'confirmed' | 'completed' | 'failed';
+}
+
+export interface BaseApiTransaction {
+  /** The amount to show in the UI (may mismatch the actual attached TON amount) */
+  amount: bigint;
+  fromAddress: string;
+  toAddress: string;
+  slug: string;
+  isIncoming: boolean;
+  normalizedAddress: string; // Only for TON now
+  /**
+   * The fee to show in the UI (not the same as the network fee). When not 0, should be shown even for incoming
+   * transactions. It means that there was a hidden outgoing transaction with the given fee.
+   */
+  fee: bigint;
+}
+
+export type ApiTransactionMetadata = ApiKnownAddressInfo;
+
+export type ApiMtwCardType = 'black' | 'platinum' | 'gold' | 'silver' | 'standard';
+export type ApiMtwCardTextType = 'light' | 'dark';
+export type ApiMtwCardBorderShineType = 'up' | 'down' | 'left' | 'right' | 'radioactive';
+
+export interface ApiNftAttribute {
+  trait_type: string;
+  value: string;
+}
+
+export interface ApiNftMetadata {
+  attributes?: ApiNftAttribute[];
+  lottie?: string;
+  imageUrl?: string;
+  fragmentUrl?: string;
+  mtwCardId?: number;
+  mtwCardType?: ApiMtwCardType;
+  mtwCardTextType?: ApiMtwCardTextType;
+  mtwCardBorderShineType?: ApiMtwCardBorderShineType;
+}
+
+export type EvmNftInterface = 'ERC721' | 'ERC1155';
+export type SolanaNftInterface = 'compressed' | 'mplCore';
+
+export type ApiNftInterface = EvmNftInterface | SolanaNftInterface | 'default';
+
+export interface ApiNft {
+  chain: ApiChain;
+  index: number;
+  ownerAddress?: string;
+  name?: string;
+  address: string;
+  // An indexer preview, which is already the outcome of its moderation. The raw metadata URL is used
+  // only for the collections whose author is known: the whitelisted ones and our own cards.
+  // Absent means there is no such source, and the UI shows a placeholder instead of the raw URL,
+  // which points to a host the NFT author controls
+  thumbnail?: string;
+  image?: string;
+  description?: string;
+  collectionName?: string;
+  collectionAddress?: string;
+  isOnSale: boolean;
+  isHidden?: boolean;
+  isOnFragment?: boolean;
+  isTelegramGift?: boolean;
+  isScam?: boolean;
+  /** Set when the collection matched no trust signal. Absent means the NFT is verified or was never checked (other chains) */
+  isUnverified?: true;
+  // The indexer already serves blurred images for these, so this flag is informational
+  isNsfw?: boolean;
+  metadata: ApiNftMetadata;
+  interface: ApiNftInterface;
+  compression?: {
+    tree: string;
+    dataHash: string;
+    creatorHash: string;
+    leafId: number;
+  };
+}
+
+export interface ApiNftCollection {
+  chain: ApiChain;
+  address: string;
+}
+
+export interface ApiReportNftOptions {
+  chain: ApiChain;
+  network: ApiNetwork;
+  nftAddress: string;
+}
+
+export interface ApiDomainData {
+  domain: string;
+  linkedAddress?: string;
+  lastFillUpTime: string;
+  nft: NftItem;
+}
+
+export type ApiHistoryList = Array<[number, number]>;
+
+export type ApiStakingType = ApiStakingState['type'];
+export type ApiBackendStakingType = 'nominators' | 'liquid';
+
+type BaseStakingState = {
+  id: string;
+  tokenSlug: string;
+  annualYield: number;
+  yieldType: ApiYieldType;
+  balance: bigint;
+  pool: string;
+  tvl?: bigint;
+  totalStakers?: number;
+  unstakeRequestAmount?: bigint;
+};
+
+export type ApiNominatorsStakingState = BaseStakingState & {
+  type: 'nominators';
+  start: number;
+  end: number;
+};
+
+export type ApiLiquidStakingState = BaseStakingState & {
+  type: 'liquid';
+  tokenBalance: bigint;
+  /**
+   * Accrued loyalty bonus. Kept outside the STAKED jetton and paid as a separate transfer on
+   * unstake. Optional: the backend omits it for addresses below the visible-stake threshold, and
+   * state persisted by an older build has no such field at all.
+   */
+  loyaltyBalance?: bigint;
+  instantAvailable: bigint;
+  start: number;
+  end: number;
+  tvl: bigint;
+  totalStakers: number;
+};
+
+export type ApiJettonStakingState = BaseStakingState & {
+  type: 'jetton';
+  tokenAddress: string;
+  unclaimedRewards: bigint;
+  stakeWalletAddress: string;
+  tokenAmount: bigint;
+  period: number;
+  tvl: bigint;
+  dailyReward: bigint;
+  poolWallets?: string[];
+};
+
+export type ApiEthenaStakingState = BaseStakingState & {
+  type: 'ethena';
+  tokenBalance: bigint;
+  tsUsdeWalletAddress: string;
+  unstakeRequestAmount: bigint;
+  unlockTime?: number;
+  isBoostAvailable?: boolean;
+  annualYieldStandard?: number;
+  annualYieldVerified?: number;
+};
+
+export type ApiYieldType = 'APY' | 'APR';
+export type ApiStakingState = ApiNominatorsStakingState
+  | ApiLiquidStakingState
+  | ApiJettonStakingState
+  | ApiEthenaStakingState;
+export type ApiToncoinStakingState = ApiNominatorsStakingState | ApiLiquidStakingState;
+
+export interface ApiNominatorsPool {
+  address: string;
+  apy: number;
+  start: number;
+  end: number;
+}
+
+export interface ApiBackendStakingState {
+  balance: bigint;
+  totalProfit: bigint;
+  type?: ApiBackendStakingType;
+  nominatorsPool: ApiNominatorsPool;
+  loyaltyType?: ApiLoyaltyType;
+  loyaltyBalance?: bigint;
+  shouldUseNominators?: boolean;
+  stakedAt?: number;
+  ethena: {
+    /**
+     * - undefined — never passed the verification;
+     * - true — passed the verification and eligible for the boosted APY;
+     * - false — passed the verification and not eligible for the boosted APY;
+     */
+    isVerified?: boolean;
+    isBoostAvailable?: boolean;
+  };
+  liquid?: {
+    unstakeRequestAmount?: string;
+  };
+}
+
+export type ApiStakingHistory = {
+  timestamp: number;
+  profit: string;
+}[];
+
+export interface ApiDappPermissions {
+  isAddressRequired?: boolean;
+  isPasswordRequired?: boolean;
+}
+
+/** Domain / origin trust for dApp connections (WalletConnect Verify, in-app origin, etc.). */
+export type ApiDappurlTrustStatusStatus = 'verified' | 'unknown' | 'invalid' | 'dangerous';
+
+export type ApiDappRequest = {
+  url: string | undefined; // `undefined` is a special case for SSE connect request
+  /** When set, overrides default trust inference for this connect request. */
+  urlTrustStatus?: ApiDappurlTrustStatusStatus;
+  accountId?: string;
+  identifier?: string;
+  sseOptions?: ApiSseOptions;
+};
+
+export interface ApiTransferToSign {
+  chain: ApiChain;
+  toAddress: string;
+  amount: bigint;
+  rawPayload?: string;
+  payload?: ApiParsedPayload;
+  stateInit?: string;
+}
+
+export interface ApiDappTransfer extends ApiTransferToSign {
+  isScam?: boolean;
+  /** Whether the transfer should be treated with cautiousness, because its payload is unclear */
+  isDangerous: boolean;
+  normalizedAddress: string;
+  /** The transfer address to show in the UI */
+  displayedToAddress: string;
+  networkFee: bigint;
+}
+
+export interface ApiSignedTransfer<T extends DappProtocolType = any> {
+  chain: T extends 'tonConnect' ? 'ton' : ApiChain;
+  payload: T extends 'tonConnect' ? {
+    base64: string;
+    seqno: number;
+  } : {
+    signature: string;
+    signedTx: Base58EncodedBytes;
+  };
+}
+
+/**
+ * The `fee` field should contain the final (real) fee, because we want to show the real fee in local transactions
+ */
+export type ApiLocalTransactionParams = Omit<
+  ApiTransactionActivity,
+  'timestamp' | 'isIncoming' | 'normalizedAddress' | 'kind' | 'shouldLoadDetails' | 'status'
+> & {
+  normalizedAddress?: string;
+  isIncoming?: boolean;
+  status?: ApiTransactionActivity['status'];
+};
+
+export type ApiBaseCurrency = 'USD' | 'EUR' | 'RUB' | 'CNY' | 'BTC' | 'TON';
+
+/** 1 USD equivalent to the amount of the other currency, e.g. 1 USD = 0.00000866 BTC */
+export type ApiCurrencyRates = Record<ApiBaseCurrency, string>;
+
+export enum ApiLiquidUnstakeMode {
+  Default,
+  Instant,
+  BestRate,
+}
+
+export type ApiLoyaltyType = 'black' | 'platinum' | 'gold' | 'silver' | 'standard';
+
+export type ApiBalanceBySlug = Record<string, bigint>;
+
+/**
+ * A balance snapshot together with the instant its source observed the values, in unix ms. A
+ * consumer merging several sources for one wallet ranks them by that instant instead of by arrival.
+ * `asOf` is absent when the transport cannot tell (a chain whose API states nothing, or a gateway
+ * that predates the header), and such a snapshot is ordered by arrival as before.
+ */
+export interface StampedBalances {
+  balances: ApiBalanceBySlug;
+  asOf?: number;
+}
+
+export type ApiWalletInfo = {
+  /** The user-friendly address of this wallet (may differ from the requested address) */
+  address: string;
+  /** Undefined when the address is not initialized or not a wallet */
+  version?: ApiTonWalletVersion;
+  balance: bigint;
+  isInitialized: boolean;
+  seqno: number;
+  lastTxId?: string;
+  domain?: string;
+  interface?: string;
+};
+
+export type ApiWalletWithVersionInfo = ApiWalletInfo & Required<Pick<ApiWalletInfo, 'version'>> & {
+  /** Whether the wallet is with testnet subwallet ID. `undefined` if the wallet is not a W5 wallet
+   Previously we had a bug that caused W5 testnet wallets to be created with mainnet subwallet ID.
+   To protect from replay attacks, we need to use specific subwallet ID for testnet wallets.
+   For backward compatibility, we need to support both subwallet IDs on testnet.
+  */
+  isTestnetSubwalletId?: boolean;
+};
+
+// Country codes from ISO-3166-1 spec
+export type ApiCountryCode = 'AF' | 'AX' | 'AL' | 'DZ' | 'AS' | 'AD' | 'AO' | 'AI' | 'AQ' | 'AG' | 'AR'
+  | 'AM' | 'AW' | 'AU' | 'AT' | 'AZ' | 'BS' | 'BH' | 'BD' | 'BB' | 'BY' | 'BE' | 'BZ' | 'BJ' | 'BM'
+  | 'BT' | 'BO' | 'BQ' | 'BA' | 'BW' | 'BV' | 'BR' | 'IO' | 'BN' | 'BG' | 'BF' | 'BI' | 'CV' | 'KH'
+  | 'CM' | 'CA' | 'KY' | 'CF' | 'TD' | 'CL' | 'CN' | 'CX' | 'CC' | 'CO' | 'KM' | 'CG' | 'CD' | 'CK'
+  | 'CR' | 'CI' | 'HR' | 'CU' | 'CW' | 'CY' | 'CZ' | 'DK' | 'DJ' | 'DM' | 'DO' | 'EC' | 'EG' | 'SV'
+  | 'GQ' | 'ER' | 'EE' | 'SZ' | 'ET' | 'FK' | 'FO' | 'FJ' | 'FI' | 'FR' | 'GF' | 'PF' | 'TF' | 'GA'
+  | 'GM' | 'GE' | 'DE' | 'GH' | 'GI' | 'GR' | 'GL' | 'GD' | 'GP' | 'GU' | 'GT' | 'GG' | 'GN' | 'GW'
+  | 'GY' | 'HT' | 'HM' | 'VA' | 'HN' | 'HK' | 'HU' | 'IS' | 'IN' | 'ID' | 'IR' | 'IQ' | 'IE' | 'IM'
+  | 'IL' | 'IT' | 'JM' | 'JP' | 'JE' | 'JO' | 'KZ' | 'KE' | 'KI' | 'KP' | 'KR' | 'KW' | 'KG' | 'LA'
+  | 'LV' | 'LB' | 'LS' | 'LR' | 'LY' | 'LI' | 'LT' | 'LU' | 'MO' | 'MG' | 'MW' | 'MY' | 'MV' | 'ML'
+  | 'MT' | 'MH' | 'MQ' | 'MR' | 'MU' | 'YT' | 'MX' | 'FM' | 'MD' | 'MC' | 'MN' | 'ME' | 'MS' | 'MA'
+  | 'MZ' | 'MM' | 'NA' | 'NR' | 'NP' | 'NL' | 'NC' | 'NZ' | 'NI' | 'NE' | 'NG' | 'NU' | 'NF' | 'MP'
+  | 'NO' | 'OM' | 'PK' | 'PW' | 'PS' | 'PA' | 'PG' | 'PY' | 'PE' | 'PH' | 'PN' | 'PL' | 'PT' | 'PR'
+  | 'QA' | 'MK' | 'RO' | 'RU' | 'RW' | 'RE' | 'BL' | 'SH' | 'KN' | 'LC' | 'MF' | 'PM' | 'VC' | 'WS'
+  | 'SM' | 'ST' | 'SA' | 'SN' | 'RS' | 'SC' | 'SL' | 'SG' | 'SX' | 'SK' | 'SI' | 'SB' | 'SO' | 'ZA'
+  | 'GS' | 'SS' | 'ES' | 'LK' | 'SD' | 'SR' | 'SJ' | 'SE' | 'CH' | 'SY' | 'TW' | 'TJ' | 'TZ' | 'TH'
+  | 'TL' | 'TG' | 'TK' | 'TO' | 'TT' | 'TN' | 'TR' | 'TM' | 'TC' | 'TV' | 'UG' | 'UA' | 'AE' | 'GB'
+  | 'US' | 'UM' | 'UY' | 'UZ' | 'VU' | 'VE' | 'VN' | 'VG' | 'VI' | 'WF' | 'EH' | 'YE' | 'ZM' | 'ZW';
+
+/** Each string value can be either an address or a domain name */
+export type ApiImportAddressByChain = Partial<Record<ApiChain, string>>;
+
+export type ApiNftMarketplace = 'fragment' | 'getgems' | 'opensea';
+
+export type OnUpdatingStatusChange = (kind: ApiUpdatingStatus['kind'], isUpdating: boolean) => void;
+
+type ApiWalletVariantMetadata =
+  | { type: 'version'; version: ApiTonWalletVersion }
+  | { type: 'path'; path: string; label?: string };
+
+export type ApiWalletVariant<T extends ApiChain> = {
+  chain: T;
+  wallet: Omit<ApiWalletByChain[T], 'index'>;
+  balance: bigint;
+  metadata: ApiWalletVariantMetadata;
+};
+
+export type ApiTonPlugin = {
+  address: string;
+  name?: string;
+  balance: bigint;
+  isInitialized: boolean;
+};
+
+export type ApiTokenApproval = {
+  kind: 'approval';
+  chain: ApiChain;
+  tokenAddress: string;
+  tokenSlug: string;
+  tokenName: string;
+  tokenSymbol: string;
+  tokenDecimals: number;
+  tokenImage?: string;
+  spenderAddress: string;
+  spenderName?: string;
+  spenderIcon?: string;
+  allowance: string; // bigint serialized as decimal string
+  isUnlimited: boolean;
+};
+
+export type ApiEvmDelegation = {
+  kind: 'delegation';
+  chain: ApiChain;
+  delegateAddress: string;
+  delegateName?: string;
+  delegateIcon?: string;
+};
+
+export type ApiWalletPermission = ApiTokenApproval | ApiEvmDelegation;
+
+export type ApiRevokeWalletPermissionOptions = {
+  accountId: string;
+  enclaveToken?: string;
+} & (
+  | {
+    kind: 'approval';
+    tokenAddress: string;
+    spenderAddress: string;
+  }
+  | {
+    kind: 'delegation';
+    delegateAddress: string;
+  }
+);
+
+export type ApiGroupedWalletVariant = {
+  index: number;
+  byChain: Partial<Record<ApiChain, {
+    wallet: Omit<ApiWalletByChain[ApiChain], 'index'>;
+    balancesBySlug: ApiBalanceBySlug;
+    hasDerivation: boolean;
+  }>>;
+};
+
+export interface ApiDerivation {
+  path: string;
+  index: number;
+  label?: string;
+}
+
+/**
+ * Declarative description of how to derive a key from a BIP39 mnemonic for a specific chain.
+ * Used by `CHAIN_CONFIG` and by the Enclave's `derivePublicKey` capability.
+ * Contains only primitives, no chain names - Enclave stays chain-agnostic.
+ */
+export interface ApiDerivationSpec {
+  standard: 'bip39';
+  curve: 'ed25519' | 'secp256k1';
+  /** Fully expanded BIP32/SLIP-10 path. Must not contain `{index}` placeholders. */
+  path: string;
+}

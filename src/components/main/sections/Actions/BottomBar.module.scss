@@ -1,0 +1,75 @@
+@use "../../../../styles/mixins";
+
+.root {
+  --pill-width: 5rem;
+  --drag-offset-px: 0px;
+
+  @include mixins.bottomBarFade();
+
+  &.hidden {
+    transform: translateY(100%);
+  }
+
+  :global(html.with-menu-backdrop) & {
+    background: none !important;
+  }
+
+  :global(html:where([lang="ru"], [lang="tr"], [lang="th"], [lang="pl"])) & {
+    --pill-width: 5.625rem;
+  }
+
+  :global(html:where([lang="es"], [lang="de"], [lang="uk"])) & {
+    --pill-width: 6.25rem;
+  }
+
+  @include mixins.transition(transform 200ms);
+}
+
+.capsule {
+  max-width: calc(var(--pill-width) * var(--tab-count, 4));
+  margin: auto auto max(0.75rem, var(--safe-area-bottom));
+
+  @include mixins.glass-capsule();
+
+  @include mixins.respond-below(xs) {
+    :global(html.with-menu-backdrop.is-agent-active) & {
+      background-color: var(--color-app-background) !important;
+    }
+  }
+}
+
+.button {
+  position: relative;
+  z-index: 1;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  height: 3rem;
+
+  color: var(--color-black);
+  text-align: center;
+
+  background: transparent;
+}
+
+.active {
+  color: var(--color-accent);
+
+  .label {
+    font-weight: 700;
+  }
+}
+
+.icon {
+  margin-top: -0.375rem;
+}
+
+.label {
+  margin-top: -0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}

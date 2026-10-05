@@ -1,0 +1,853 @@
+package org.mytonwallet.app_air.uireceive
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Color
+import android.graphics.Paint
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.ViewTreeObserver
+import android.widget.Toast
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+import androidx.constraintlayout.widget.ConstraintLayout.generateViewId
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.lifecycle.ViewModelProvider
+import java.lang.ref.WeakReference
+import kotlin.math.roundToInt
+import org.mytonwallet.app_air.uicomponents.AnimationConstants
+import org.mytonwallet.app_air.uicomponents.base.WNavigationBar
+import org.mytonwallet.app_air.uicomponents.base.WViewControllerWithModelStore
+import org.mytonwallet.app_air.uicomponents.commonViews.AccountSelectorView
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.helpers.ClipboardHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.HapticType
+import org.mytonwallet.app_air.uicomponents.helpers.Haptics
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.widgets.WAlertLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WBaseView
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WScrollView
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup.BackgroundStyle
+import org.mytonwallet.app_air.uicomponents.widgets.segmentedController.WSegmentedController
+import org.mytonwallet.app_air.uicomponents.widgets.segmentedController.WSegmentedControllerItem
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.uiinappbrowser.CustomTabsBrowser
+import org.mytonwallet.app_air.uiswap.screens.swap.SwapVC
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.models.MBaseCurrency
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.ApplicationContextHolder
+import org.mytonwallet.app_air.walletbasecontext.utils.toProcessedSpannableStringBuilder
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.WalletEvent
+import org.mytonwallet.app_air.walletcore.models.MAccount
+import org.mytonwallet.app_air.walletcore.models.MBridgeError
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+import org.mytonwallet.app_air.walletcore.moshi.MApiSwapAsset
+import org.mytonwallet.app_air.walletcore.stores.AccountStore
+import org.mytonwallet.app_air.walletcore.stores.TokenStore
+
+@SuppressLint("ViewConstructor")
+class ReceiveVC private constructor(
+    context: Context,
+    private val defaultChain: MBlockchain? = null,
+    private var openBuyWithCardInstantly: Boolean = false,
+    private val preferredBuyingTokenSlug: String? = null
+) : WViewControllerWithModelStore(context) {
+    @Suppress("PropertyName")
+    override val TAG = "Receive"
+
+    override var displayedAccount =
+        DisplayedAccount(AccountStore.activeAccountId, AccountStore.isPushedTemporary)
+
+    override val shouldDisplayTopBar = false
+
+    override val shouldDisplayBottomBar: Boolean
+        get() = navigationController?.tabBarController == null
+
+    companion object {
+        const val OPTION_ROW_HEIGHT = 50
+        private const val BOTTOM_CONTENT_PADDING = 15
+
+        fun createIfAvailable(
+            context: Context,
+            defaultChain: MBlockchain? = null,
+            openBuyWithCardInstantly: Boolean = false,
+            preferredBuyingTokenSlug: String? = null
+        ): ReceiveVC? {
+            val addressByChain = AccountStore.activeAccount?.addressByChain ?: return null
+            if (MBlockchain.supportedChains.none {
+                    addressByChain.containsKey(it.name)
+                }
+            ) {
+                return null
+            }
+            return ReceiveVC(
+                context,
+                defaultChain,
+                openBuyWithCardInstantly,
+                preferredBuyingTokenSlug
+            )
+        }
+    }
+
+    val availableChains: List<MBlockchain> =
+        AccountStore.activeAccount?.chainDisplaySnapshot()?.let { chainDisplay ->
+            val visibleChainNames = chainDisplay.visibleChains.map { it.key }.toSet()
+            val allChains = chainDisplay.visibleChains + chainDisplay.orderedChains.filterNot {
+                it.key in visibleChainNames
+            }
+            allChains.mapNotNull { entry ->
+                MBlockchain.supportedChains.find { it.name == entry.key }
+            }
+        } ?: emptyList()
+
+    private val isViewOnlyAccount = AccountStore.activeAccount?.isViewOnly == true
+
+    private val defaultChainIndex = availableChains.indexOf(defaultChain).coerceAtLeast(0)
+
+    private val onQrLoaded = {
+        if (isViewOnlyAccount) viewOnlyWarningView.fadeIn() else optionsContainerView.fadeIn()
+    }
+
+    val qrCodeVCs: Map<MBlockchain, QRCodeVC> =
+        availableChains.mapIndexed { index, blockchain ->
+            blockchain to QRCodeVC(
+                context,
+                blockchain,
+                if (index == defaultChainIndex) onQrLoaded else null
+            )
+        }.toMap()
+
+    private val gradientColorViews: List<View> =
+        availableChains.mapIndexed { i, _ ->
+            View(context).apply {
+                id = generateViewId()
+                alpha = if (i == defaultChainIndex) 1f else 0f
+            }
+        }
+
+    private var retainedGradientIndices = emptySet<Int>()
+    private val pendingGradientBackgrounds = mutableMapOf<Int, Pair<Int, Int>>()
+    private var gradientBackgroundWidth = 0
+    private var gradientBackgroundHeight = 0
+
+    private val qrSegmentView: WSegmentedController by lazy {
+        val defaultIndex = availableChains.indexOf(defaultChain).coerceAtLeast(0)
+        val segmentedController = WSegmentedController(
+            navigationController!!,
+            availableChains.map { chain ->
+                WSegmentedControllerItem(qrCodeVCs[chain]!!, null)
+            } as ArrayList<WSegmentedControllerItem>,
+            isTransparent = true,
+            applySideGutters = false,
+            defaultSelectedIndex = defaultIndex,
+            onOffsetChange = { _, currentOffset ->
+                retainGradientBackgroundsAround(currentOffset)
+                val chainCount = availableChains.size
+                for (i in gradientColorViews.indices) {
+                    gradientColorViews[i].alpha = when {
+                        chainCount == 1 -> 1f
+
+                        i == 0 -> (1f - currentOffset.coerceIn(0f, 1f))
+
+                        i == chainCount - 1 -> (currentOffset - (i - 1)).coerceIn(0f, 1f)
+
+                        else -> {
+                            val dist = (currentOffset - i).let { kotlin.math.abs(it) }
+                            (1f - dist).coerceIn(0f, 1f)
+                        }
+                    }
+                }
+
+                for ((i, chain) in availableChains.withIndex()) {
+                    val vc = qrCodeVCs[chain] ?: continue
+                    val progress = (currentOffset - i).let { kotlin.math.abs(it) }.coerceIn(0f, 1f)
+                    val direction = if (currentOffset > i) -1 else 1
+                    animateQrView(vc.qrCodeView, vc.ornamentView, direction, progress)
+                }
+
+                if (chainCount > 1) {
+                    val floorIdx = currentOffset.toInt().coerceIn(0, chainCount - 2)
+                    val frac = currentOffset - floorIdx
+                    val vcA = qrCodeVCs[availableChains[floorIdx]]!!
+                    val vcB = qrCodeVCs[availableChains[floorIdx + 1]]!!
+                    val height = ((1 - frac) * qrCodeHeight(vcA)) + (frac * qrCodeHeight(vcB))
+                    val layoutParams = qrSegmentView.layoutParams
+                    layoutParams.height = height.toInt()
+                    qrSegmentView.layoutParams = layoutParams
+                }
+
+                updateOptionsForOffset(currentOffset)
+            },
+            forceCenterTabs = false,
+            pilledTabs = true,
+            applyPagerSideInsets = false
+        )
+        segmentedController.addCloseButton()
+        segmentedController
+    }
+
+    private val accountSelectorView by lazy {
+        AccountSelectorView(
+            context,
+            accountsProvider = { switchableAccounts() },
+            onAccountSelected = ::switchAccount,
+            isTransparent = true
+        )
+    }
+
+    val titleLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(22F, WFont.Medium)
+        lbl.gravity = Gravity.CENTER
+        lbl.text =
+            LocaleController.getString("Add Crypto")
+        lbl
+    }
+
+    private val backgroundColorView = WView(context).apply {
+        setBackgroundColor(WColor.Background.color, 0f, ViewConstants.BLOCK_RADIUS.dp)
+    }
+
+    private val currentQRCode: QRCodeVC
+        get() {
+            return (qrSegmentView.currentItem as QRCodeVC)
+        }
+
+    private val copyAddressLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(adaptiveFontSize())
+        lbl.text =
+            LocaleController.getString("Copy Address")
+        lbl
+    }
+    private val copyAddressSeparator: WBaseView by lazy {
+        val v = WBaseView(context)
+        v
+    }
+    private val copyAddressView: WView by lazy {
+        val v = WView(context)
+        v.addView(copyAddressLabel)
+        v.setConstraints {
+            toStart(copyAddressLabel, 20f)
+            toCenterY(copyAddressLabel)
+            toStart(copyAddressSeparator, 20f)
+            toEnd(copyAddressSeparator, 16f)
+            toBottom(copyAddressSeparator)
+        }
+        v.setOnClickListener {
+            if (!ClipboardHelpers.copyToClipboard(
+                    context,
+                    "Wallet Address",
+                    currentQRCode.walletAddress
+                )
+            ) {
+                return@setOnClickListener
+            }
+            Haptics.play(v, HapticType.LIGHT_TAP)
+            Toast.makeText(
+                context,
+                LocaleController.getString("%chain% Address Copied")
+                    .replace("%chain%", currentQRCode.chain.displayName),
+                Toast.LENGTH_SHORT
+            )
+                .show()
+        }
+        v
+    }
+
+    private val shareQRCodeLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(adaptiveFontSize())
+        lbl.text =
+            LocaleController.getString("Share QR Code")
+        lbl
+    }
+
+    private val optionsSeparatorView: WBaseView by lazy {
+        val v = WBaseView(context)
+        v
+    }
+
+    private val buyWithCardLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(adaptiveFontSize())
+        lbl.text =
+            LocaleController.getString("Buy with Card")
+        lbl
+    }
+
+    private val buyWithCardView: WView by lazy {
+        val v = WView(context)
+        v.isGone = AccountStore.activeAccount?.supportsBuyWithCard != true
+        if (v.isVisible) {
+            v.addView(buyWithCardLabel)
+            v.setConstraints {
+                toStart(buyWithCardLabel, 20f)
+                toTop(buyWithCardLabel, 14f)
+            }
+            v.setOnClickListener {
+                openBuyWithCard(currentQRCode.chain.name)
+            }
+        }
+        v
+    }
+
+    private val buyWithCryptoLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(adaptiveFontSize())
+        lbl.text =
+            LocaleController.getString("Buy with Crypto")
+        lbl
+    }
+
+    private val buyWithCryptoView: WView by lazy {
+        val v = WView(context)
+        v.isGone = AccountStore.activeAccount?.supportsBuyWithCrypto != true
+        if (v.isVisible) {
+            v.addView(buyWithCryptoLabel)
+            v.setConstraints {
+                toStart(buyWithCryptoLabel, 20f)
+                toCenterY(buyWithCryptoLabel)
+            }
+            v.setOnClickListener {
+                val chain = currentQRCode.chain
+                val buyingToken = TokenStore.getToken(preferredBuyingTokenSlug)
+                    ?.takeIf { it.mBlockchain == chain }
+                    ?: TokenStore.getToken(chain.nativeSlug)
+                buyingToken?.let {
+                    val swapVC = SwapVC(
+                        context,
+                        defaultReceivingToken = MApiSwapAsset.from(it)
+                    )
+                    navigationController?.push(swapVC)
+                }
+            }
+        }
+        v
+    }
+
+    private val invoiceLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(adaptiveFontSize())
+        lbl.text =
+            LocaleController.getString("Create Deposit Link")
+        lbl
+    }
+    private val invoiceView: WView by lazy {
+        val v = WView(context)
+        v.addView(invoiceLabel)
+        v.setConstraints {
+            toStart(invoiceLabel, 20f)
+            toTop(invoiceLabel, 14f)
+        }
+        v.setOnClickListener {
+            val invoiceVC = InvoiceVC(context)
+            navigationController?.push(invoiceVC)
+        }
+        v
+    }
+
+    private val viewOnlyWarningView: WAlertLabel by lazy {
+        WAlertLabel(
+            context,
+            LocaleController.getString("\$view_only_wallet_receive_warning")
+                .trim()
+                .toProcessedSpannableStringBuilder(),
+            WColor.Orange.color,
+            coloredText = true
+        ).apply {
+            alpha = 0f
+        }
+    }
+
+    private val optionsContainerView: WView by lazy {
+        val v = WView(context)
+        v.addView(buyWithCardView, LayoutParams(MATCH_PARENT, OPTION_ROW_HEIGHT.dp))
+        v.addView(buyWithCryptoView, LayoutParams(MATCH_PARENT, OPTION_ROW_HEIGHT.dp))
+        v.addView(invoiceView, LayoutParams(MATCH_PARENT, OPTION_ROW_HEIGHT.dp))
+        v.setConstraints {
+            toTop(buyWithCardView)
+            toCenterX(buyWithCardView)
+            topToBottom(buyWithCryptoView, buyWithCardView)
+            toCenterX(buyWithCryptoView)
+            topToBottom(invoiceView, buyWithCryptoView)
+            toCenterX(invoiceView)
+            toBottom(invoiceView)
+        }
+        v.clipToOutline = true
+        v.clipChildren = false
+        v.alpha = 0f
+        v
+    }
+
+    private val scrollingContentView: WView by lazy {
+        val v = WView(context)
+
+        for (colorView in gradientColorViews) {
+            v.addView(
+                colorView,
+                LayoutParams(LayoutParams.MATCH_CONSTRAINT, LayoutParams.WRAP_CONTENT)
+            )
+        }
+        v.addView(
+            backgroundColorView,
+            LayoutParams(LayoutParams.MATCH_CONSTRAINT, LayoutParams.MATCH_CONSTRAINT)
+        )
+        v.addView(
+            qrSegmentView,
+            LayoutParams(MATCH_PARENT, qrHeight)
+        )
+        if (qrSegmentView.items.size == 1) {
+            v.addView(
+                titleLabel,
+                LayoutParams(WRAP_CONTENT, WNavigationBar.DEFAULT_HEIGHT.dp)
+            )
+        }
+        v.addView(optionsSeparatorView, LayoutParams(MATCH_PARENT, 16.dp))
+        if (isViewOnlyAccount) {
+            v.addView(viewOnlyWarningView, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        } else {
+            v.addView(optionsContainerView, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+        v.setPadding(
+            0,
+            0,
+            0,
+            BOTTOM_CONTENT_PADDING.dp +
+                (navigationController?.getSystemBars()?.bottom ?: 0)
+        )
+        v
+    }
+
+    private val scrollView: WScrollView by lazy {
+        val sv = WScrollView(WeakReference(this))
+        sv.addView(scrollingContentView, ViewGroup.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        sv
+    }
+
+    override fun setupViews() {
+        super.setupViews()
+
+        val layerPaint = Paint().apply {
+            isAntiAlias = true
+        }
+        qrCodeVCs.values.forEach { vc ->
+            vc.qrCodeView.setLayerType(View.LAYER_TYPE_HARDWARE, layerPaint)
+        }
+
+        view.addView(scrollView, LayoutParams(0, 0))
+        view.setConstraints {
+            allEdges(scrollView)
+        }
+        scrollingContentView.setConstraints {
+            toTopPx(titleLabel, navigationController?.getSystemBars()?.top ?: 0)
+            toCenterX(titleLabel)
+            toTop(qrSegmentView)
+            toCenterX(qrSegmentView)
+            for (colorView in gradientColorViews) {
+                topToTop(colorView, qrSegmentView)
+                startToStart(colorView, qrSegmentView)
+                endToEnd(colorView, qrSegmentView)
+            }
+            topToBottom(backgroundColorView, gradientColorViews.first())
+            bottomToBottom(backgroundColorView, qrSegmentView)
+            toCenterX(backgroundColorView)
+            topToBottom(optionsSeparatorView, qrSegmentView)
+            if (isViewOnlyAccount) {
+                topToBottom(viewOnlyWarningView, optionsSeparatorView)
+                toBottom(viewOnlyWarningView)
+                toCenterX(viewOnlyWarningView, ViewConstants.HORIZONTAL_PADDINGS.toFloat())
+            } else {
+                topToBottom(optionsContainerView, optionsSeparatorView)
+                toBottom(optionsContainerView)
+                toCenterX(optionsContainerView, ViewConstants.HORIZONTAL_PADDINGS.toFloat())
+            }
+        }
+
+        if (isAccountSwitchingAllowed()) {
+            AccountStore.activeAccount?.let { accountSelectorView.config(it) }
+            qrSegmentView.addLeadingView(accountSelectorView, 75.dp, 48.dp)
+        }
+
+        updateTheme()
+        updateOptionsForOffset(defaultChainIndex.toFloat())
+
+        updateGradientHeights()
+    }
+
+    override val isTinted = true
+    override fun updateTheme() {
+        super.updateTheme()
+        view.setBackgroundColor(WColor.SecondaryBackground.color)
+        titleLabel.setTextColor(Color.WHITE)
+        backgroundColorView.setBackgroundColor(
+            WColor.Background.color,
+            0f,
+            ViewConstants.BLOCK_RADIUS.dp
+        )
+        copyAddressView.setBackgroundColor(WColor.Background.color)
+        copyAddressView.addRippleEffect(WColor.SecondaryBackground.color)
+        copyAddressLabel.setTextColor(WColor.Tint.color)
+        copyAddressSeparator.setBackgroundColor(WColor.Separator.color)
+        shareQRCodeLabel.setTextColor(WColor.Tint.color)
+        optionsSeparatorView.setBackgroundColor(WColor.SecondaryBackground.color)
+        if (isViewOnlyAccount) {
+            viewOnlyWarningView.updateTheme()
+        } else {
+            optionsContainerView.setBackgroundColor(
+                WColor.Background.color,
+                ViewConstants.BLOCK_RADIUS.dp
+            )
+            buyWithCardView.setBackgroundColor(WColor.Background.color)
+            buyWithCardView.addRippleEffect(WColor.SecondaryBackground.color)
+            buyWithCardLabel.setTextColor(WColor.Tint.color)
+            buyWithCryptoView.setBackgroundColor(WColor.Background.color)
+            buyWithCryptoView.addRippleEffect(WColor.SecondaryBackground.color)
+            buyWithCryptoLabel.setTextColor(WColor.Tint.color)
+            invoiceView.setBackgroundColor(WColor.Background.color)
+            invoiceView.addRippleEffect(WColor.SecondaryBackground.color)
+            invoiceLabel.setTextColor(WColor.Tint.color)
+        }
+
+        retainGradientBackgroundsAround(qrSegmentView.currentOffset)
+    }
+
+    private fun retainGradientBackgroundsAround(offset: Float) {
+        if (availableChains.isEmpty()) return
+
+        val cacheWidth = ApplicationContextHolder.screenWidth
+        val cacheHeight = (navigationController?.getSystemBars()?.top ?: 0) + 307.dp + 64.dp
+        val sizeChanged = cacheWidth != gradientBackgroundWidth ||
+            cacheHeight != gradientBackgroundHeight
+        if (sizeChanged) {
+            gradientBackgroundWidth = cacheWidth
+            gradientBackgroundHeight = cacheHeight
+            gradientColorViews.forEach { it.background = null }
+        }
+
+        val centerIndex = offset.roundToInt().coerceIn(0, availableChains.lastIndex)
+        retainedGradientIndices = (centerIndex - 1..centerIndex + 1)
+            .filterTo(mutableSetOf()) { it in availableChains.indices }
+
+        gradientColorViews.forEachIndexed { index, view ->
+            if (index !in retainedGradientIndices) {
+                view.background = null
+            } else if (sizeChanged || view.background == null) {
+                loadGradientBackground(index, cacheWidth, cacheHeight)
+            }
+        }
+    }
+
+    private fun loadGradientBackground(index: Int, width: Int, height: Int) {
+        val requestedSize = width to height
+        if (pendingGradientBackgrounds[index] == requestedSize) return
+        pendingGradientBackgrounds[index] = requestedSize
+
+        ReceiveBackgroundCache.render(availableChains[index], width, height) { drawable ->
+            gradientColorViews[index].post {
+                if (pendingGradientBackgrounds[index] == requestedSize) {
+                    pendingGradientBackgrounds.remove(index)
+                }
+                if (index in retainedGradientIndices &&
+                    width == gradientBackgroundWidth &&
+                    height == gradientBackgroundHeight
+                ) {
+                    gradientColorViews[index].background = drawable
+                }
+            }
+        }
+    }
+
+    override fun insetsUpdated() {
+        super.insetsUpdated()
+        qrSegmentView.insetsUpdated()
+        updateGradientHeights()
+        scrollingContentView.setPadding(
+            0,
+            0,
+            0,
+            BOTTOM_CONTENT_PADDING.dp +
+                (navigationController?.getSystemBars()?.bottom ?: 0)
+        )
+        if (isViewOnlyAccount) {
+            scrollingContentView.setConstraints {
+                toStartPx(
+                    viewOnlyWarningView,
+                    ViewConstants.HORIZONTAL_PADDINGS.dp + systemBarStartInset
+                )
+                toEndPx(
+                    viewOnlyWarningView,
+                    ViewConstants.HORIZONTAL_PADDINGS.dp + systemBarEndInset
+                )
+            }
+        } else {
+            scrollingContentView.setConstraints {
+                toStartPx(
+                    optionsContainerView,
+                    ViewConstants.HORIZONTAL_PADDINGS.dp + systemBarStartInset
+                )
+                toEndPx(
+                    optionsContainerView,
+                    ViewConstants.HORIZONTAL_PADDINGS.dp + systemBarEndInset
+                )
+            }
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldW: Int, oldH: Int) {
+        super.onSizeChanged(w, h, oldW, oldH)
+        if (w != oldW) resubscribeQrHeightListener()
+    }
+
+    private fun switchableAccounts(): List<MAccount> =
+        WalletCore.getAllAccounts().filter { account ->
+            MBlockchain.supportedChains.any { account.byChain.containsKey(it.name) }
+        }
+
+    private fun isAccountSwitchingAllowed(): Boolean = !AccountStore.isPushedTemporary &&
+        navigationController?.viewControllers?.firstOrNull() == this &&
+        switchableAccounts().any { it.accountId != AccountStore.activeAccountId }
+
+    private fun switchAccount(account: MAccount) {
+        accountSelectorView.setLoading(true)
+        WalletCore.ensureAccountActivated(account.accountId) { accountChanged ->
+            if (accountChanged) {
+                WalletCore.notifyEvent(
+                    WalletEvent.AccountChangedInApp(persistedAccountsModified = false)
+                )
+            }
+            view.post { onAccountSwitched(account) }
+        }
+    }
+
+    private fun onAccountSwitched(account: MAccount) {
+        displayedAccount = DisplayedAccount(account.accountId, isPushedTemporary = false)
+        accountSelectorView.setLoading(false)
+        accountSelectorView.config(account)
+        val receiveVC = createIfAvailable(context) ?: return
+        val nav = navigationController ?: return
+        updateWithCrossFade(
+            duration = AnimationConstants.SUPER_QUICK_ANIMATION,
+            fadeInView = { receiveVC.scrollView }
+        ) {
+            nav.replaceRoot(receiveVC)
+        }
+    }
+
+    private fun openBuyWithCard(chain: String, anchorView: View? = null) {
+        val baseCurrencies = BuyWithCardLauncher.supportedBaseCurrencies(chain)
+        val baseCurrency = BuyWithCardLauncher.preferredBaseCurrency(chain)
+        if (anchorView != null && baseCurrencies.size > 1) {
+            WMenuPopup.present(
+                anchorView,
+                baseCurrencies.map { currency ->
+                    WMenuPopup.Item(
+                        WMenuPopup.Item.Config.Item(
+                            icon = null,
+                            title = currency.currencyName,
+                            subtitle = currency.currencyCode
+                        ),
+                        onTap = {
+                            openBuyWithCardUrl(chain, currency)
+                        }
+                    )
+                },
+                positioning = WMenuPopup.Positioning.ALIGNED,
+                windowBackgroundStyle = BackgroundStyle.Cutout.fromView(
+                    view = anchorView,
+                    roundRadius = 16f.dp,
+                    horizontalOffset = 8.dp,
+                    verticalOffset = 0
+                )
+            )
+            return
+        }
+
+        if (baseCurrency == null) {
+            // Same refusal BuyWithCardLauncher.launch gives, so a config that narrowed after the row
+            // was drawn does not swallow the tap on one entry point and report it on the other
+            showError(MBridgeError.Type.SERVER_ERROR)
+            return
+        }
+        openBuyWithCardUrl(chain, baseCurrency)
+    }
+
+    // The row is offered only when the chain supports the ramp AND the server still allows a currency
+    // on it, so the button and the screen behind it answer the same question
+    private fun isBuyWithCardOffered(chain: MBlockchain): Boolean = chain.isOnrampSupported &&
+        BuyWithCardLauncher.supportedBaseCurrencies(chain.name).isNotEmpty()
+
+    private fun openBuyWithCardUrl(chain: String, baseCurrency: MBaseCurrency) {
+        // The menu may have been rendered before a config update narrowed the list
+        if (!BuyWithCardLauncher.supportedBaseCurrencies(chain).contains(baseCurrency)) {
+            showError(MBridgeError.Type.SERVER_ERROR)
+            return
+        }
+        buyWithCardView.isClickable = false
+        BuyWithCardLauncher.buyWithCardUrl(chain, baseCurrency, { url ->
+            buyWithCardView.isClickable = true
+            url?.let {
+                CustomTabsBrowser.open(context, it)
+            } ?: run {
+                if (!WalletCore.isConnected()) showError(MBridgeError.Type.SERVER_ERROR)
+            }
+        })
+    }
+
+    override fun viewWillAppear() {
+        super.viewWillAppear()
+        resubscribeQrHeightListener()
+        if (navigationController?.isSwipingBack == true) return
+        window!!.forceStatusBarLight = true
+    }
+
+    override fun viewDidAppear() {
+        super.viewDidAppear()
+        window!!.forceStatusBarLight = true
+
+        if (openBuyWithCardInstantly && defaultChain != null) {
+            openBuyWithCardInstantly = false
+            if (!isViewOnlyAccount) {
+                openBuyWithCard(defaultChain.name)
+            }
+        }
+    }
+
+    override fun viewWillDisappear() {
+        super.viewWillDisappear()
+        window!!.forceStatusBarLight = null
+    }
+
+    private val activeVC: QRCodeVC
+        get() {
+            val offset = qrSegmentView.currentOffset
+            val idx = offset.toInt().coerceIn(0, availableChains.size - 1)
+            return qrCodeVCs[availableChains[idx]]!!
+        }
+
+    private val qrHeight: Int
+        get() {
+            return qrCodeHeight(activeVC)
+        }
+
+    private var lastAppliedQrHeight = 0
+
+    private val viewTreeObserver = object : ViewTreeObserver.OnPreDrawListener {
+        override fun onPreDraw(): Boolean {
+            val calculatedQRHeight = qrHeight
+            if (calculatedQRHeight == lastAppliedQrHeight) {
+                defaultVC.addressView.viewTreeObserver.removeOnPreDrawListener(this)
+                return true
+            }
+            lastAppliedQrHeight = calculatedQRHeight
+            qrSegmentView.updateLayoutParams {
+                height = calculatedQRHeight
+            }
+            return true
+        }
+    }
+
+    private val defaultVC get() = qrCodeVCs[defaultChain] ?: qrCodeVCs.values.first()
+
+    private fun resubscribeQrHeightListener() {
+        lastAppliedQrHeight = 0
+        with(defaultVC.addressView.viewTreeObserver) {
+            removeOnPreDrawListener(viewTreeObserver)
+            addOnPreDrawListener(viewTreeObserver)
+        }
+    }
+
+    private fun qrCodeHeight(vc: QRCodeVC): Int = vc.getHeight()
+
+    private fun qrTransparentHeight(vc: QRCodeVC): Int =
+        vc.getTransparentHeight() + qrSegmentView.navHeight +
+            (navigationController?.getSystemBars()?.top ?: 0)
+
+    private fun updateGradientHeights() {
+        val height = qrTransparentHeight(defaultVC)
+        gradientColorViews.forEach { colorView ->
+            colorView.updateLayoutParams {
+                this.height = height
+            }
+        }
+    }
+
+    private fun animateQrView(
+        qrCodeView: View,
+        ornamentView: View,
+        direction: Int,
+        progress: Float
+    ) {
+        val rotation = -10 * progress * direction
+        qrCodeView.rotationY = rotation
+        ornamentView.rotationY = rotation
+
+        val scale = 1f - (0.5f * progress)
+        qrCodeView.scaleX = scale
+        qrCodeView.scaleY = scale
+        ornamentView.scaleX = scale
+        ornamentView.scaleY = scale
+
+        val alpha = 1f - (0.75f * progress)
+        qrCodeView.alpha = alpha
+
+        val translation = progress * 100.dp * -direction
+        qrCodeView.translationX = translation
+        ornamentView.translationX = translation
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        retainedGradientIndices = emptySet()
+        pendingGradientBackgrounds.clear()
+        gradientColorViews.forEach { it.background = null }
+        qrSegmentView.onDestroy()
+        copyAddressView.setOnClickListener(null)
+        if (!isViewOnlyAccount) {
+            buyWithCardView.setOnClickListener(null)
+            buyWithCryptoView.setOnClickListener(null)
+        }
+        defaultVC.addressView.viewTreeObserver.removeOnPreDrawListener(viewTreeObserver)
+    }
+
+    private fun updateOptionsForOffset(offset: Float) {
+        if (isViewOnlyAccount) return
+
+        val tonIndex = availableChains.indexOf(MBlockchain.ton)
+        val tonFraction = if (tonIndex >= 0) {
+            (1f - kotlin.math.abs(offset - tonIndex)).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+        invoiceView.layoutParams?.height = (OPTION_ROW_HEIGHT.dp * tonFraction).toInt()
+        invoiceView.requestLayout()
+        invoiceView.isClickable = tonFraction == 1f
+
+        if (AccountStore.activeAccount?.supportsBuyWithCard == true) {
+            val floorIdx = offset.toInt().coerceIn(0, availableChains.size - 1)
+            val ceilIdx = (floorIdx + 1).coerceAtMost(availableChains.size - 1)
+            val fracA = if (isBuyWithCardOffered(availableChains[floorIdx])) 1f else 0f
+            val fracB = if (isBuyWithCardOffered(availableChains[ceilIdx])) 1f else 0f
+            val buyWithCardFraction = fracA + (fracB - fracA) * (offset - floorIdx)
+            val buyWithCardHeight = (OPTION_ROW_HEIGHT.dp * buyWithCardFraction).toInt()
+            buyWithCardView.layoutParams?.height = buyWithCardHeight
+            buyWithCardView.isGone = buyWithCardHeight == 0
+            buyWithCardView.translationY = buyWithCardHeight.toFloat() - OPTION_ROW_HEIGHT.dp
+            buyWithCardView.requestLayout()
+            buyWithCardView.isClickable = buyWithCardFraction == 1f
+        }
+    }
+}

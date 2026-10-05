@@ -1,0 +1,88 @@
+import type { AppLayout } from '../global/types';
+
+export enum ElectronEvent {
+  DEEPLINK = 'deeplink',
+  UPDATE_ERROR = 'update-error',
+  UPDATE_DOWNLOADED = 'update-downloaded',
+}
+
+export enum ElectronAction {
+  CLOSE = 'close',
+  MINIMIZE = 'minimize',
+  MAXIMIZE = 'maximize',
+  UNMAXIMIZE = 'unmaximize',
+  GET_IS_MAXIMIZED = 'get-is-maximized',
+
+  INSTALL_UPDATE = 'install-update',
+  HANDLE_DOUBLE_CLICK = 'handle-double-click',
+
+  TOGGLE_DEEPLINK_HANDLER = 'toggle-deeplink-handler',
+
+  GET_IS_ENCRYPTION_SUPPORTED = 'get-is-encryption-supported',
+  GET_IS_TOUCH_ID_SUPPORTED = 'get-is-touch-id-supported',
+  ENCRYPT_PASSWORD = 'encrypt-password',
+  DECRYPT_PASSWORD = 'decrypt-password',
+  SET_BIOMETRIC_PROMPT = 'set-biometric-prompt',
+
+  SET_IS_TRAY_ICON_ENABLED = 'set-is-tray-icon-enabled',
+  GET_IS_TRAY_ICON_ENABLED = 'get-is-tray-icon-enabled',
+  SET_IS_AUTO_UPDATE_ENABLED = 'set-is-auto-update-enabled',
+  GET_IS_AUTO_UPDATE_ENABLED = 'get-is-auto-update-enabled',
+  CHANGE_APP_LAYOUT = 'change-app-layout',
+
+  RESTORE_STORAGE = 'restore-storage',
+
+  OPEN_WALLET_CONNECT_PAY_COLLECT = 'open-wallet-connect-pay-collect',
+  CLOSE_WALLET_CONNECT_PAY_COLLECT = 'close-wallet-connect-pay-collect',
+}
+
+export interface ElectronApi {
+  close: VoidFunction;
+  minimize: VoidFunction;
+  maximize: VoidFunction;
+  unmaximize: VoidFunction;
+  getIsMaximized: () => Promise<boolean>;
+
+  installUpdate: () => Promise<void>;
+  handleDoubleClick: () => Promise<void>;
+
+  toggleDeeplinkHandler: (isEnabled: boolean) => Promise<void>;
+
+  getIsEncryptionSupported: () => Promise<boolean>;
+  getIsTouchIdSupported: () => Promise<boolean>;
+  encryptPassword: (password: string) => Promise<string>;
+  decryptPassword: (encrypted: string) => Promise<string | undefined>;
+  setBiometricPrompt: (prompt: string) => Promise<void>;
+
+  setIsTrayIconEnabled: (value: boolean) => Promise<void>;
+  getIsTrayIconEnabled: () => Promise<boolean>;
+  setIsAutoUpdateEnabled: (value: boolean) => Promise<void>;
+  getIsAutoUpdateEnabled: () => Promise<boolean>;
+  changeAppLayout: (layout: AppLayout) => Promise<void>;
+
+  restoreStorage: () => Promise<void>;
+
+  openWalletConnectPayCollect: (
+    url: string,
+    confirmStrings: { message: string; continueText: string; cancelText: string },
+  ) => Promise<void>;
+  closeWalletConnectPayCollect: () => Promise<void>;
+
+  on: (eventName: ElectronEvent, callback: any) => VoidFunction;
+}
+
+/**
+ * The API as the web bundle sees it. The desktop shell carries its own preload script and updates on its own
+ * schedule, so the bundle regularly runs inside a shell older than itself and any method may be missing. Optional
+ * members make the compiler demand a runtime check at every call site, and every caller must degrade gracefully
+ * when the method turns out to be absent.
+ */
+export type RemoteElectronApi = {
+  [K in keyof ElectronApi]?: ElectronApi[K];
+};
+
+declare global {
+  interface Window {
+    electron?: RemoteElectronApi;
+  }
+}

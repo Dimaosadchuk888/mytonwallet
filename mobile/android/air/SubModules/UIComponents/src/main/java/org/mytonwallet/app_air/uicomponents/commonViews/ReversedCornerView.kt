@@ -1,0 +1,417 @@
+@file:Suppress("ktlint:standard:backing-property-naming")
+
+package org.mytonwallet.app_air.uicomponents.commonViews
+
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Path
+import android.graphics.RectF
+import android.os.Build
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.animation.AccelerateDecelerateInterpolator
+import androidx.core.view.isGone
+import androidx.core.view.isVisible
+import kotlin.math.roundToInt
+import org.mytonwallet.app_air.uicomponents.AnimationConstants
+import org.mytonwallet.app_air.uicomponents.drawable.GradientShaderDrawable
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.glass.GlassFlavor
+import org.mytonwallet.app_air.uicomponents.glass.GlassProviders
+import org.mytonwallet.app_air.uicomponents.glass.WGlassView
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.fadeOut
+import org.mytonwallet.app_air.walletbasecontext.theme.ThemeManager
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.utils.colorWithAlpha
+
+@SuppressLint("ViewConstructor")
+class ReversedCornerView(context: Context, private val initialConfig: Config) :
+    BaseReversedCornerView(context),
+    WThemedView {
+
+    override val appliesAdditionalTabletPadding: Boolean
+        get() = initialConfig.additionalTabletPadding
+
+    data class Config(
+        val shouldBlur: Boolean = true,
+        val blurRootView: ViewGroup? = null,
+        val forceSeparator: Boolean = false,
+        val showSeparator: Boolean = true,
+        val additionalTabletPadding: Boolean = true,
+        val overrideBackgroundColor: WColor? = null
+    )
+
+    companion object {
+        private const val GRADIENT_ALPHA = 204
+    }
+
+    init {
+        id = generateViewId()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+            requestedFrameRate = REQUESTED_FRAME_RATE_CATEGORY_LOW
+        }
+    }
+
+    private val backgroundView = View(context).apply {
+        setBackgroundColor(
+            initialConfig.overrideBackgroundColor?.color ?: WColor.SecondaryBackground.color
+        )
+    }
+
+    private var blurryBackgroundView: WGlassView? = null
+
+    var isGradientMode = false
+        private set
+
+    var gradientFadeStartY = 0f
+        set(value) {
+            if (field == value) return
+            field = value
+            if (isGradientMode) rebuildGradientDrawable()
+        }
+
+    private val path = Path()
+    private val cornerPath = Path()
+    private val rectF = RectF()
+
+    private var lastWidth = -1
+    private var lastHeight = -1
+
+    var overrideRadius: Float? = null
+    var cornerRadius: Float = ViewConstants.TOOLBAR_RADIUS.dp
+        private set
+
+    private var radii: FloatArray =
+        floatArrayOf(cornerRadius, cornerRadius, cornerRadius, cornerRadius, 0f, 0f, 0f, 0f)
+
+    private var isBackgroundVisible = true
+    private var _desiredShowSeparator: Boolean? = null
+    private var showSeparator: Boolean? = null
+
+    var isPlaying = true
+        private set
+    private var radiusAnimator: ValueAnimator? = null
+
+    private var overlayColor: Int? = null
+    fun setBlurOverlayColor(color: Int?) {
+        overlayColor = color
+
+        blurryBackgroundView?.setTintOverlayColor(color)
+        if (isGradientMode) {
+            rebuildGradientDrawable()
+        } else {
+            backgroundView.setBackgroundColor(color ?: WColor.SecondaryBackground.color)
+        }
+        postInvalidateOnAnimation()
+    }
+
+    fun setBlurOverlayColor(overlayColor: WColor, alpha: Int? = null) {
+        blurryBackgroundView?.setProvider(
+            GlassProviders.plain(overlayColor, alpha?.let { it / 255f })
+        )
+        val solidAlpha = alpha ?: if (ThemeManager.isDark) 204 else 140
+        this.overlayColor = overlayColor.color.colorWithAlpha(solidAlpha)
+        if (isGradientMode) {
+            rebuildGradientDrawable()
+        } else {
+            backgroundView.setBackgroundColor(this.overlayColor!!)
+        }
+        postInvalidateOnAnimation()
+    }
+
+    fun setBackgroundVisible(visible: Boolean, animated: Boolean = true) {
+        if (visible == isBackgroundVisible) return
+        isBackgroundVisible = visible
+        if (animated) {
+            if (visible) {
+                fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+            } else {
+                fadeOut(AnimationConstants.VERY_QUICK_ANIMATION)
+            }
+        } else {
+            alpha = if (visible) 1f else 0f
+        }
+    }
+
+    fun setShowSeparator(visible: Boolean) {
+        if (showSeparator == visible) return
+        showSeparator = visible
+        _desiredShowSeparator = visible
+        postInvalidateOnAnimation()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if (backgroundView.parent == null) {
+            addView(backgroundView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            if (!isGradientMode) {
+                blurryBackgroundView?.let { addView(it, LayoutParams(MATCH_PARENT, MATCH_PARENT)) }
+            }
+        }
+        syncBlurView()
+        resumeBlurring()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        val width = width
+        val height = height
+
+        if (width <= 0 || height <= 0 || (alpha == 0f && visibility != VISIBLE)) return
+
+        if (width != lastWidth || height != lastHeight) {
+            lastWidth = width
+            lastHeight = height
+            pathDirty = true
+        }
+
+        if (isGradientMode) {
+            super.dispatchDraw(canvas)
+            return
+        }
+
+        if (pathDirty) {
+            updatePath(width.toFloat(), height.toFloat())
+            pathDirty = false
+        }
+
+        drawChildren(canvas)
+    }
+
+    private fun updatePath(width: Float, height: Float) {
+        path.reset()
+        cornerPath.reset()
+        path.moveTo(0f, 0f)
+        path.lineTo(width, 0f)
+        path.lineTo(width, height)
+        path.lineTo(0f, height)
+        path.close()
+
+        setCutoutRect(rectF, height - cornerRadius + 0.5f, height)
+        cornerPath.addRoundRect(rectF, radii, Path.Direction.CCW)
+
+        path.op(cornerPath, Path.Op.DIFFERENCE)
+    }
+
+    private fun drawChildren(canvas: Canvas) {
+        canvas.save()
+        canvas.clipPath(path)
+        super.dispatchDraw(canvas)
+        canvas.restore()
+    }
+
+    fun animateRadius(from: Float, to: Float) {
+        if (from == to) return
+        radiusAnimator?.cancel()
+        radiusAnimator = ValueAnimator.ofFloat(from, to).apply {
+            duration = AnimationConstants.QUICK_ANIMATION
+            interpolator = AccelerateDecelerateInterpolator()
+
+            addUpdateListener { animator ->
+                cornerRadius = animator.animatedValue as Float
+                radii = floatArrayOf(
+                    cornerRadius,
+                    cornerRadius,
+                    cornerRadius,
+                    cornerRadius,
+                    0f,
+                    0f,
+                    0f,
+                    0f
+                )
+                pathDirty = true
+                translationY =
+                    (if (to > from) 1f else -1f) * ((animatedFraction - 1) * 24.dp).roundToInt()
+
+                postInvalidateOnAnimation()
+            }
+
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    radiusAnimator = null
+                }
+            })
+
+            start()
+        }
+    }
+
+    private fun syncBlurView() {
+        if (isGradientMode) {
+            blurryBackgroundView?.let { blur ->
+                (blur.parent as? ViewGroup)?.removeView(blur)
+            }
+            blurryBackgroundView = null
+            if (backgroundView.parent == null) {
+                addView(backgroundView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            }
+            backgroundView.alpha = 1f
+            backgroundView.isVisible = true
+            return
+        }
+
+        val blurEnabled =
+            WGlobalStorage.isBlurEnabled() && initialConfig.shouldBlur &&
+                initialConfig.blurRootView != null
+        if (blurEnabled && blurryBackgroundView == null) {
+            blurryBackgroundView = WGlassView(context).apply {
+                flavor = GlassFlavor.FROSTED
+                fadeSide = WGlassView.FadeSide.BOTTOM
+                style = WGlassView.Style.PANEL
+                setProvider(
+                    GlassProviders.plain(
+                        initialConfig.overrideBackgroundColor ?: WColor.SecondaryBackground
+                    )
+                )
+                setupWith(initialConfig.blurRootView)
+            }
+            setBackgroundVisible(visible = true, animated = false)
+            initialConfig.overrideBackgroundColor?.let { overrideBackgroundColor ->
+                setBlurOverlayColor(overrideBackgroundColor)
+            }
+            if (backgroundView.parent != null) {
+                addView(blurryBackgroundView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+                if (isPlaying) {
+                    backgroundView.isGone = true
+                }
+            }
+        } else if (!blurEnabled && blurryBackgroundView != null) {
+            blurryBackgroundView?.let { blur ->
+                if (blur.parent != null) (blur.parent as ViewGroup).removeView(blur)
+            }
+            blurryBackgroundView = null
+            backgroundView.alpha = 1f
+            backgroundView.isVisible = true
+            if (backgroundView.parent == null) {
+                addView(backgroundView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            }
+        } else if (!blurEnabled && backgroundView.parent == null) {
+            addView(backgroundView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        }
+    }
+
+    private fun rebuildGradientDrawable() {
+        val bgColor = overlayColor
+            ?: initialConfig.overrideBackgroundColor?.color
+            ?: WColor.SecondaryBackground.color
+        val h = height
+        val fadeStart = if (h > 0) (gradientFadeStartY / h).coerceIn(0f, 1f) else 0f
+        backgroundView.background = GradientShaderDrawable(
+            intArrayOf(
+                bgColor.colorWithAlpha(GRADIENT_ALPHA),
+                bgColor.colorWithAlpha(GRADIENT_ALPHA),
+                bgColor.colorWithAlpha(0)
+            ),
+            floatArrayOf(0f, fadeStart, 1f)
+        )
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (isGradientMode && h != oldh) rebuildGradientDrawable()
+    }
+
+    fun setGradientMode(enabled: Boolean) {
+        if (isGradientMode == enabled) return
+        isGradientMode = enabled
+        pathDirty = true
+        updateTheme()
+    }
+
+    override fun updateTheme() {
+        syncBlurView()
+        updateRadius()
+
+        val bgColor = overlayColor
+            ?: initialConfig.overrideBackgroundColor?.color
+            ?: WColor.SecondaryBackground.color
+        if (isGradientMode) {
+            rebuildGradientDrawable()
+        } else {
+            backgroundView.setBackgroundColor(bgColor)
+        }
+
+        blurryBackgroundView?.updateTheme()
+    }
+
+    fun setRadius(radius: Float?) {
+        overrideRadius = radius
+        updateRadius()
+    }
+
+    private fun updateRadius() {
+        if (cornerRadius == (overrideRadius ?: ViewConstants.TOOLBAR_RADIUS.dp)) return
+        cornerRadius = overrideRadius ?: ViewConstants.TOOLBAR_RADIUS.dp
+        radii = floatArrayOf(cornerRadius, cornerRadius, cornerRadius, cornerRadius, 0f, 0f, 0f, 0f)
+        pathDirty = true
+    }
+
+    fun pauseBlurring(keepBlurAsImage: Boolean) {
+        if (!isPlaying) return
+        isPlaying = false
+        val blurryBackgroundView = blurryBackgroundView
+        blurryBackgroundView?.apply {
+            isGone = !keepBlurAsImage
+            alpha = if (keepBlurAsImage) 1f else 0f
+            backgroundView.isVisible = true
+            backgroundView.alpha = 1f
+        }
+        showSeparator = keepBlurAsImage
+        postInvalidateOnAnimation()
+    }
+
+    fun resumeBlurring() {
+        if (isPlaying) return
+        isPlaying = true
+
+        if (isGradientMode) {
+            backgroundView.alpha = 1f
+            backgroundView.isVisible = true
+            postInvalidateOnAnimation()
+            return
+        }
+
+        val blurryBackgroundView = blurryBackgroundView
+        blurryBackgroundView?.apply {
+            alpha = 1f
+            visibility = VISIBLE
+            backgroundView.isGone = true
+        } ?: {
+            // No blurs available, show background
+            backgroundView.apply {
+                alpha = 1f
+                visibility = VISIBLE
+            }
+        }
+        showSeparator = _desiredShowSeparator
+        postInvalidateOnAnimation()
+    }
+
+    private var currentAlpha = 1f
+    fun setBlurAlpha(alpha: Float) {
+        if (isGradientMode) return
+        val targetAlpha = 1f.coerceAtMost(alpha * 10)
+        if (currentAlpha == targetAlpha) return
+        currentAlpha = targetAlpha
+        if (blurryBackgroundView == null) {
+            // No blurs available
+            backgroundView.alpha = targetAlpha
+        } else {
+            // Combine blur and normal background
+            val blurryBackgroundView = blurryBackgroundView
+            if (blurryBackgroundView?.alpha == targetAlpha) return
+            blurryBackgroundView?.alpha = targetAlpha
+            backgroundView.alpha = 1 - targetAlpha
+        }
+        postInvalidateOnAnimation()
+    }
+}

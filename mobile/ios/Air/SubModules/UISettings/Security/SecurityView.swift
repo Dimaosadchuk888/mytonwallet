@@ -1,0 +1,265 @@
+
+import SwiftUI
+import UIKit
+import UIPasscode
+import UIComponents
+import WalletCore
+import WalletContext
+import Perception
+
+
+struct SecurityView: View {
+
+    private let accountContext = AccountContext(source: .current)
+
+    @State private var biometrics: Bool
+    @State private var isUpdatingBiometrics = false
+    @State private var autolockOption: MAutolockOption = AutolockStore.shared.autolockOption
+
+    @MainActor
+    init() {
+        _biometrics = State(initialValue: AuthSupport.status.configuredMethods.contains(.biometrics))
+    }
+    
+    var body: some View {
+        WithPerceptionTracking {
+            InsetList(topPadding: 8, spacing: 24) {
+                backupSection
+                passcodeSection
+                mfaSection
+                autolockSection
+                suspiciousActionsSection
+            }
+        }
+    }
+    
+    // MARK: - Backup
+    
+    @ViewBuilder
+    var backupSection: some View {
+        if AccountStore.account?.type == .mnemonic {
+            InsetSection {
+                InsetButtonCell(alignment: .leading, verticalPadding: 0, action: onBackup) {
+                    HStack(spacing: 16) {
+                        Image.airBundle("BackupIcon")
+                        Text(lang("$back_up_auth"))
+                        Spacer()
+                        Image.airBundle("RightArrowIcon")
+                            .foregroundStyle(Color.air.secondaryLabel)
+                    }
+                    .foregroundStyle(Color.air.primaryLabel)
+                    .frame(height: 44)
+                }
+            } header: {
+                Text(lang("$back_up_auth"))
+            }
+        }
+    }
+    
+    func onBackup() {
+        guard let vc = topWViewController() else { return }
+        guard AccountStore.account?.isHardware != true else {
+            return
+        }
+        Task { @MainActor in
+            guard let enclaveToken = await requestEnclaveToken(on: vc) else {
+                return
+            }
+            guard let accountId = AccountStore.accountId else {
+                return
+            }
+            do {
+                let mnemonic = try await Api.fetchMnemonic(accountId: accountId, enclaveToken: enclaveToken)
+                vc.navigationController?.pushViewController(RecoveryPhraseVC(wordList: mnemonic), animated: true)
+            } catch {
+                vc.showAlert(error: error)
+            }
+        }
+    }
+    
+    // MARK: - Passcode
+    
+    @ViewBuilder
+    var passcodeSection: some View {
+        InsetSection {
+            if let biometryType = BiometricHelper.biometryType {
+                enableBiometrics(biometryType: biometryType)
+            }
+            changePasscode
+        } header: {
+            Text(lang("Passcode"))
+        } footer: {
+            Text(lang("The passcode will be changed for all your wallets."))
+        }
+    }
+    
+    func enableBiometrics(biometryType: BiometryType) -> some View {
+        let biometricName: String
+        switch biometryType {
+        case .face: biometricName = lang("Face ID")
+        case .touch: biometricName = lang("Touch ID")
+        }
+        
+        return InsetDetailCell(verticalPadding: 0) {
+            Text(biometricName)
+                .frame(height: 44)
+        } value: {
+            Toggle(biometricName, isOn: $biometrics)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .disabled(isUpdatingBiometrics)
+        }
+        .onChange(of: biometrics) { isOn in
+            guard !isUpdatingBiometrics else { return }
+
+            isUpdatingBiometrics = true
+            Task { @MainActor in
+                defer { isUpdatingBiometrics = false }
+
+                guard let enclaveToken = await requestEnclaveToken(on: topWViewController()) else {
+                    biometrics.toggle()
+                    return
+                }
+                do {
+                    if isOn {
+                        _ = try await AuthSupport.enableBiometrics(using: enclaveToken)
+                    } else {
+                        try await AuthSupport.disableBiometrics(using: enclaveToken)
+                    }
+                } catch AuthSupportBiometricsError.canceled {
+                    biometrics.toggle()
+                } catch AuthSupportBiometricsError.userDeniedBiometrics {
+                    biometrics.toggle()
+                } catch {
+                    biometrics.toggle()
+                    topWViewController()?.showAlert(error: error)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func requestEnclaveToken(on viewController: UIViewController?) async -> EnclaveToken? {
+        guard let viewController else {
+            return nil
+        }
+        return await UnlockVC.presentAuthAsync(
+            on: viewController,
+            title: lang("Enter your Wallet Passcode")
+        )
+    }
+    
+    @ViewBuilder
+    var changePasscode: some View {
+        InsetButtonCell(alignment: .leading, action: onChangePasscode) {
+            Text(lang("Change Passcode"))
+        }
+    }
+    
+    func onChangePasscode() {
+        guard let vc = topWViewController() else { return }
+        UnlockVC.presentAuth(on: vc, onDone: { enclaveToken in
+            if let enclaveToken {
+                vc.navigationController?.pushViewController(ChangePasscodeVC(step: .newPasscode(prevToken: enclaveToken)), animated: true)
+            }
+        }, cancellable: true)
+    }
+
+    // MARK: - MFA
+
+    @ViewBuilder
+    var mfaSection: some View {
+        if shouldShowMfa {
+            InsetSection {
+                InsetButtonCell(alignment: .leading, verticalPadding: 0, action: onMfa) {
+                    HStack(spacing: 16) {
+                        MfaSettingsRowIcon()
+
+                        HStack(spacing: 6) {
+                            Text(lang("2FA with Telegram"))
+
+                            Text("TON")
+                                .textStyle(.badge, content: .technical)
+                                .foregroundStyle(Color.air.secondaryLabel)
+                                .padding(.horizontal, 3)
+                                .padding(.bottom, 1)
+                                .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Image.airBundle("RightArrowIcon")
+                            .foregroundStyle(Color.air.secondaryLabel)
+                    }
+                    .foregroundStyle(Color.air.primaryLabel)
+                    .frame(height: 52)
+                }
+            } footer: {
+                Text(lang("Confirm operations in Telegram as a second step."))
+            }
+        }
+    }
+
+    var shouldShowMfa: Bool {
+        guard let account = AccountStore.account, account.supports(chain: .ton) else {
+            return false
+        }
+        return (IS_GRAM_WALLET && accountContext.isMfaEnabled)
+            || account.getChainInfo(chain: .ton)?.mfa != nil
+    }
+
+    func onMfa() {
+        guard let vc = topWViewController() else { return }
+        vc.navigationController?.pushViewController(MfaVC(), animated: true)
+    }
+    
+    
+    // MARK: - Auto-lock
+    
+    @ViewBuilder
+    var autolockSection: some View {
+        InsetSection {
+            InsetPickerCell(
+                lang("Lock the app after"),
+                selection: $autolockOption,
+                value: autolockOption.displayName
+            ) {
+                ForEach(MAutolockOption.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+        } header: {
+            Text(lang("Auto-Lock"))
+        }
+        .onChange(of: autolockOption) { autolock in
+            AutolockStore.shared.autolockOption = autolock
+        }
+    }
+
+    // MARK: - Suspicious actions
+
+    @ViewBuilder
+    var suspiciousActionsSection: some View {
+        let settings = accountContext.settings
+        let isAllowSuspiciousActions = settings.isAllowSuspiciousActions
+
+        InsetSection {
+            InsetDetailCell(verticalPadding: 0) {
+                Text(lang("Allow Suspicious Actions"))
+                    .frame(height: 44)
+            } value: {
+                Toggle(
+                    lang("Allow Suspicious Actions"),
+                    isOn: Binding(
+                        get: { isAllowSuspiciousActions },
+                        set: { settings.setIsAllowSuspiciousActions($0) }
+                    )
+                )
+                .toggleStyle(.switch)
+                .labelsHidden()
+            }
+        } footer: {
+            Text(lang("$allow_suspicious_actions_description"))
+        }
+    }
+}

@@ -1,0 +1,89 @@
+package org.mytonwallet.app_air.uiswap.screens.swap.views
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.LinearLayout
+import org.mytonwallet.app_air.uicomponents.drawable.SeparatorBackgroundDrawable
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.animateHeight
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletcore.moshi.IApiToken
+
+@SuppressLint("ViewConstructor")
+class SwapRateRowView(context: Context) :
+    WView(context),
+    WThemedView {
+
+    private val separator = SeparatorBackgroundDrawable().apply {
+        offsetStart = 20f.dp
+        offsetEnd = 20f.dp
+    }
+
+    @SuppressLint("SetTextI18n")
+    private val titleLabel = WLabel(context).apply {
+        id = generateViewId()
+        setStyle(adaptiveFontSize())
+        text = LocaleController.getString("Price per") + " 1"
+    }
+
+    private val valueLabel = WLabel(context).apply {
+        setStyle(adaptiveFontSize())
+    }
+
+    private val valueView = LinearLayout(context).apply {
+        id = generateViewId()
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.END
+        addView(valueLabel, LayoutParams(WRAP_CONTENT, 24.dp))
+    }
+
+    init {
+        layoutParams = ViewGroup.LayoutParams(MATCH_PARENT, 50.dp)
+    }
+
+    @SuppressLint("SetTextI18n")
+    override fun setupViews() {
+        super.setupViews()
+
+        background = separator
+
+        addView(titleLabel, LayoutParams(WRAP_CONTENT, 24.dp))
+        addView(valueView, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        setConstraints {
+            toStart(titleLabel, 20f)
+            toTop(titleLabel, 18f)
+            toCenterY(valueView)
+            toEnd(valueView, 20f)
+        }
+
+        updateTheme()
+    }
+
+    override fun updateTheme() {
+        titleLabel.setTextColor(WColor.SecondaryText.color)
+        valueLabel.setTextColor(WColor.PrimaryText.color)
+    }
+
+    fun setTitleAndValue(title: String, value: String) {
+        titleLabel.text = title
+        valueLabel.text = value
+    }
+
+    @SuppressLint("SetTextI18n")
+    fun clearValue(toToken: IApiToken?) {
+        titleLabel.text =
+            LocaleController.getString("Price per") + "\u202D 1 " + (toToken?.symbol ?: "")
+        valueLabel.text = ""
+        animateHeight(50.dp)
+    }
+}

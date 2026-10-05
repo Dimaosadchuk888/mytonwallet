@@ -1,0 +1,183 @@
+package org.mytonwallet.app_air.uiassets.viewControllers.hiddenNFTs.cells
+
+import android.annotation.SuppressLint
+import android.text.SpannableStringBuilder
+import android.text.TextUtils
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import androidx.recyclerview.widget.RecyclerView
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.styleDots
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.image.WNftImageView
+import org.mytonwallet.app_air.uicomponents.widgets.WButton
+import org.mytonwallet.app_air.uicomponents.widgets.WCell
+import org.mytonwallet.app_air.uicomponents.widgets.WFrameLayout
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WSwitch
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.formatStartEndAddress
+import org.mytonwallet.app_air.walletcore.moshi.ApiNft
+import org.mytonwallet.app_air.walletcore.stores.NftStore
+
+@SuppressLint("ViewConstructor")
+class HiddenNFTsItemCell(
+    recyclerView: RecyclerView,
+    private val accountId: String,
+    private val onSelect: ((nft: ApiNft) -> Unit)
+) : WCell(recyclerView.context, LayoutParams(MATCH_PARENT, 60.dp)),
+    WThemedView {
+
+    private lateinit var nft: ApiNft
+
+    private val imageView: WNftImageView by lazy {
+        WNftImageView(context, 48.dp, 4.dp, 12f.dp)
+    }
+
+    private val titleLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(adaptiveFontSize(), WFont.Medium)
+        lbl.setSingleLine()
+        lbl.ellipsize = TextUtils.TruncateAt.END
+        lbl.useCustomEmoji = true
+        lbl
+    }
+
+    private val subtitleLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setStyle(14f)
+        lbl.setSingleLine()
+        lbl.ellipsize = TextUtils.TruncateAt.END
+        lbl.useCustomEmoji = true
+        lbl
+    }
+
+    private val switchView: WSwitch by lazy {
+        WSwitch(context)
+    }
+    private val hideButton: WButton by lazy {
+        val btn = WButton(context, WButton.Type.SECONDARY)
+        btn.setOnClickListener {
+            setNftVisibility(
+                NftStore.isHiddenByUser(accountId, nft)
+            )
+            updateHideButtonText()
+        }
+        btn
+    }
+    private val rightView = WFrameLayout(context)
+
+    override fun setupViews() {
+        super.setupViews()
+
+        addView(imageView, ViewGroup.LayoutParams(48.dp, 48.dp))
+        addView(titleLabel, LayoutParams(0, WRAP_CONTENT))
+        addView(subtitleLabel, LayoutParams(0, WRAP_CONTENT))
+        addView(rightView, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        setConstraints {
+            toCenterY(imageView)
+            toStart(imageView, 16f)
+            toCenterY(rightView)
+            toEnd(rightView, 20f)
+            toTop(titleLabel, 8f)
+            toStart(titleLabel, 76f)
+            endToStart(titleLabel, rightView, 8f)
+            toBottom(subtitleLabel, 8f)
+            toStart(subtitleLabel, 76f)
+            endToStart(subtitleLabel, rightView, 8f)
+        }
+
+        setOnClickListener {
+            onSelect(nft)
+        }
+
+        updateTheme()
+    }
+
+    override fun updateTheme() {
+        setBackgroundColor(
+            WColor.Background.color,
+            0f,
+            if (isLast) ViewConstants.BLOCK_RADIUS.dp else 0f
+        )
+        if (nft.isHidden == true || nft.isUnverified == true) {
+            addRippleEffect(
+                WColor.SecondaryBackground.color,
+                0f,
+                if (isLast) ViewConstants.BLOCK_RADIUS.dp else 0f
+            )
+        }
+        imageView.updateTheme()
+        titleLabel.setTextColor(WColor.PrimaryText.color)
+        subtitleLabel.setTextColor(WColor.SecondaryText.color)
+    }
+
+    private var isLast = false
+    fun configure(nft: ApiNft, isLast: Boolean, showSeparator: Boolean) {
+        this.nft = nft
+        this.isLast = isLast
+        imageView.setNftImage(nft.thumbnail)
+        nft.name?.let {
+            titleLabel.text = it
+        } ?: run {
+            titleLabel.text =
+                SpannableStringBuilder(nft.address.formatStartEndAddress()).apply {
+                    styleDots()
+                }
+        }
+        subtitleLabel.text =
+            if (nft.isStandalone()) {
+                LocaleController.getString(
+                    "Standalone NFT"
+                )
+            } else {
+                nft.collectionName
+            }
+        if (nft.isHidden == true || nft.isUnverified == true) {
+            if (switchView.parent == null) {
+                rightView.removeView(hideButton)
+                rightView.addView(switchView)
+            }
+            switchView.setOnCheckedChangeListener(null)
+            switchView.isChecked = !NftStore.shouldHide(accountId, nft)
+            switchView.setOnCheckedChangeListener { _, isChecked ->
+                setNftVisibility(isChecked)
+            }
+        } else {
+            if (hideButton.parent == null) {
+                rightView.removeView(switchView)
+                rightView.addView(hideButton, LayoutParams(60.dp, WRAP_CONTENT))
+            }
+            updateHideButtonText()
+        }
+
+        updateTheme()
+    }
+
+    private fun setNftVisibility(visible: Boolean) {
+        if (visible) {
+            NftStore.showNft(accountId, nft)
+        } else {
+            NftStore.hideNft(accountId, nft)
+        }
+    }
+
+    private fun updateHideButtonText() {
+        hideButton.setText(
+            LocaleController.getString(
+                if (NftStore.isHiddenByUser(accountId, nft)) {
+                    "Show"
+                } else {
+                    "Hide"
+                }
+            )
+        )
+    }
+}

@@ -1,0 +1,202 @@
+
+import Foundation
+import SwiftUI
+import UIComponents
+import WalletCore
+import WalletContext
+import Perception
+
+struct AddStakeView: View {
+    
+    var model: AddStakeModel
+    
+    var body: some View {
+        WithPerceptionTracking {
+            @Perception.Bindable var model = model
+            InsetList(topPadding: 0) {
+                AmountSection(model: model)
+
+                StakeInfoSection(model: model)
+                        .padding(.top, -8)
+                        .onTapGesture { model.onBackgroundTapped() }
+            }
+            .backportScrollEdgeEffectHidden(for: .top)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Color.clear
+                    .frame(height: 90)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(.rect)
+            .onTapGesture {
+                model.onBackgroundTapped()
+            }
+            .onChange(of: model.amount) { amount in
+                if let amount, model.switchedToBaseCurrencyInput == false {
+                    model.updateBaseCurrencyAmount(amount)
+                }
+            }
+            .onChange(of: model.amountInBaseCurrency) { baseCurrencyAmount in
+                if let baseCurrencyAmount, model.switchedToBaseCurrencyInput == true {
+                    model.updateAmountFromBaseCurrency(baseCurrencyAmount)
+                }
+            }
+        }
+    }
+}
+
+
+fileprivate struct AmountSection: View {
+    
+    var model: AddStakeModel
+    
+    var body: some View {
+        WithPerceptionTracking {
+            @Perception.Bindable var model = model
+            TokenAmountEntrySection(
+                amount: $model.amount,
+                token: displayToken,
+                balance: model.maxAmount,
+                insufficientFunds: model.insufficientFunds,
+                amountInBaseCurrency: $model.amountInBaseCurrency,
+                switchedToBaseCurrencyInput: $model.switchedToBaseCurrencyInput,
+                fee: model.fee,
+                explainedFee: nil,
+                isFocused: $model.isAmountFieldFocused,
+                onTokenSelect: nil,
+                onUseAll: { model.onUseAll() }
+            )
+        }
+    }
+    
+    /// even when withdrawing "staked", show normal token
+    var displayToken: ApiToken {
+        model.baseToken
+    }
+}
+
+
+fileprivate struct StakeInfoSection: View {
+    
+    var model: AddStakeModel
+
+    var yieldTypeLabel: String {
+        switch model.yieldType {
+        case .apr: "Current APR"
+        case .apy: "Current APY"
+        }
+    }
+
+    var body: some View {
+        WithPerceptionTracking {
+            InsetSection {
+                InsetCell {
+                    HStack {
+                        Text(lang(yieldTypeLabel))
+                            .font17h22()
+                        Spacer()
+                        apyBadge
+                    }
+                    .padding(.top, -1)
+                    .padding(.bottom, -1)
+                }
+                InsetCell {
+                    HStack {
+                        Text(lang("Est. Yearly Earnings"))
+                            .font17h22()
+                        Spacer()
+                        estEarning
+                    }
+                    .padding(.top, -1)
+                }
+                
+                if let totalStaked = model.totalStaked, totalStaked > 0 {
+                    InsetCell {
+                        HStack {
+                            Text(lang("Total Staked"))
+                                .font17h22()
+                            Spacer()
+                            Text(amount: TokenAmount(totalStaked, model.baseToken), format: .init(maxDecimals: 0))
+                                .textStyle(
+                                    .body,
+                                    content: .technical,
+                                    scaling: .dynamic
+                                )
+                        }
+                        .padding(.top, -1)
+                    }
+                }
+                
+                if let totalStakers = model.totalStakers, totalStakers > 0 {
+                    InsetCell {
+                        HStack {
+                            Text(lang("Total Stakers"))
+                                .font17h22()
+                            Spacer()
+                            Text(formatBigIntText(BigInt(totalStakers), tokenDecimals: 0))
+                                .textStyle(
+                                    .body,
+                                    content: .technical,
+                                    scaling: .dynamic
+                                )
+                        }
+                        .padding(.top, -1)
+                    }
+                }
+
+                InsetButtonCell(action: { model.onWhyIsSafe?() }) {
+                    Text(model.config.explainTitle)
+                        .font17h22()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .tint(.accentColor)
+                        .padding(.top, -1)
+                }
+            } header: {
+                Text(lang("Staking Details"))
+            } footer: {}
+        }
+    }
+    
+    @ViewBuilder
+    var apyBadge: some View {
+        Text(formatPercent(model.apy / 100, showPlus: false))
+            .textStyle(
+                .calloutEmphasized,
+                content: .technical,
+                scaling: .dynamic
+            )
+            .lineSpacing(3)
+            .padding(.top, 2.66)
+            .padding(.bottom, 2.66)
+            .padding(.horizontal, 6)
+            .foregroundStyle(Color.air.background)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(earnGradient)
+            }
+    }
+    
+    @ViewBuilder
+    var estEarning: some View {
+        estEarningText
+            .textStyle(
+                .bodyEmphasized,
+                content: .technical,
+                scaling: .dynamic
+            )
+            .lineSpacing(1)
+            .frame(minHeight: 22)
+            .foregroundStyle(earnGradient)
+    }
+    
+    var estEarningText: Text {
+        if model.switchedToBaseCurrencyInput {
+            let cur = model.amountInBaseCurrency ?? 0
+            let income = cur * BigInt(model.apy * 1000) / 1000 / 100
+            return Text(amount: DecimalAmount.baseCurrency(income)!, format: .init(preset: .defaultAdaptive, showPlus: true))
+        } else {
+            let amnt = (model.amount ?? 0)
+            let income = amnt * BigInt(model.apy * 1000) / 1000 / 100
+            return Text(amount: TokenAmount(income, model.baseToken), format: .init(preset: .defaultAdaptive, showPlus: true))
+        }
+    }
+}

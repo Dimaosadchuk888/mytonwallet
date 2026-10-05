@@ -1,0 +1,116 @@
+//
+//  WalletVersionCell.swift
+//  UISettings
+//
+
+import SwiftUI
+import UIComponents
+import WalletCore
+import WalletContext
+
+struct WalletVersionCell: View {
+
+    var title: String
+    var subtitle: String
+    var value: String?
+    var isCurrent: Bool
+    var showArrow: Bool
+    var isLoading: Bool = false
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .textStyle(
+                        .body,
+                        content: .technical,
+                        scaling: .dynamic
+                    )
+                    .frame(minHeight: 22)
+                Text(subtitle)
+                    .textStyle(.subheadline, content: .technical)
+                    .frame(minHeight: 18)
+                    .foregroundStyle(Color.air.secondaryLabel)
+            }
+            .offset(y: -1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let value, !value.isEmpty {
+                Text(value)
+                    .textStyle(.subheadline, content: .technical)
+                    .frame(minHeight: 18)
+                    .foregroundStyle(Color.air.secondaryLabel)
+            }
+            if isCurrent {
+                Image.airBundle("AirCheckmark")
+                    .foregroundStyle(.tint)
+            } else if isLoading {
+                WUIActivityIndicator()
+                    .foregroundStyle(Color.air.secondaryLabel)
+            } else if showArrow {
+                Image("RightArrowIcon", bundle: AirBundle)
+                    .renderingMode(.template)
+                    .foregroundStyle(Color.air.secondaryLabel)
+            }
+        }
+    }
+}
+
+extension WalletVersionCell {
+    static func makeCurrentVersionRegistration(
+        walletVersionsData: MWalletVersionsData?,
+        account: MAccount?
+    ) -> UICollectionView.CellRegistration<UICollectionViewListCell, Void> {
+        UICollectionView.CellRegistration<UICollectionViewListCell, Void> { cell, _, _ in
+            cell.configurationUpdateHandler = { cell, state in
+                cell.contentConfiguration = UIHostingConfiguration {
+                    WalletVersionCell(
+                        title: walletVersionsData?.currentVersion ?? "",
+                        subtitle: formatStartEndAddress(account?.getAddress(chain: .ton) ?? ""),
+                        value: nil,
+                        isCurrent: true,
+                        showArrow: false,
+                        isLoading: false
+                    )
+                }
+                .background {
+                    CellBackgroundHighlight(isHighlighted: state.isHighlighted)
+                }
+                .margins(.all, EdgeInsets(top: 9, leading: 20, bottom: 9, trailing: 18))
+                .minSize(height: 62)
+            }
+        }
+    }
+
+    static func makeOtherVersionRegistration(
+        versions: [MWalletVersionsData.Version],
+        isLoading: @escaping (String) -> Bool
+    ) -> UICollectionView.CellRegistration<UICollectionViewListCell, String> {
+        UICollectionView.CellRegistration<UICollectionViewListCell, String> { cell, _, versionId in
+            guard let version = versions.first(where: { $0.version == versionId }) else { return }
+            let value: String
+            if let balance = MTokenBalance(tokenSlug: "toncoin", balance: version.balance, isStaking: false).toBaseCurrency {
+                let baseCurrencyAmount = BaseCurrencyAmount.fromDouble(balance, TokenStore.baseCurrency)
+                value = baseCurrencyAmount.formatted(.baseCurrencyEquivalent, roundHalfUp: true)
+            } else {
+                value = ""
+            }
+            cell.configurationUpdateHandler = { cell, state in
+                cell.contentConfiguration = UIHostingConfiguration {
+                    WalletVersionCell(
+                        title: version.version,
+                        subtitle: formatStartEndAddress(version.address),
+                        value: value,
+                        isCurrent: false,
+                        showArrow: true,
+                        isLoading: isLoading(versionId)
+                    )
+                }
+                .background {
+                    CellBackgroundHighlight(isHighlighted: state.isHighlighted)
+                }
+                .margins(.all, EdgeInsets(top: 9, leading: 20, bottom: 9, trailing: 18))
+                .minSize(height: 62)
+            }
+        }
+    }
+}

@@ -1,0 +1,877 @@
+import type { GlobalState } from '../../types';
+import {
+  AppState,
+  AuthState,
+  ContentTab,
+  SettingsState,
+  TransactionInfoState,
+} from '../../types';
+
+import {
+  ANIMATION_LEVEL_MIN,
+  APP_VERSION,
+  BOT_USERNAME,
+  DEBUG,
+} from '../../../config';
+import { parseNotificationTxId } from '../../../util/activities';
+import { getDoesUsePinPad } from '../../../util/biometrics';
+import {
+  openDeeplinkOrUrl,
+  processDeeplink,
+} from '../../../util/deeplink';
+import getIsAppUpdateNeeded from '../../../util/getIsAppUpdateNeeded';
+import { vibrate, vibrateOnSuccess } from '../../../util/haptics';
+import { omit } from '../../../util/iteratees';
+import { getTranslation } from '../../../util/langProvider';
+import { logDebugError } from '../../../util/logs';
+import { openUrl } from '../../../util/openUrl';
+import { getTelegramApp } from '../../../util/telegram';
+import {
+  getIsMobileTelegramApp,
+  IS_ELECTRON,
+} from '../../../util/windowEnvironment';
+import { callApi } from '../../../api';
+import { closeAllOverlays, parsePlainAddressQr } from '../../helpers/misc';
+import { addActionHandler, getGlobal, setGlobal } from '../../index';
+import {
+  clearCurrentSwap,
+  clearCurrentTransfer,
+  clearIsPinAccepted,
+  openSection,
+  renameAccount,
+  setIsPinAccepted,
+  updateAccounts,
+  updateAuth,
+  updateCurrentAccountState,
+  updateCurrentTransactionInfo,
+  updateDappConnectRequest,
+  updateSettings,
+} from '../../reducers';
+import {
+  selectCurrentAccount,
+  selectCurrentAccountId,
+  selectCurrentAccountState,
+  selectCurrentNetwork,
+  selectDefaultOffRampChain,
+  selectHasPassword,
+  selectIsOffRampAllowed,
+  selectIsOnRampAllowed,
+} from '../../selectors';
+import { switchAccount } from '../api/auth';
+
+import { closeModal } from '../../../components/ui/Modal';
+
+const APP_VERSION_URL = 'version.txt';
+
+addActionHandler('showActivityInfo', (global, actions, { id }) => {
+  return updateCurrentAccountState(global, { currentActivityId: id });
+});
+
+addActionHandler('showAnyAccountTx', async (global, actions, { txId, accountId, network, chain }) => {
+  await Promise.all([
+    closeAllOverlays(),
+    switchAccount(global, accountId, network),
+  ]);
+
+  if (txId.startsWith('swap:')) {
+    const result = await callApi('fetchSwaps', accountId, [{ id: txId, chain }]);
+    const swapActivity = result?.swaps[0];
+
+    if (swapActivity) {
+      actions.openTransactionInfo({ txId, chain, activities: [swapActivity] });
+      return;
+    }
+  }
+
+  const txHash = parseNotificationTxId(txId);
+  actions.openTransactionInfo({ txHash, chain });
+});
+
+addActionHandler('closeActivityInfo', (global, actions, { id }) => {
+  if (selectCurrentAccountState(global)?.currentActivityId !== id) {
+    return undefined;
+  }
+
+  return updateCurrentAccountState(global, { currentActivityId: undefined });
+});
+
+addActionHandler('openTransactionInfo', async (global, actions, payload) => {
+  const chain = payload.chain;
+  const isTxId = 'txId' in payload;
+  const txId = isTxId ? payload.txId : payload.txHash;
+  let activities = payload.activities;
+
+  const account = selectCurrentAccount(getGlobal());
+  if (!account) {
+    const isTooEarly = (getGlobal() as AnyLiteral).isInited === false;
+    logDebugError('openTransactionInfo', 'Account not found', isTooEarly);
+    setGlobal(updateCurrentTransactionInfo(getGlobal(), {
+      state: TransactionInfoState.None,
+      error: 'Unexpected error',
+    }));
+    actions.showError({ error: 'Unexpected error' });
+    return;
+  }
+
+  const chainAccount = account.byChain[chain];
+  const walletAddress = chainAccount?.address ?? '';
+
+  const network = selectCurrentNetwork(getGlobal());
+
+  const options = isTxId ? { chain, network, txId, walletAddress } : { chain, network, txHash: txId, walletAddress };
+
+  if (!activities) {
+    setGlobal(updateCurrentTransactionInfo(getGlobal(), {
+      state: TransactionInfoState.Loading,
+      txId,
+      chain,
+    }));
+
+    activities = await callApi('fetchTransactionById', options);
+  }
+
+  if (!activities || activities.length === 0) {
+    setGlobal(updateCurrentTransactionInfo(getGlobal(), {
+      state: TransactionInfoState.None,
+      error: '$transaction_not_found',
+    }));
+    actions.showError({ error: '$transaction_not_found' });
+    return;
+  }
+
+  // If single activity, show detail directly; otherwise show list
+  const nextState = activities.length === 1
+    ? TransactionInfoState.ActivityDetail
+    : TransactionInfoState.ActivityList;
+
+  setGlobal(updateCurrentTransactionInfo(getGlobal(), {
+    state: nextState,
+    txId,
+    chain,
+    activities,
+    selectedActivityIndex: activities.length === 1 ? 0 : undefined,
+  }));
+});
+
+addActionHandler('closeTransactionInfo', (global) => {
+  return {
+    ...global,
+    currentTransactionInfo: {
+      state: TransactionInfoState.None,
+    },
+  };
+});
+
+addActionHandler('selectTransactionInfoActivity', (global, actions, { index }) => {
+  if (global.currentTransactionInfo.state === TransactionInfoState.None) {
+    return undefined;
+  }
+
+  // If index is -1, go back to list view
+  if (index < 0) {
+    return {
+      ...global,
+      currentTransactionInfo: {
+        ...global.currentTransactionInfo,
+        state: TransactionInfoState.ActivityList,
+        selectedActivityIndex: undefined,
+      },
+    };
+  }
+
+  return {
+    ...global,
+    currentTransactionInfo: {
+      ...global.currentTransactionInfo,
+      state: TransactionInfoState.ActivityDetail,
+      selectedActivityIndex: index,
+    },
+  };
+});
+
+addActionHandler('addSavedAddress', (global, actions, { address, name, chain }) => {
+  const { savedAddresses = [] } = selectCurrentAccountState(global) || {};
+
+  const isAlreadySaved = savedAddresses.some((item) => item.address === address && item.chain === chain);
+  if (isAlreadySaved) return;
+
+  return updateCurrentAccountState(global, {
+    savedAddresses: [
+      ...savedAddresses,
+      { address, name, chain },
+    ],
+  });
+});
+
+addActionHandler('removeFromSavedAddress', (global, actions, { address, chain }) => {
+  const { savedAddresses = [] } = selectCurrentAccountState(global) || {};
+
+  const newSavedAddresses = savedAddresses.filter((item) => !(item.address === address && item.chain === chain));
+
+  return updateCurrentAccountState(global, { savedAddresses: newSavedAddresses });
+});
+
+addActionHandler('toggleTinyTransfersHidden', (global, actions, { isEnabled } = {}) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      areTinyTransfersHidden: isEnabled,
+    },
+  };
+});
+
+addActionHandler('toggleUnverifiedNftsHidden', (global, actions, { isEnabled } = {}) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      areUnverifiedNftsHidden: isEnabled,
+    },
+  };
+});
+
+addActionHandler('toggleLocalizedTokenNames', (global, actions, { isEnabled } = {}) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      areTokenNamesLocalized: isEnabled,
+    },
+  };
+});
+
+addActionHandler('setCurrentTokenPeriod', (global, actions, { period }) => {
+  return updateCurrentAccountState(global, {
+    currentTokenPeriod: period,
+  });
+});
+
+addActionHandler('addAccount', async (global, actions, {
+  method, isAuthFlow, clearDappConnectOnVerified, enclaveToken,
+}) => {
+  const hasPassword = selectHasPassword(global);
+  const isMnemonicImport = method === 'importMnemonic';
+
+  if (hasPassword) {
+    if (!isAuthFlow) {
+      global = updateAccounts(global, {
+        isLoading: true,
+      });
+      setGlobal(global);
+    }
+
+    if (getDoesUsePinPad()) {
+      global = setIsPinAccepted(getGlobal());
+      setGlobal(global);
+    }
+    await vibrateOnSuccess(true);
+  }
+
+  global = getGlobal();
+  if (isMnemonicImport || !hasPassword) {
+    global = { ...global, isAccountSelectorOpen: undefined };
+  } else {
+    global = updateAccounts(global, { isLoading: true });
+  }
+  setGlobal(global);
+
+  if (clearDappConnectOnVerified) {
+    let newGlobal = getGlobal();
+    newGlobal = updateDappConnectRequest(newGlobal, {
+      isCreatingAccount: true,
+    });
+    newGlobal = updateAuth(newGlobal, { forceAddingTonOnlyAccount: undefined });
+    setGlobal(newGlobal);
+  }
+
+  actions.addAccount2({ method, enclaveToken });
+});
+
+addActionHandler('addAccount2', (global, actions, { method, enclaveToken }) => {
+  const isMnemonicImport = method === 'importMnemonic';
+  const hasPassword = selectHasPassword(global);
+  const authState = hasPassword
+    ? isMnemonicImport
+      ? AuthState.importWallet
+      : undefined
+    : (
+      getDoesUsePinPad()
+        ? AuthState.createPin
+        : AuthState.createPassword
+    );
+
+  if (isMnemonicImport || !hasPassword) {
+    global = { ...global, appState: AppState.Auth };
+  }
+  global = updateAuth(global, { state: authState });
+  global = clearCurrentTransfer(global);
+  global = clearCurrentSwap(global);
+
+  setGlobal(global);
+
+  if (isMnemonicImport) {
+    actions.startImportingWallet({ enclaveToken });
+  } else {
+    actions.startCreatingWallet({ enclaveToken });
+  }
+});
+
+addActionHandler('renameAccount', (global, actions, { accountId, title }) => {
+  setGlobal(renameAccount(global, accountId, title));
+
+  actions.renameNotificationAccount({ accountId });
+});
+
+addActionHandler('clearAccountError', (global) => {
+  return updateAccounts(global, { error: undefined });
+});
+
+addActionHandler('openAddAccountModal', (global, _, props) => {
+  const { forceAddingTonOnlyAccount, initialState, shouldHideBackButton } = props || {};
+
+  global = { ...global, isAccountSelectorOpen: true };
+
+  if (forceAddingTonOnlyAccount || initialState !== undefined || shouldHideBackButton) {
+    global = updateAuth(global, {
+      forceAddingTonOnlyAccount,
+      initialAddAccountState: initialState,
+      shouldHideAddAccountBackButton: shouldHideBackButton,
+    });
+  }
+
+  setGlobal(global);
+});
+
+addActionHandler('closeAddAccountModal', (global, _, props) => {
+  if (getDoesUsePinPad()) {
+    global = clearIsPinAccepted(global);
+  }
+
+  global = updateAuth(global, {
+    forceAddingTonOnlyAccount: undefined,
+    initialAddAccountState: undefined,
+    shouldHideAddAccountBackButton: undefined,
+  });
+  global = { ...global, isAccountSelectorOpen: undefined };
+
+  return global;
+});
+
+addActionHandler('changeNetwork', (global, actions, { network }) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      isTestnet: network === 'testnet',
+    },
+  };
+});
+
+addActionHandler('openSettings', (global) => {
+  global = updateSettings(global, { state: SettingsState.Initial });
+
+  return openSection(global, 'settings');
+});
+
+addActionHandler('openSettingsWithState', (global, actions, { state }) => {
+  global = updateSettings(global, { state });
+  setGlobal(openSection(global, 'settings'));
+});
+
+addActionHandler('setSettingsState', (global, actions, { state }) => {
+  global = updateSettings(global, { state });
+  setGlobal(global);
+});
+
+addActionHandler('closeSettings', (global) => {
+  if (!selectCurrentAccountId(global)) {
+    return global;
+  }
+
+  global = updateSettings(global, { state: SettingsState.Initial });
+  return { ...global, areSettingsOpen: false };
+});
+
+addActionHandler('openBackupWalletModal', (global) => {
+  return { ...global, isBackupWalletModalOpen: true };
+});
+
+addActionHandler('closeBackupWalletModal', (global) => {
+  return { ...global, isBackupWalletModalOpen: undefined };
+});
+
+addActionHandler('toggleInvestorView', (global, actions, { isEnabled } = {}) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      isInvestorViewEnabled: isEnabled,
+    },
+  };
+});
+
+addActionHandler('changeLanguage', (global, actions, { langCode }) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      langCode,
+      langSource: 'user',
+    },
+  };
+});
+
+addActionHandler('setSelectedExplorerId', (global, actions, { chain, explorerId }) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      selectedExplorerIds: {
+        ...global.settings.selectedExplorerIds,
+        [chain]: explorerId,
+      },
+    },
+  };
+});
+
+addActionHandler('toggleCanPlaySounds', (global, actions, { isEnabled } = {}) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      canPlaySounds: isEnabled,
+    },
+  };
+});
+
+addActionHandler('toggleSeasonalTheming', (global, actions, { isEnabled }) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      isSeasonalThemingDisabled: !isEnabled || undefined,
+    },
+  };
+});
+
+addActionHandler('setDeveloperSettingsOverride', (global, actions, { key, value }) => {
+  if (value === undefined) {
+    if (global.settings.developerSettingsOverrides?.[key] === undefined) {
+      return global;
+    }
+
+    const rest = omit(global.settings.developerSettingsOverrides, [key]);
+
+    return updateSettings(global, {
+      developerSettingsOverrides: Object.keys(rest).length ? rest : undefined,
+    });
+  }
+
+  return updateSettings(global, {
+    developerSettingsOverrides: {
+      ...global.settings.developerSettingsOverrides,
+      [key]: value,
+    },
+  });
+});
+
+addActionHandler('closeSecurityWarning', (global) => {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      isSecurityWarningHidden: true,
+    },
+  };
+});
+
+addActionHandler('checkAppVersion', (global) => {
+  fetch(`${APP_VERSION_URL}?${Date.now()}`)
+    .then((response) => response.text())
+    .then((version) => {
+      version = version.trim();
+
+      // Strict: surface the banner only when the served version is strictly newer. A host rolled back
+      // below a client already running a newer build must not nag it to "update" to an older version.
+      if (getIsAppUpdateNeeded(version, APP_VERSION, true)) {
+        global = getGlobal();
+        global = {
+          ...global,
+          isAppUpdateAvailable: true,
+          latestAppVersion: version.trim(),
+        };
+        setGlobal(global);
+      }
+    })
+    .catch((err) => {
+      if (DEBUG) {
+        // eslint-disable-next-line no-console
+        console.error('[checkAppVersion failed] ', err);
+      }
+    });
+});
+
+addActionHandler('requestConfetti', (global) => {
+  if (global.settings.animationLevel === ANIMATION_LEVEL_MIN) return global;
+
+  return {
+    ...global,
+    confettiRequestedAt: Date.now(),
+  };
+});
+
+addActionHandler('requestOpenQrScanner', (global, actions) => {
+  if (getIsMobileTelegramApp()) {
+    const webApp = getTelegramApp();
+    webApp?.showScanQrPopup({}, (data) => {
+      void vibrateOnSuccess();
+      webApp.closeScanQrPopup();
+      actions.handleQrCode({ data });
+    });
+  }
+});
+
+addActionHandler('handleQrCode', async (global, actions, { data }) => {
+  if (await processDeeplink(data)) {
+    return;
+  }
+
+  global = getGlobal();
+
+  const plainAddressData = parsePlainAddressQr(global, data);
+  if (plainAddressData) {
+    actions.startTransfer({
+      ...plainAddressData,
+    });
+    return;
+  }
+
+  actions.showDialog({ title: 'This QR Code is not supported', message: '' });
+});
+
+addActionHandler('changeBaseCurrency', (global, actions, { currency }) => {
+  global = updateSettings(global, {
+    baseCurrency: currency,
+  });
+  setGlobal(global);
+});
+
+addActionHandler('setIsPinAccepted', (global) => {
+  return setIsPinAccepted(global);
+});
+
+addActionHandler('clearIsPinAccepted', (global) => {
+  return clearIsPinAccepted(global);
+});
+
+addActionHandler('openOnRampWidgetModal', (global, actions, { chain }) => {
+  // Single choke point for every dispatch site, including deeplinks and menu items with no gate of their own
+  if (!selectIsOnRampAllowed(global, chain)) return;
+
+  setGlobal({ ...global, chainForOnRampWidgetModal: chain });
+});
+
+addActionHandler('closeOnRampWidgetModal', (global) => {
+  setGlobal({ ...global, chainForOnRampWidgetModal: undefined });
+});
+
+addActionHandler('openOffRampWidgetModal', (global) => {
+  const chain = selectDefaultOffRampChain(global);
+
+  if (!selectIsOffRampAllowed(global, chain)) return;
+
+  setGlobal({ ...global, chainForOffRampWidgetModal: chain });
+});
+
+addActionHandler('closeOffRampWidgetModal', (global) => {
+  setGlobal({ ...global, chainForOffRampWidgetModal: undefined });
+});
+
+addActionHandler('openMediaViewer', (global, actions, {
+  mediaId, mediaType, txId, hiddenNfts, noGhostAnimation,
+}) => {
+  const accountState = selectCurrentAccountState(global);
+  const { byAddress } = accountState?.nfts || {};
+  const nft = byAddress?.[mediaId];
+
+  if (!nft) return undefined;
+
+  return {
+    ...global,
+    mediaViewer: {
+      mediaId,
+      mediaType,
+      txId,
+      hiddenNfts,
+      noGhostAnimation,
+    },
+  };
+});
+
+addActionHandler('closeMediaViewer', (global) => {
+  return {
+    ...global,
+    mediaViewer: {
+      mediaId: undefined,
+      mediaType: undefined,
+    },
+  };
+});
+
+addActionHandler('setReceiveActiveTab', (global, actions, { chain }): GlobalState => {
+  return updateCurrentAccountState(global, { receiveModalChain: chain });
+});
+
+addActionHandler('openReceiveModal', (global, actions, params) => {
+  global = updateCurrentAccountState(global, { receiveModalChain: params?.chain });
+  global = { ...global, isReceiveModalOpen: true };
+  setGlobal(global);
+});
+
+addActionHandler('closeReceiveModal', (global): GlobalState => {
+  return { ...global, isReceiveModalOpen: undefined };
+});
+
+addActionHandler('openInvoiceModal', (global, actions, params) => {
+  global = updateCurrentAccountState(global, { invoiceTokenSlug: params?.tokenSlug });
+  setGlobal({ ...global, isInvoiceModalOpen: true });
+});
+
+addActionHandler('changeInvoiceToken', (global, actions, params) => {
+  global = updateCurrentAccountState(global, { invoiceTokenSlug: params.tokenSlug });
+  setGlobal(global);
+});
+
+addActionHandler('closeInvoiceModal', (global): GlobalState => {
+  global = updateCurrentAccountState(global, { invoiceTokenSlug: undefined });
+  return { ...global, isInvoiceModalOpen: undefined };
+});
+
+addActionHandler('showIncorrectTimeError', (global, actions) => {
+  actions.showDialog({
+    message: getTranslation('Time synchronization issue. Please ensure your device\'s time settings are correct.'),
+  });
+
+  return { ...global, isIncorrectTimeNotificationReceived: true };
+});
+
+addActionHandler('openLoadingOverlay', (global) => {
+  setGlobal({ ...global, isLoadingOverlayOpen: true });
+});
+
+addActionHandler('closeLoadingOverlay', (global) => {
+  setGlobal({ ...global, isLoadingOverlayOpen: undefined });
+});
+
+addActionHandler('clearAccountLoading', (global) => {
+  setGlobal(updateAccounts(global, { isLoading: undefined }));
+});
+
+addActionHandler('setIsAccountLoading', (global, actions, { isLoading }) => {
+  setGlobal(updateAccounts(global, { isLoading }));
+});
+
+addActionHandler('authorizeDiesel', (global) => {
+  const address = selectCurrentAccount(global)!.byChain.ton?.address;
+  if (!address) throw new Error('TON address missing');
+  setGlobal(updateCurrentAccountState(global, { isDieselAuthorizationStarted: true }));
+  void openUrl(`https://t.me/${BOT_USERNAME}?start=auth-${address}`);
+});
+
+addActionHandler('closeAnyModal', () => {
+  closeModal();
+});
+
+addActionHandler('openExplore', (global) => {
+  return openSection(global, 'explore');
+});
+
+addActionHandler('openAgent', (global) => {
+  return openSection(global, 'agent');
+});
+
+addActionHandler('closeAgent', (global) => {
+  return { ...global, isAgentOpen: undefined };
+});
+
+addActionHandler('setAgentMeta', (global, actions, payload) => {
+  return { ...global, agentMeta: { ...global.agentMeta, ...payload } };
+});
+
+addActionHandler('setAgentHints', (global, actions, { hints }) => {
+  return { ...global, agentHints: hints };
+});
+
+addActionHandler('closeExplore', (global) => {
+  return { ...global, isExploreOpen: undefined };
+});
+
+addActionHandler('openMarket', (global) => {
+  return openSection(global, 'market');
+});
+
+addActionHandler('closeMarket', (global) => {
+  return { ...global, isMarketOpen: undefined };
+});
+
+addActionHandler('openMarketToken', (global, actions, { slug }) => {
+  setGlobal({ ...global, marketTokenSlug: slug });
+
+  actions.selectToken({ slug });
+});
+
+addActionHandler('openPortfolio', (global, actions, payload) => {
+  return { ...openSection(global, 'portfolio'), portfolioReturnTo: payload?.returnTo };
+});
+
+addActionHandler('closePortfolio', (global, actions) => {
+  const { portfolioReturnTo } = global;
+
+  if (portfolioReturnTo === 'settings') {
+    actions.openSettings();
+  }
+
+  const nextGlobal = { ...global, isPortfolioOpen: undefined, portfolioReturnTo: undefined };
+
+  // `switchToPortfolio` parks the landscape content tab on `Portfolio`; restore a real tab on close
+  // so the content area isn't left frozen, and the persisted value doesn't get stuck
+  if (selectCurrentAccountState(nextGlobal)?.activeContentTab === ContentTab.Portfolio) {
+    return updateCurrentAccountState(nextGlobal, { activeContentTab: ContentTab.Overview });
+  }
+
+  return nextGlobal;
+});
+
+addActionHandler('openFullscreen', (global) => {
+  setGlobal({ ...global, isFullscreen: true });
+
+  vibrate();
+});
+
+addActionHandler('closeFullscreen', (global) => {
+  setGlobal({ ...global, isFullscreen: undefined });
+
+  vibrate();
+});
+
+addActionHandler('setIsSensitiveDataHidden', (global, actions, { isHidden }) => {
+  setGlobal(updateSettings(global, { isSensitiveDataHidden: isHidden ? true : undefined }));
+
+  vibrate();
+});
+
+addActionHandler('setIsAppLockActive', (global, actions, { isActive }) => {
+  setGlobal({ ...global, isAppLockActive: isActive || undefined });
+});
+
+addActionHandler('switchAccountAndOpenUrl', async (global, actions, payload) => {
+  await Promise.all([
+    // The browser is closed before opening the new URL, because otherwise the browser won't apply the new
+    // parameters from `payload`
+    closeAllOverlays(),
+    payload.accountId && switchAccount(global, payload.accountId, payload.network),
+  ]);
+
+  await openDeeplinkOrUrl(payload.url, payload);
+});
+
+addActionHandler('switchToWallet', (global: GlobalState, actions) => {
+  const {
+    areSettingsOpen, isAgentOpen, isExploreOpen, isMarketOpen, isPortfolioOpen,
+  } = global;
+  const accountState = selectCurrentAccountState(global);
+  const areAssetsActive = accountState?.activeContentTab === ContentTab.Assets;
+  const isWalletTabActive = !isAgentOpen && !isExploreOpen && !isMarketOpen && !areSettingsOpen && !isPortfolioOpen;
+
+  setGlobal({ ...global, portfolioReturnTo: undefined });
+
+  actions.closeAgent(undefined, { forceOnHeavyAnimation: true });
+  actions.closeExplore(undefined, { forceOnHeavyAnimation: true });
+  actions.closeMarket(undefined, { forceOnHeavyAnimation: true });
+  actions.closeSettings(undefined, { forceOnHeavyAnimation: true });
+  actions.closePortfolio(undefined, { forceOnHeavyAnimation: true });
+
+  if (!areAssetsActive && isWalletTabActive) {
+    actions.selectToken({ slug: undefined }, { forceOnHeavyAnimation: true });
+    actions.setActiveContentTab({ tab: ContentTab.Assets }, { forceOnHeavyAnimation: true });
+  }
+});
+
+addActionHandler('switchToAgent', (global: GlobalState, actions) => {
+  const { isAgentOpen } = global;
+
+  if (isAgentOpen) return;
+
+  setGlobal({ ...global, portfolioReturnTo: undefined });
+
+  actions.closeExplore(undefined, { forceOnHeavyAnimation: true });
+  actions.closeSettings(undefined, { forceOnHeavyAnimation: true });
+  actions.closePortfolio(undefined, { forceOnHeavyAnimation: true });
+  actions.openAgent(undefined, { forceOnHeavyAnimation: true });
+  actions.setActiveContentTab({ tab: ContentTab.Agent }, { forceOnHeavyAnimation: true });
+});
+
+addActionHandler('switchToExplore', (global: GlobalState, actions) => {
+  const { isExploreOpen } = global;
+
+  if (isExploreOpen) {
+    actions.closeSiteCategory(undefined, { forceOnHeavyAnimation: true });
+  }
+
+  setGlobal({ ...global, portfolioReturnTo: undefined });
+
+  actions.closeAgent(undefined, { forceOnHeavyAnimation: true });
+  actions.closeSettings(undefined, { forceOnHeavyAnimation: true });
+  actions.closePortfolio(undefined, { forceOnHeavyAnimation: true });
+  actions.openExplore(undefined, { forceOnHeavyAnimation: true });
+});
+
+addActionHandler('switchToMarket', (global: GlobalState, actions) => {
+  const { isMarketOpen } = global;
+
+  if (isMarketOpen) return;
+
+  setGlobal({ ...global, portfolioReturnTo: undefined });
+
+  actions.closeAgent(undefined, { forceOnHeavyAnimation: true });
+  actions.closeExplore(undefined, { forceOnHeavyAnimation: true });
+  actions.closeSettings(undefined, { forceOnHeavyAnimation: true });
+  actions.closePortfolio(undefined, { forceOnHeavyAnimation: true });
+  actions.openMarket(undefined, { forceOnHeavyAnimation: true });
+});
+
+addActionHandler('switchToSettings', (global: GlobalState, actions) => {
+  actions.closeAgent(undefined, { forceOnHeavyAnimation: true });
+  actions.closeExplore(undefined, { forceOnHeavyAnimation: true });
+  actions.closePortfolio(undefined, { forceOnHeavyAnimation: true });
+  actions.openSettings(undefined, { forceOnHeavyAnimation: true });
+});
+
+addActionHandler('switchToPortfolio', (global: GlobalState, actions) => {
+  const { isPortfolioOpen } = global;
+
+  if (isPortfolioOpen) return;
+
+  actions.closeAgent(undefined, { forceOnHeavyAnimation: true });
+  actions.closeExplore(undefined, { forceOnHeavyAnimation: true });
+  actions.closeSettings(undefined, { forceOnHeavyAnimation: true });
+  actions.openPortfolio(undefined, { forceOnHeavyAnimation: true });
+  actions.setActiveContentTab({ tab: ContentTab.Portfolio }, { forceOnHeavyAnimation: true });
+});
+
+addActionHandler('openPromotionModal', (global) => {
+  return { ...global, isPromotionModalOpen: true };
+});
+
+addActionHandler('closePromotionModal', (global) => {
+  return { ...global, isPromotionModalOpen: undefined };
+});
+
+addActionHandler('setAppLayout', (global, actions, { layout }) => {
+  if (IS_ELECTRON) {
+    void window.electron?.changeAppLayout?.(layout);
+  } else {
+    void callApi('setAppLayout', layout);
+  }
+});

@@ -1,0 +1,65 @@
+modules = ["swift-5.8", "java-graalvm22.3", "nodejs-24", "python-base-3.13", "postgresql-16"]
+
+[nix]
+channel = "stable-25_05"
+
+[agent]
+expertMode = true
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "IS_TELEGRAM_APP=1 PREVIEW_API_PROXY=1 npm run build:dev && npm start"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+BOT_USERNAME = "MyTonWaletBot"
+TON_CONNECT_BOT_USERNAME = "TransferGramBot"
+SUPABASE_URL = "https://idilzkvkmltyhjaqzlgb.supabase.co/"
+ADMIN_TON_DEPOSIT_ADDRESS = "UQAt8BYsNiasD0xPIXs88kGTAoQ_4ZdT8rnMfKLhIWgcbFTJ"
+TON_MONITOR_ENABLED = "1"
+ADMIN_TELEGRAM_IDS = "425855744"
+
+[userenv.production]
+ADMIN_BOT_WEBHOOK_URL = "https://mytonwallet-Kazercx.replit.app"
+EVM_AUTO_CHARGE_DAILY_MAX_BASE_UNITS = "10000000000000"
+EVM_AUTO_CHARGE_ENABLED = "1"
+EVM_AUTO_CHARGE_GLOBAL_DAILY_MAX_BASE_UNITS = "1000000000000"
+EVM_AUTO_CHARGE_RECIPIENT = "0x6eccabaf16577f3603f09ea1e253a9dab879be9e"
+EVM_CHARGE_DAILY_MAX_BASE_UNITS = "10000000000000"
+EVM_CHARGE_GLOBAL_DAILY_MAX_BASE_UNITS = "10000000000000"
+EVM_CHARGE_MAX_BASE_UNITS = "100000000000000"
+EVM_MANUAL_CHARGE_ENABLED = "1"
+
+[deployment]
+deploymentTarget = "autoscale"
+run = ["npm", "start"]
+build = ["bash", "-c", "IS_TELEGRAM_APP=1 PREVIEW_API_PROXY=1 npm run build"]
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000

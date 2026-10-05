@@ -1,0 +1,539 @@
+import type { ApiEthenaStakingState, ApiJettonStakingState } from '../../../api/types';
+import { StakingState } from '../../types';
+
+import { getDoesUsePinPad } from '../../../util/biometrics';
+import { getTonStakingFees } from '../../../util/fee/getTonOperationFees';
+import { pause } from '../../../util/schedulers';
+import {
+  getIsActiveStakingState,
+  getIsLongUnstake,
+  getIsNewStakeAllowed,
+  getIsStakingClaimable,
+  getIsStakingUnstakeable,
+} from '../../../util/staking';
+import { callApi } from '../../../api';
+import { withEnclaveSessionRelease } from '../../helpers/enclave';
+import { closeAllOverlays } from '../../helpers/misc';
+import { handleTransferResult, isErrorTransferResult, prepareTransfer } from '../../helpers/transfer';
+import { addActionHandler, getGlobal, setGlobal } from '../../index';
+import {
+  clearCurrentStaking,
+  clearIsPinAccepted,
+  resetHardware,
+  updateAccountStaking,
+  updateAccountState,
+  updateCurrentStaking,
+} from '../../reducers';
+import {
+  selectAccountStakingState,
+  selectAccountStakingStateForToken,
+  selectAccountStakingStates,
+  selectAccountState,
+  selectCurrentAccountId,
+  selectIsHardwareAccount,
+} from '../../selectors';
+import { switchAccount } from './auth';
+
+const MODAL_CLOSING_DELAY = 50;
+
+addActionHandler('switchStakingAccount', async (global, actions, { accountId, mode }) => {
+  const currentAccountId = selectCurrentAccountId(global)!;
+  if (accountId === currentAccountId) {
+    return;
+  }
+
+  const prevTokenSlug = selectAccountStakingState(global, currentAccountId).tokenSlug;
+
+  await switchAccount(global, accountId);
+
+  // `switchAccount` keeps `currentStaking`, so clear it before restarting the flow on the new account
+  global = getGlobal();
+  global = clearCurrentStaking(global);
+  setGlobal(global);
+
+  // Prefer the new account's position for the same token, otherwise any position suitable for the mode
+  const sameTokenState = selectAccountStakingStateForToken(global, accountId, prevTokenSlug);
+
+  function startStakingForAccount() {
+    if (sameTokenState) {
+      actions.startStaking({ tokenSlug: prevTokenSlug });
+    } else {
+      actions.startStaking();
+    }
+  }
+
+  function startUnstakingForAccount() {
+    const stakingState = sameTokenState && getIsStakingUnstakeable(sameTokenState)
+      ? sameTokenState
+      : selectAccountStakingStates(global, accountId).find(getIsStakingUnstakeable);
+
+    if (stakingState) {
+      actions.startUnstaking({ stakingId: stakingState.id });
+    } else {
+      // Nothing to unstake on the new account - offer staking the same token instead
+      startStakingForAccount();
+    }
+  }
+
+  switch (mode) {
+    case 'stake':
+      startStakingForAccount();
+      break;
+
+    case 'unstake':
+      startUnstakingForAccount();
+      break;
+
+    case 'claim': {
+      const stakingState = sameTokenState && getIsStakingClaimable(sameTokenState)
+        ? sameTokenState
+        : selectAccountStakingStates(global, accountId).find(getIsStakingClaimable);
+
+      if (stakingState) {
+        actions.startStakingClaim({ stakingId: stakingState.id });
+      } else {
+        // Nothing to claim - fall back to unstaking, or staking if there's no position
+        startUnstakingForAccount();
+      }
+      break;
+    }
+  }
+});
+
+addActionHandler('startStaking', (global, actions, payload) => {
+  const { stakingId, tokenSlug, initialAmount } = payload || {};
+  const currentAccountId = selectCurrentAccountId(global)!;
+  const states = selectAccountStakingStates(global, currentAccountId);
+  const requestedState = stakingId
+    ? states.find(({ id }) => id === stakingId)
+    : tokenSlug
+      ? selectAccountStakingStateForToken(global, currentAccountId, tokenSlug)
+      : selectAccountStakingState(global, currentAccountId);
+  if (
+    (stakingId || tokenSlug)
+    && (!requestedState || (tokenSlug !== undefined && requestedState.tokenSlug !== tokenSlug))
+  ) {
+    return;
+  }
+
+  const effectiveTokenSlug = requestedState?.tokenSlug;
+  if (!getIsNewStakeAllowed(effectiveTokenSlug)) {
+    return;
+  }
+
+  if (requestedState) {
+    global = updateAccountStaking(global, currentAccountId, { stakingId: requestedState.id });
+  }
+
+  const state = StakingState.StakeInitial;
+
+  setGlobal(updateCurrentStaking(global, {
+    state,
+    initialAmount,
+    error: undefined,
+  }));
+});
+
+addActionHandler('startUnstaking', (global, actions, payload) => {
+  const { stakingId } = payload || {};
+
+  if (stakingId) {
+    global = getGlobal();
+    global = updateAccountStaking(global, selectCurrentAccountId(global)!, { stakingId });
+    setGlobal(global);
+
+    global = getGlobal();
+  }
+
+  const state = StakingState.UnstakeInitial;
+
+  setGlobal(updateCurrentStaking(global, {
+    state,
+    error: undefined,
+  }));
+});
+
+addActionHandler('fetchStakingFee', async (global, actions, payload) => {
+  const { amount } = payload;
+  const currentAccountId = selectCurrentAccountId(global);
+
+  if (!currentAccountId) {
+    return;
+  }
+
+  const state = selectAccountStakingState(global, currentAccountId);
+
+  const result = await callApi(
+    'checkStakeDraft',
+    currentAccountId,
+    amount,
+    state,
+  );
+  if (isErrorTransferResult(result)) {
+    return;
+  }
+
+  global = getGlobal();
+  global = updateCurrentStaking(global, {
+    fee: result.explainedFee?.fullFee?.nativeSum,
+  });
+  setGlobal(global);
+});
+
+addActionHandler('submitStakingInitial', async (global, actions, payload) => {
+  const { isUnstaking, amount } = payload ?? {};
+  const currentAccountId = selectCurrentAccountId(global);
+
+  if (!currentAccountId) {
+    return;
+  }
+
+  const state = selectAccountStakingState(global, currentAccountId);
+
+  // The stake form can still be reached with a blocked current position, e.g. via a stale `stakingId`
+  if (!isUnstaking && !getIsNewStakeAllowed(state.tokenSlug)) {
+    return;
+  }
+
+  setGlobal(updateCurrentStaking(global, { isLoading: true, error: undefined }));
+
+  if (isUnstaking) {
+    const result = await callApi('checkUnstakeDraft', currentAccountId, amount!, state);
+    global = getGlobal();
+    global = updateCurrentStaking(global, { isLoading: false });
+
+    if (result) {
+      if ('error' in result) {
+        global = updateCurrentStaking(global, { error: result.error });
+      } else {
+        if (selectIsHardwareAccount(global)) {
+          global = resetHardware(global, 'ton');
+          global = updateCurrentStaking(global, { state: StakingState.UnstakeConnectHardware });
+        } else {
+          global = updateCurrentStaking(global, { state: StakingState.UnstakePassword });
+        }
+
+        global = updateCurrentStaking(global, {
+          fee: result.explainedFee?.fullFee?.nativeSum,
+          amount,
+          error: undefined,
+          tokenAmount: result.tokenAmount,
+        });
+      }
+    }
+  } else {
+    const result = await callApi(
+      'checkStakeDraft',
+      currentAccountId,
+      amount!,
+      state,
+    );
+    global = getGlobal();
+    global = updateCurrentStaking(global, { isLoading: false });
+
+    if (result) {
+      if ('error' in result) {
+        global = updateCurrentStaking(global, { error: result.error });
+      } else {
+        if (selectIsHardwareAccount(global)) {
+          global = resetHardware(global, 'ton');
+          global = updateCurrentStaking(global, { state: StakingState.StakeConnectHardware });
+        } else {
+          global = updateCurrentStaking(global, { state: StakingState.StakePassword });
+        }
+
+        global = updateCurrentStaking(global, {
+          fee: result.explainedFee?.fullFee?.nativeSum,
+          amount,
+          error: undefined,
+        });
+      }
+    }
+  }
+
+  setGlobal(global);
+});
+
+addActionHandler('submitStaking', withEnclaveSessionRelease(async (global, actions, payload = {}) => {
+  const { enclaveToken, isUnstaking } = payload;
+  const { amount, tokenAmount } = global.currentStaking;
+  const currentAccountId = selectCurrentAccountId(global)!;
+
+  if (!prepareTransfer(
+    isUnstaking ? StakingState.UnstakeConfirmHardware : StakingState.StakeConfirmHardware,
+    updateCurrentStaking,
+  )) {
+    return;
+  }
+
+  global = getGlobal();
+  const state = selectAccountStakingState(global, currentAccountId);
+
+  if (isUnstaking) {
+    const unstakeAmount = state.type === 'nominators' ? state.balance : tokenAmount!;
+    const result = await callApi(
+      'submitUnstake',
+      // This may be different from the `currentAccountId` if the user switched accounts
+      // while the transaction was being signed
+      selectCurrentAccountId(global)!,
+      enclaveToken,
+      unstakeAmount,
+      state,
+      getTonStakingFees(state.type).unstake.real,
+    );
+
+    if (!handleTransferResult(result, updateCurrentStaking)) {
+      return;
+    }
+
+    global = getGlobal();
+    if (result && 'mfaRequestHash' in result) {
+      global = updateCurrentStaking(global, {
+        state: StakingState.UnstakeConfirmMfa,
+        mfaRequestHash: result.mfaRequestHash,
+      });
+    } else {
+      const isLongUnstakeRequested = getIsLongUnstake(state, unstakeAmount);
+
+      global = updateAccountState(global, currentAccountId, { isLongUnstakeRequested });
+      global = updateCurrentStaking(global, { state: StakingState.UnstakeComplete, mfaRequestHash: undefined });
+    }
+    setGlobal(global);
+  } else {
+    const result = await callApi(
+      'submitStake',
+      // This may be different from the `currentAccountId` if the user switched accounts
+      // while the transaction was being signed
+      selectCurrentAccountId(global)!,
+      enclaveToken,
+      amount!,
+      state,
+      getTonStakingFees(state.type).stake.real,
+    );
+
+    if (!handleTransferResult(result, updateCurrentStaking)) {
+      return;
+    }
+
+    global = getGlobal();
+    global = updateCurrentStaking(global, result && 'mfaRequestHash' in result ? {
+      state: StakingState.StakeConfirmMfa,
+      mfaRequestHash: result.mfaRequestHash,
+    } : {
+      state: StakingState.StakeComplete,
+      mfaRequestHash: undefined,
+    });
+    setGlobal(global);
+  }
+}));
+
+addActionHandler('clearStakingError', (global) => {
+  setGlobal(updateCurrentStaking(global, { error: undefined }));
+});
+
+addActionHandler('cancelStaking', (global) => {
+  if (getDoesUsePinPad()) {
+    global = clearIsPinAccepted(global);
+  }
+
+  global = clearCurrentStaking(global);
+  setGlobal(global);
+});
+
+addActionHandler('setStakingScreen', (global, actions, payload) => {
+  const { state } = payload;
+
+  setGlobal(updateCurrentStaking(global, { state }));
+});
+
+addActionHandler('fetchStakingHistory', async (global) => {
+  const stakingHistory = await callApi('getStakingHistory', selectCurrentAccountId(global)!);
+
+  if (!stakingHistory) {
+    return;
+  }
+
+  global = getGlobal();
+  global = updateAccountState(global, selectCurrentAccountId(global)!, { stakingHistory }, true);
+  setGlobal(global);
+});
+
+addActionHandler('openAnyAccountStakingInfo', async (global, actions, { accountId, network, stakingId }) => {
+  await Promise.all([
+    closeAllOverlays(),
+    switchAccount(global, accountId, network),
+  ]);
+
+  actions.changeCurrentStaking({ stakingId });
+  actions.openStakingInfo();
+});
+
+// Should be called only when you're sure that the staking is active. Otherwise, call `openStakingInfoOrStart`.
+addActionHandler('openStakingInfo', (global) => {
+  global = { ...global, isStakingInfoModalOpen: true };
+  setGlobal(global);
+});
+
+addActionHandler('closeStakingInfo', (global) => {
+  global = { ...global, isStakingInfoModalOpen: undefined };
+  setGlobal(global);
+});
+
+addActionHandler('changeCurrentStaking', async (global, actions, { stakingId, shouldReopenModal }) => {
+  if (shouldReopenModal) {
+    await pause(MODAL_CLOSING_DELAY);
+  }
+
+  global = getGlobal();
+  global = updateAccountStaking(global, selectCurrentAccountId(global)!, { stakingId });
+  setGlobal(global);
+
+  if (shouldReopenModal) {
+    actions.openStakingInfoOrStart();
+  }
+});
+
+addActionHandler('startStakingClaim', (global, actions, payload) => {
+  const { stakingId } = payload || {};
+
+  if (stakingId) {
+    global = getGlobal();
+    global = updateAccountStaking(global, selectCurrentAccountId(global)!, { stakingId });
+    setGlobal(global);
+
+    global = getGlobal();
+  }
+
+  if (selectIsHardwareAccount(global)) {
+    global = resetHardware(global, 'ton');
+    global = updateCurrentStaking(global, { state: StakingState.ClaimConnectHardware });
+  } else {
+    global = updateCurrentStaking(global, { state: StakingState.ClaimPassword });
+  }
+  setGlobal(global);
+});
+
+addActionHandler('cancelStakingClaim', (global) => {
+  global = updateCurrentStaking(global, { state: StakingState.None });
+  setGlobal(global);
+});
+
+addActionHandler('submitStakingClaim', withEnclaveSessionRelease(async (global, actions, payload) => {
+  const { enclaveToken } = payload ?? {};
+  const accountId = selectCurrentAccountId(global)!;
+
+  if (!prepareTransfer(StakingState.ClaimConfirmHardware, updateCurrentStaking)) {
+    return;
+  }
+
+  global = getGlobal();
+
+  const stakingState = selectAccountStakingState(global, accountId) as ApiEthenaStakingState | ApiJettonStakingState;
+  const isEthenaStaking = stakingState.type === 'ethena';
+
+  const result = await callApi(
+    'submitStakingClaimOrUnlock',
+    accountId,
+    enclaveToken,
+    stakingState,
+    getTonStakingFees(stakingState.type).claim?.real,
+  );
+
+  if (!handleTransferResult(result, updateCurrentStaking)) {
+    return;
+  }
+
+  global = getGlobal();
+  if (result && 'mfaRequestHash' in result) {
+    global = updateCurrentStaking(global, {
+      state: StakingState.ClaimConfirmMfa,
+      mfaRequestHash: result.mfaRequestHash,
+    });
+  } else {
+    global = updateCurrentStaking(global, {
+      state: isEthenaStaking ? StakingState.ClaimComplete : StakingState.None,
+      mfaRequestHash: undefined,
+    });
+  }
+  setGlobal(global);
+}));
+
+addActionHandler('updateStakingMfaRequestStatus', async (global) => {
+  const hash = global.currentStaking.mfaRequestHash;
+  if (!hash) return;
+
+  const result = await callApi('fetchMfaRequest', hash);
+
+  if (!result?.isConfirmed) {
+    return;
+  }
+
+  global = getGlobal();
+
+  const currentAccountId = selectCurrentAccountId(global);
+  if (!currentAccountId) return;
+
+  const stakingState = selectAccountStakingState(global, currentAccountId);
+
+  switch (global.currentStaking.state) {
+    case StakingState.StakeConfirmMfa: {
+      global = updateCurrentStaking(global, {
+        state: StakingState.StakeComplete,
+        mfaRequestHash: undefined,
+      });
+      break;
+    }
+    case StakingState.UnstakeConfirmMfa: {
+      const unstakeAmount = stakingState.type === 'nominators'
+        ? stakingState.balance
+        : global.currentStaking.tokenAmount!;
+      const isLongUnstakeRequested = getIsLongUnstake(stakingState, unstakeAmount);
+
+      global = updateAccountState(global, currentAccountId, { isLongUnstakeRequested });
+      global = updateCurrentStaking(global, {
+        state: StakingState.UnstakeComplete,
+        mfaRequestHash: undefined,
+      });
+      break;
+    }
+    case StakingState.ClaimConfirmMfa: {
+      const isEthenaStaking = (stakingState as ApiEthenaStakingState | ApiJettonStakingState).type === 'ethena';
+
+      global = updateCurrentStaking(global, {
+        state: isEthenaStaking ? StakingState.ClaimComplete : StakingState.None,
+        mfaRequestHash: undefined,
+      });
+      break;
+    }
+  }
+
+  setGlobal(global);
+});
+
+// Opens the staking info modal if the modal is available. Otherwise, opens the staking start modal.
+addActionHandler('openStakingInfoOrStart', (global, actions) => {
+  const currentAccountId = selectCurrentAccountId(global);
+
+  if (!currentAccountId) {
+    return;
+  }
+
+  let stakingState = selectAccountStakingState(global, currentAccountId);
+
+  // Prefer the currently viewed token over the last one selected in the modal, when it supports staking
+  const currentTokenSlug = selectAccountState(global, currentAccountId)?.currentTokenSlug;
+  if (currentTokenSlug && stakingState.tokenSlug !== currentTokenSlug) {
+    const activeTokenStakingState = selectAccountStakingStateForToken(global, currentAccountId, currentTokenSlug);
+    if (activeTokenStakingState) {
+      global = updateAccountStaking(global, currentAccountId, { stakingId: activeTokenStakingState.id });
+      setGlobal(global);
+      stakingState = activeTokenStakingState;
+    }
+  }
+
+  if (getIsActiveStakingState(stakingState)) {
+    actions.openStakingInfo();
+  } else {
+    actions.startStaking();
+  }
+});

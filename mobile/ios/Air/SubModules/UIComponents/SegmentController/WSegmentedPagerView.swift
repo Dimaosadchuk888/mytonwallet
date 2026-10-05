@@ -1,0 +1,803 @@
+import ContextMenuKit
+import SwiftUI
+import UIKit
+import WalletContext
+
+@MainActor
+public final class WSegmentedPagerView: WTouchPassView, UIScrollViewDelegate {
+    private enum Layout {
+        static let barHeight: CGFloat = 44
+        static let segmentedControlHeight: CGFloat = 24
+        static let segmentedControlTopInset: CGFloat = 9
+        static let segmentedControlFullHeight: CGFloat = segmentedControlHeight + segmentedControlTopInset
+    }
+
+    private enum TransitionAnimation {
+        static let duration: TimeInterval = 0.5
+        static let springDamping: CGFloat = 1.0
+        static let initialVelocity: CGFloat = 0.0
+    }
+
+    private enum TransitionDirection {
+        case reverse
+        case forward
+
+        var step: Int {
+            switch self {
+            case .reverse: -1
+            case .forward: 1
+            }
+        }
+    }
+
+    private struct ProgrammaticTransition {
+        let sourceIndex: Int
+        let targetIndex: Int
+        let bridgeOffsetX: CGFloat?
+        let animatedOffsetX: CGFloat
+    }
+
+    public let model: SegmentedControlModel
+    public let segmentedControl: WSegmentedControl
+
+    private let scrollView = UIScrollView()
+    private let transitionPageView = UIView()
+    private var scrollViewTopConstraint: NSLayoutConstraint!
+    private let contentTopInsetWhenSegmentedControlHidden: CGFloat
+
+    private var items: [WSegmentedPagerItem]
+    private var currentIndex: Int = 0
+    private var pageContainers: [Int: UIView] = [:]
+    private var transitionContent: (any WSegmentedControllerContent)?
+    private var isInteractiveTransitionActive = false
+    private var interactiveDirection: TransitionDirection?
+    private var lastViewportProgress: CGFloat = 0
+    private var pendingProgrammaticTransition: ProgrammaticTransition?
+
+    public var onScrollProgressChanged: ((_ progress: CGFloat, _ animated: Bool) -> Void)?
+    public var onWillStartTransition: (() -> Void)?
+    public var onDidStartDragging: (() -> Void)?
+    public var onDidEndScrolling: (() -> Void)?
+
+    public init(
+        items: [WSegmentedPagerItem],
+        style: SegmentedControlStyle = .regular,
+        scrollContentMargin: CGFloat = 0,
+        contentTopInsetWhenSegmentedControlHidden: CGFloat = 0,
+        onScrollProgressChanged: ((_ progress: CGFloat, _ animated: Bool) -> Void)? = nil
+    ) {
+        self.items = items
+        self.model = SegmentedControlModel(items: items.map(\.segmentedControlItem), style: style)
+        self.segmentedControl = WSegmentedControl(model: model, scrollContentMargin: scrollContentMargin)
+        self.contentTopInsetWhenSegmentedControlHidden = contentTopInsetWhenSegmentedControlHidden
+        self.onScrollProgressChanged = onScrollProgressChanged
+
+        super.init(frame: .zero)
+        if let first = items.first {
+            model.selection = .init(item1: first.id)
+        }
+        setupModel()
+        setupViews()
+        syncVisiblePages(around: 0)
+        reportSettledProgress()
+    }
+
+    @available(*, unavailable)
+    required init?(coder _: NSCoder) { nil }
+
+    public var viewControllers: [WSegmentedControllerContent] {
+        items.map(\.viewController)
+    }
+
+    public var selectedIndex: Int? {
+        items.indices.contains(currentIndex) ? currentIndex : nil
+    }
+
+    public var pagingGestureView: UIView {
+        scrollView
+    }
+
+    public var isSegmentedControlHidden: Bool {
+        get { segmentedControl.isHidden }
+        set {
+            guard segmentedControl.isHidden != newValue else { return }
+            segmentedControl.isHidden = newValue
+            scrollViewTopConstraint.constant = contentTopInset
+            setNeedsLayout()
+        }
+    }
+
+    public var contentTopInset: CGFloat {
+        isSegmentedControlHidden ? contentTopInsetWhenSegmentedControlHidden : Layout.barHeight
+    }
+
+    public override func layoutSubviews() {
+        super.layoutSubviews()
+        UIView.performWithoutAnimation {
+            updateScrollLayout()
+        }
+    }
+
+    private func updateScrollLayout() {
+        let viewportSize = scrollView.bounds.size
+        guard viewportSize.width > 0 else { return }
+
+        scrollView.contentSize = CGSize(width: viewportSize.width * CGFloat(max(items.count, 1)), height: viewportSize.height)
+
+        if pendingProgrammaticTransition == nil, !scrollView.isDragging, !scrollView.isDecelerating {
+            scrollView.contentOffset = realContentOffset(for: currentIndex)
+        }
+
+        layoutPageContainers()
+        layoutTransitionPageView()
+        syncVisiblePages(around: currentViewportProgress())
+    }
+
+    public func replace(items: [WSegmentedPagerItem], force: Bool = false, animated: Bool = false) {
+        let oldItems = self.items
+        let oldSelectedId = effectiveSelectedItemID
+        let oldViewControllers = oldItems.map(\.viewController)
+        let newViewControllers = items.map(\.viewController)
+
+        if items == oldItems
+            && zip(newViewControllers, oldViewControllers).allSatisfy({
+                ObjectIdentifier($0 as AnyObject) == ObjectIdentifier($1 as AnyObject)
+            })
+            && !force {
+            return
+        }
+
+        let snapshot: UIView?
+        if animated, window != nil, bounds.width > 0 {
+            snapshot = snapshotView(afterScreenUpdates: false)
+            snapshot?.frame = bounds
+            snapshot?.isUserInteractionEnabled = false
+        } else {
+            snapshot = nil
+        }
+        UIView.performWithoutAnimation {
+            if let snapshot {
+                addSubview(snapshot)
+                scrollView.alpha = 0
+                segmentedControl.alpha = 0
+            }
+        }
+
+        if animated {
+            onWillStartTransition?()
+        }
+
+        clearTransientState()
+
+        self.items = items
+        model.setItems(items.map(\.segmentedControlItem))
+
+        if items.isEmpty {
+            model.selection = nil
+            currentIndex = 0
+        } else if animated {
+            currentIndex = 0
+            if items.count >= 2 {
+                model.setRawProgress(0)
+            } else {
+                model.selection = .init(item1: items[0].id)
+            }
+        } else if let oldSelectedId {
+            currentIndex = items.firstIndex(where: { $0.id == oldSelectedId }) ?? 0
+        } else {
+            currentIndex = 0
+        }
+
+        segmentedControl.applyPendingModelChangesWithoutAnimation()
+        syncSettledState(at: clampedIndex(currentIndex), updateLayout: true, reportProgress: false)
+
+        reportScrollProgress(CGFloat(currentIndex), animated: animated)
+
+        if let snapshot {
+            UIView.animateAdaptive(duration: TransitionAnimation.duration) {
+                snapshot.alpha = 0
+                self.scrollView.alpha = 1
+                self.segmentedControl.alpha = 1
+            } completion: { [weak self] _ in
+                snapshot.removeFromSuperview()
+                self?.onDidEndScrolling?()
+            }
+        } else if animated {
+            scrollView.alpha = 1
+            segmentedControl.alpha = 1
+            onDidEndScrolling?()
+        }
+    }
+
+    public func handleSegmentChange(to index: Int, animated: Bool) {
+        guard items.indices.contains(index) else { return }
+        guard scrollView.bounds.width > 0 else {
+            selectIndex(index)
+            onDidEndScrolling?()
+            return
+        }
+        guard index != currentIndex else {
+            reportSettledProgress()
+            onDidEndScrolling?()
+            return
+        }
+
+        onWillStartTransition?()
+
+        stopProgrammaticScrollIfNeeded()
+        settleInteractiveScrollIfNeeded()
+
+        if !animated {
+            selectIndex(index)
+            onDidEndScrolling?()
+            return
+        }
+
+        withAnimation(.spring(duration: 0.25)) {
+            model.setRawProgress(CGFloat(index))
+        }
+        reportScrollProgress(CGFloat(index), animated: true)
+        startProgrammaticTransition(to: index)
+    }
+
+    public func scrollToTop(animated: Bool) {
+        guard items.indices.contains(currentIndex) else { return }
+        items[currentIndex].viewController.scrollToTop(animated: animated)
+    }
+
+    private func setupModel() {
+        model.primaryColor = UIColor.label
+        model.secondaryColor = .air.secondaryLabel
+        model.capsuleColor = .air.thumbBackground
+        model.onSelect = { [weak self] item in
+            guard let self, let index = self.model.getItemIndexById(itemId: item.id) else { return }
+            self.handleSegmentChange(to: index, animated: true)
+        }
+    }
+
+    private func setupViews() {
+        translatesAutoresizingMaskIntoConstraints = false
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.clipsToBounds = false
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.isPagingEnabled = true
+        scrollView.delaysContentTouches = false
+        scrollView.canCancelContentTouches = true
+        scrollView.isDirectionalLockEnabled = true
+        scrollView.decelerationRate = .fast
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.alwaysBounceVertical = false
+        if #available(iOS 17.4, *) {
+            scrollView.bouncesVertically = false
+        }
+        if #available(iOS 26.0, *) {
+            scrollView.topEdgeEffect.isHidden = true
+        }
+        scrollView.delegate = self
+        addSubview(scrollView)
+
+        transitionPageView.backgroundColor = .clear
+        transitionPageView.clipsToBounds = false
+        transitionPageView.isHidden = true
+        scrollView.addSubview(transitionPageView)
+
+        segmentedControl.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(segmentedControl)
+
+        scrollViewTopConstraint = scrollView.topAnchor.constraint(equalTo: topAnchor, constant: Layout.barHeight)
+        NSLayoutConstraint.activate([
+            segmentedControl.centerXAnchor.constraint(equalTo: centerXAnchor),
+            segmentedControl.topAnchor.constraint(
+                equalTo: topAnchor,
+                constant: (Layout.barHeight - Layout.segmentedControlHeight) / 2.0 + 3.0 - Layout.segmentedControlTopInset
+            ),
+            segmentedControl.heightAnchor.constraint(equalToConstant: Layout.segmentedControlFullHeight),
+            segmentedControl.widthAnchor.constraint(equalTo: widthAnchor),
+
+            scrollViewTopConstraint,
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            {
+                // Priority 999 so the transient _UITemporaryLayoutHeight == 0 (height not yet resolved)
+                // can break this rather than producing an unsatisfiable layout during initial setup.
+                let c = scrollView.bottomAnchor.constraint(equalTo: bottomAnchor)
+                c.priority = UILayoutPriority(999)
+                return c
+            }(),
+        ])
+    }
+
+    private var effectiveSelectedItemID: String? {
+        guard let selection = model.selection else { return nil }
+        if let item2 = selection.item2, let progress = selection.progress, progress > 0.5 {
+            return item2
+        }
+        return selection.item1
+    }
+
+    private func selectIndex(_ index: Int) {
+        guard items.indices.contains(index) else {
+            model.selection = nil
+            reportScrollProgress(0, animated: false)
+            return
+        }
+
+        clearTransientState()
+        syncSettledState(at: index, updateLayout: true)
+    }
+
+    private func reportSettledProgress() {
+        guard items.indices.contains(currentIndex) else {
+            reportScrollProgress(0, animated: false)
+            return
+        }
+        if items.count >= 2 {
+            model.setRawProgress(CGFloat(currentIndex))
+        } else {
+            model.selection = .init(item1: items[currentIndex].id)
+        }
+        reportScrollProgress(CGFloat(currentIndex), animated: false)
+    }
+
+    private func reportScrollProgress(_ progress: CGFloat, animated: Bool) {
+        onScrollProgressChanged?(progress, animated)
+    }
+
+    private func clampedIndex(_ index: Int) -> Int {
+        max(0, min(max(items.count - 1, 0), index))
+    }
+
+    private func clearTransitionPageView() {
+        transitionContent = nil
+        host(nil, in: transitionPageView)
+        transitionPageView.isHidden = true
+    }
+
+    private func clearTransientState() {
+        pendingProgrammaticTransition = nil
+        isInteractiveTransitionActive = false
+        interactiveDirection = nil
+        clearTransitionPageView()
+    }
+
+    private func updateSettledIndex(_ index: Int) {
+        currentIndex = index
+        lastViewportProgress = CGFloat(index)
+    }
+
+    private func syncSettledState(at index: Int, updateLayout: Bool = false, reportProgress: Bool = true) {
+        updateSettledIndex(index)
+        if updateLayout {
+            updateScrollLayout()
+        }
+        syncVisiblePages(around: CGFloat(index))
+        if reportProgress {
+            reportSettledProgress()
+        }
+    }
+
+    private func startProgrammaticTransition(to targetIndex: Int) {
+        let width = scrollView.bounds.width
+        guard width > 0 else {
+            selectIndex(targetIndex)
+            return
+        }
+
+        let realOffsetX = realContentOffset(for: targetIndex).x
+        if abs(targetIndex - currentIndex) == 1 {
+            pendingProgrammaticTransition = .init(
+                sourceIndex: currentIndex,
+                targetIndex: targetIndex,
+                bridgeOffsetX: nil,
+                animatedOffsetX: realOffsetX
+            )
+            animateProgrammaticScroll(to: realOffsetX)
+            return
+        }
+
+        let direction: TransitionDirection = targetIndex > currentIndex ? .forward : .reverse
+        let sourceIndex = currentIndex
+        let bridgeIndex = targetIndex - direction.step
+        let bridgeOffsetX = realContentOffset(for: bridgeIndex).x
+
+        pendingProgrammaticTransition = .init(
+            sourceIndex: sourceIndex,
+            targetIndex: targetIndex,
+            bridgeOffsetX: bridgeOffsetX,
+            animatedOffsetX: realOffsetX
+        )
+        transitionContent = viewController(at: sourceIndex)
+        host(transitionContent, in: transitionPageView)
+        layoutTransitionPageView()
+        syncVisiblePages(around: CGFloat(targetIndex))
+        scrollView.setContentOffset(CGPoint(x: bridgeOffsetX, y: 0), animated: false)
+        animateProgrammaticScroll(to: realOffsetX)
+    }
+
+    private func animateProgrammaticScroll(to offsetX: CGFloat) {
+        UIView.animate(
+            withDuration: TransitionAnimation.duration,
+            delay: 0,
+            usingSpringWithDamping: TransitionAnimation.springDamping,
+            initialSpringVelocity: TransitionAnimation.initialVelocity,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: {
+                self.scrollView.contentOffset = CGPoint(x: offsetX, y: 0)
+            },
+            completion: { [weak self] finished in
+                guard finished, let self else { return }
+                guard let transition = self.pendingProgrammaticTransition else { return }
+                self.clearTransientState()
+                self.syncSettledState(at: transition.targetIndex)
+                self.onDidEndScrolling?()
+            }
+        )
+    }
+
+    private func visiblePageIndices(around progress: CGFloat) -> [Int] {
+        guard !items.isEmpty else { return [] }
+
+        if let pendingProgrammaticTransition {
+            let indices = if pendingProgrammaticTransition.bridgeOffsetX != nil {
+                [pendingProgrammaticTransition.targetIndex]
+            } else {
+                [pendingProgrammaticTransition.sourceIndex, pendingProgrammaticTransition.targetIndex]
+            }
+            return Array(Set(indices)).sorted()
+        }
+
+        if isInteractiveTransitionActive {
+            return interactiveVisiblePageIndices(around: progress)
+        }
+
+        let settledIndex = nearestIndex(for: progress)
+        return [settledIndex]
+    }
+
+    private func syncVisiblePages(around progress: CGFloat) {
+        UIView.performWithoutAnimation {
+            let neededIndices = Set(visiblePageIndices(around: progress))
+            let obsoleteIndices = pageContainers.keys.filter { !neededIndices.contains($0) }
+            for index in obsoleteIndices {
+                guard let container = pageContainers.removeValue(forKey: index) else { continue }
+                host(nil, in: container)
+                container.removeFromSuperview()
+            }
+
+            for index in neededIndices.sorted() {
+                let container = pageContainers[index] ?? makePageContainer(for: index)
+                container.frame = frame(for: index)
+                host(viewController(at: index), in: container)
+            }
+
+            layoutPageContainers()
+            if !transitionPageView.isHidden {
+                scrollView.bringSubviewToFront(transitionPageView)
+            }
+        }
+    }
+
+    private func makePageContainer(for index: Int) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+        container.clipsToBounds = false
+        container.frame = frame(for: index)
+        scrollView.addSubview(container)
+        pageContainers[index] = container
+        return container
+    }
+
+    private func frame(for index: Int) -> CGRect {
+        CGRect(
+            x: physicalProgress(forLogicalProgress: CGFloat(index)) * scrollView.bounds.width,
+            y: 0,
+            width: scrollView.bounds.width,
+            height: scrollView.bounds.height
+        )
+    }
+
+    private func layoutPageContainers() {
+        for (index, container) in pageContainers {
+            let targetFrame = frame(for: index)
+            if container.frame != targetFrame {
+                container.frame = targetFrame
+            }
+            if let content = viewController(at: index), content.view.superview === container {
+                layoutHostedView(content, in: container)
+            }
+        }
+    }
+
+    private func layoutTransitionPageView() {
+        guard let pendingProgrammaticTransition else {
+            transitionPageView.isHidden = true
+            return
+        }
+        guard let bridgeOffsetX = pendingProgrammaticTransition.bridgeOffsetX else {
+            transitionPageView.isHidden = true
+            return
+        }
+
+        transitionPageView.isHidden = false
+        transitionPageView.frame = CGRect(
+            x: bridgeOffsetX,
+            y: 0,
+            width: scrollView.bounds.width,
+            height: scrollView.bounds.height
+        )
+        if let transitionContent, transitionContent.view.superview === transitionPageView {
+            layoutHostedView(transitionContent, in: transitionPageView)
+        }
+        scrollView.bringSubviewToFront(transitionPageView)
+    }
+
+    private func viewController(at index: Int?) -> (any WSegmentedControllerContent)? {
+        guard let index, items.indices.contains(index) else { return nil }
+        return items[index].viewController
+    }
+
+    private func layoutHostedView(_ viewController: any WSegmentedControllerContent, in container: UIView) {
+        let hostedView = viewController.view!
+        let width = container.bounds.width
+        guard width > 0 else { return }
+
+        if hostedView.bounds.width != width {
+            hostedView.frame = CGRect(
+                x: 0,
+                y: 0,
+                width: width,
+                height: max(hostedView.bounds.height, 1)
+            )
+            hostedView.setNeedsLayout()
+            hostedView.layoutIfNeeded()
+        }
+
+        let targetFrame = CGRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: max(1, viewController.calculateHeight(isHosted: true))
+        )
+        if hostedView.frame != targetFrame {
+            hostedView.frame = targetFrame
+            hostedView.setNeedsLayout()
+            hostedView.layoutIfNeeded()
+        }
+    }
+
+    private func interactiveVisiblePageIndices(around progress: CGFloat) -> [Int] {
+        guard !items.isEmpty else { return [] }
+
+        let lowerIndex = max(0, min(items.count - 1, Int(floor(progress))))
+        let upperIndex = max(0, min(items.count - 1, Int(ceil(progress))))
+        var result = Set([lowerIndex, upperIndex])
+
+        if let interactiveDirection {
+            switch interactiveDirection {
+            case .reverse:
+                if lowerIndex > 0 {
+                    result.insert(lowerIndex - 1)
+                }
+            case .forward:
+                if upperIndex + 1 < items.count {
+                    result.insert(upperIndex + 1)
+                }
+            }
+        } else {
+            let nearestIndex = nearestIndex(for: progress)
+            if nearestIndex > 0 {
+                result.insert(nearestIndex - 1)
+            }
+            if nearestIndex + 1 < items.count {
+                result.insert(nearestIndex + 1)
+            }
+        }
+
+        return result.sorted()
+    }
+
+    private func updateInteractiveDirection(for progress: CGFloat) {
+        let delta = progress - lastViewportProgress
+        if delta > 0.001 {
+            interactiveDirection = .forward
+        } else if delta < -0.001 {
+            interactiveDirection = .reverse
+        }
+        lastViewportProgress = progress
+    }
+
+    private func host(_ viewController: (any WSegmentedControllerContent)?, in container: UIView) {
+        if let viewController, viewController.view.superview === container {
+            layoutHostedView(viewController, in: container)
+            container.isHidden = false
+            return
+        }
+
+        container.subviews.forEach { $0.removeFromSuperview() }
+        container.isHidden = viewController == nil
+
+        guard let viewController else { return }
+
+        let hostedView = viewController.view!
+        hostedView.removeFromSuperview()
+        hostedView.autoresizingMask = [.flexibleWidth]
+        container.addSubview(hostedView)
+        layoutHostedView(viewController, in: container)
+    }
+
+    private func realContentOffset(for index: Int) -> CGPoint {
+        CGPoint(x: physicalProgress(forLogicalProgress: CGFloat(index)) * scrollView.bounds.width, y: 0)
+    }
+
+    private func currentViewportProgress() -> CGFloat {
+        guard scrollView.bounds.width > 0, !items.isEmpty else { return CGFloat(currentIndex) }
+        let physicalProgress = clamp(scrollView.contentOffset.x / scrollView.bounds.width, min: 0, max: maxPageProgress)
+        return logicalProgress(forPhysicalProgress: physicalProgress)
+    }
+
+    private var maxPageProgress: CGFloat {
+        CGFloat(max(items.count - 1, 0))
+    }
+
+    private var usesRightToLeftPageLayout: Bool {
+        effectiveUserInterfaceLayoutDirection == .rightToLeft
+    }
+
+    private func physicalProgress(forLogicalProgress progress: CGFloat) -> CGFloat {
+        usesRightToLeftPageLayout ? maxPageProgress - progress : progress
+    }
+
+    private func logicalProgress(forPhysicalProgress progress: CGFloat) -> CGFloat {
+        usesRightToLeftPageLayout ? maxPageProgress - progress : progress
+    }
+
+    private func nearestIndex(for progress: CGFloat) -> Int {
+        guard !items.isEmpty else { return 0 }
+        return max(0, min(items.count - 1, Int(round(progress))))
+    }
+
+    private func applyCurrentScrollProgress(_ progress: CGFloat) {
+        if items.count >= 2 {
+            model.setRawProgress(progress)
+        } else if let first = items.first {
+            model.selection = .init(item1: first.id)
+        }
+        reportScrollProgress(progress, animated: false)
+    }
+
+    private func stopProgrammaticScrollIfNeeded() {
+        guard let pendingProgrammaticTransition else { return }
+
+        scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+
+        let shouldFinishToTarget: Bool
+        if let bridgeOffsetX = pendingProgrammaticTransition.bridgeOffsetX {
+            let bridgeDistance = abs(scrollView.contentOffset.x - bridgeOffsetX)
+            let targetDistance = abs(scrollView.contentOffset.x - pendingProgrammaticTransition.animatedOffsetX)
+            shouldFinishToTarget = targetDistance < bridgeDistance
+        } else {
+            let currentDistance = abs(scrollView.contentOffset.x - realContentOffset(for: pendingProgrammaticTransition.sourceIndex).x)
+            let targetDistance = abs(scrollView.contentOffset.x - pendingProgrammaticTransition.animatedOffsetX)
+            shouldFinishToTarget = targetDistance < currentDistance
+        }
+
+        clearTransientState()
+
+        if shouldFinishToTarget {
+            scrollView.contentOffset = realContentOffset(for: pendingProgrammaticTransition.targetIndex)
+            syncSettledState(at: pendingProgrammaticTransition.targetIndex)
+        } else {
+            scrollView.contentOffset = realContentOffset(for: pendingProgrammaticTransition.sourceIndex)
+            syncSettledState(at: pendingProgrammaticTransition.sourceIndex)
+        }
+    }
+
+    private func settleInteractiveScrollIfNeeded() {
+        guard scrollView.isDragging || scrollView.isDecelerating else { return }
+
+        scrollView.setContentOffset(scrollView.contentOffset, animated: false)
+        clearTransientState()
+        syncSettledState(at: nearestIndex(for: currentViewportProgress()))
+    }
+
+    private func finishInteractiveTransition() {
+        clearTransientState()
+        syncSettledState(at: nearestIndex(for: currentViewportProgress()))
+        onDidEndScrolling?()
+    }
+
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        let progress = currentViewportProgress()
+        if isInteractiveTransitionActive {
+            updateInteractiveDirection(for: progress)
+        }
+        syncVisiblePages(around: progress)
+        guard scrollView.isDragging || scrollView.isDecelerating else { return }
+        applyCurrentScrollProgress(progress)
+    }
+
+    public func scrollViewWillBeginDragging(_: UIScrollView) {
+        stopProgrammaticScrollIfNeeded()
+        isInteractiveTransitionActive = true
+        interactiveDirection = nil
+        lastViewportProgress = currentViewportProgress()
+        syncVisiblePages(around: lastViewportProgress)
+        onDidStartDragging?()
+    }
+
+    public func scrollViewWillEndDragging(_ scrollView: UIScrollView,
+                                          withVelocity _: CGPoint,
+                                          targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        guard scrollView.bounds.width > 0 else { return }
+
+        let width = scrollView.bounds.width
+        let delta = targetContentOffset.pointee.x - scrollView.contentOffset.x
+        if delta > width {
+            targetContentOffset.pointee.x = scrollView.contentOffset.x + width
+        } else if delta < -width {
+            targetContentOffset.pointee.x = scrollView.contentOffset.x - width
+        }
+
+        let maxOffsetX = max(0, scrollView.contentSize.width - width)
+        let clampedOffsetX = max(0, min(maxOffsetX, targetContentOffset.pointee.x))
+        targetContentOffset.pointee.x = round(clampedOffsetX / width) * width
+    }
+
+    public func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            finishInteractiveTransition()
+        }
+    }
+
+    public func scrollViewDidEndDecelerating(_: UIScrollView) {
+        finishInteractiveTransition()
+    }
+}
+
+@MainActor
+public struct WSegmentedPagerItem: Equatable {
+    public let id: String
+    public let title: String
+    public let contextMenuProvider: SegmentedControlContextMenuProvider?
+    public let hidesMenuIcon: Bool
+    public let isDeletable: Bool
+    public let viewController: any WSegmentedControllerContent
+
+    public init(
+        id: String,
+        title: String,
+        contextMenuProvider: SegmentedControlContextMenuProvider? = nil,
+        hidesMenuIcon: Bool = false,
+        isDeletable: Bool = true,
+        viewController: any WSegmentedControllerContent
+    ) {
+        self.id = id
+        self.title = title
+        self.contextMenuProvider = contextMenuProvider
+        self.hidesMenuIcon = hidesMenuIcon
+        self.isDeletable = isDeletable
+        self.viewController = viewController
+    }
+
+    var segmentedControlItem: SegmentedControlItem {
+        SegmentedControlItem(
+            id: id,
+            title: title,
+            contextMenuProvider: contextMenuProvider,
+            hidesMenuIcon: hidesMenuIcon,
+            isDeletable: isDeletable,
+            viewController: viewController
+        )
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.title == rhs.title
+            && lhs.contextMenuProvider === rhs.contextMenuProvider
+            && lhs.hidesMenuIcon == rhs.hidesMenuIcon
+            && lhs.isDeletable == rhs.isDeletable
+            && ObjectIdentifier(lhs.viewController as AnyObject) == ObjectIdentifier(rhs.viewController as AnyObject)
+    }
+}

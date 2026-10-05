@@ -1,0 +1,168 @@
+@use "../../../styles/mixins";
+
+.title {
+  margin: 1.5rem 0 2.5rem;
+
+  font-size: 2rem;
+  font-weight: 800;
+  line-height: 2.5rem;
+  color: var(--color-black);
+  text-align: center;
+}
+
+.checkboxBlock {
+  pointer-events: none;
+
+  width: 100%;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: var(--border-radius-default);
+
+  opacity: 0.4;
+  background: var(--color-background-first);
+
+  @include mixins.transition(opacity 200ms);
+
+  &.accessible {
+    pointer-events: auto;
+    opacity: 1;
+  }
+}
+
+.checkbox {
+  position: relative;
+  padding-inline-start: 2.25rem;
+
+  &::before,
+  &::after {
+    top: 50%;
+    inset-inline-start: 0;
+    transform: translateY(-50%);
+  }
+}
+
+.checkWordsSlide {
+  display: flex;
+  flex-direction: column;
+}
+
+.modalSticker {
+  margin-bottom: 2rem;
+}
+
+.buttonWrapper {
+  width: 100%;
+  margin-top: auto;
+  padding-top: 2rem;
+}
+
+.footerButton {
+  width: 100%;
+  max-width: 100% !important;
+  height: 3rem !important;
+  font-weight: 700;
+}
+
+.copyButton {
+  margin-bottom: 2rem;
+  font-weight: 700;
+
+  > .copyButtonIcon {
+    margin-inline-end: 0.25rem;
+    font-weight: 700 !important;
+  }
+}
+
+.error {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-red);
+  text-align: center;
+}
+
+.info {
+  width: 100%;
+  color: var(--color-gray-1);
+  text-align: center;
+}
+
+.mnemonicContainer {
+  user-select: text;
+}
+
+.warning {
+  align-self: center;
+
+  margin: 1.25rem auto;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--border-radius-normal);
+
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3125rem;
+  color: var(--color-transaction-amount-red-text);
+  text-align: center;
+
+  background-color: var(--color-transaction-amount-red-bg);
+}
+
+.text {
+  margin-bottom: 1rem;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.warningText {
+  font-weight: 700;
+  color: var(--color-red);
+}
+
+.words {
+  counter-reset: li;
+  user-select: text;
+
+  column-count: 2;
+  column-gap: 3rem;
+
+  min-width: 15rem;
+  margin: 0 auto;
+  padding: 0;
+
+  font-size: 1.0625rem;
+  list-style: none;
+}
+
+.word {
+  counter-increment: li;
+
+  position: relative;
+
+  margin-bottom: 0.25rem;
+  margin-inline-start: 1.75rem;
+
+  font-weight: 600;
+  color: var(--color-accent);
+
+  &::before {
+    content: counter(li) ".";
+
+    position: absolute;
+    inset-inline-end: 100%;
+
+    margin-inline-end: 0.25rem;
+
+    font-weight: 400;
+    color: var(--color-gray-2);
+  }
+
+  &:nth-child(12) {
+    break-after: column;
+  }
+}
+
+.small {
+  max-width: 20rem;
+  margin: 0 auto 1.25rem;
+  font-size: 0.9375rem;
+  font-weight: 400;
+}

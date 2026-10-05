@@ -1,0 +1,210 @@
+
+import SwiftUI
+import UIKit
+import UIComponents
+import WalletCore
+import WalletContext
+import Perception
+
+struct ConnectDappViewOrPlaceholder: View {
+
+    let viewModel: ConnectViewModel
+    var onHeightChange: (CGFloat) -> ()
+
+    var body: some View {
+        WithPerceptionTracking {
+            let isLoading = viewModel.update == nil
+            let dapp = viewModel.update?.dapp ?? ApiDapp.loadingStub
+
+            ConnectDappView(viewModel: viewModel, isLoading: isLoading, dapp: dapp)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self, of: \.size.height) { height in
+                    onHeightChange(height)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+}
+
+private struct ConnectDappView: View {
+    let viewModel: ConnectViewModel
+    let isLoading: Bool
+    let dapp: ApiDapp
+
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(spacing: 0) {
+                HeaderView(
+                    dapp: dapp,
+                    isLoading: isLoading,
+                    needsNewMultichainWallet: viewModel.needsNewMultichainWallet
+                )
+                .padding(.top, 40)
+                .skeletonContainer(isActive: isLoading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .safeAreaInset(edge: .bottom, spacing: 24) {
+                VStack(spacing: 24) {
+                    SelectSection(viewModel: viewModel, isLoading: isLoading)
+
+                    if !isLoading, let disabledWarning = viewModel.disabledWarning {
+                        WarningView(
+                            header: disabledWarning.header,
+                            text: disabledWarning.text,
+                            kind: disabledWarning.kind
+                        )
+                        .padding(.horizontal, 20)
+                        .padding(.top, -8)
+                    }
+
+                    if viewModel.needsNewMultichainWallet {
+                        CreateMultichainWalletButton(viewModel: viewModel)
+                            .padding(.bottom, viewModel.extraBottomPadding)
+                    } else {
+                        ConnectButton(viewModel: viewModel)
+                            .padding(.bottom, viewModel.extraBottomPadding)
+                    }
+                }
+            }
+            .ignoresSafeArea(edges: .top)
+        }
+    }
+}
+
+private struct HeaderView: View {
+
+    var dapp: ApiDapp
+    var isLoading: Bool
+    var needsNewMultichainWallet: Bool
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HeaderDappIcon(dapp: dapp)
+                .skeletonPlaceholder(surface: .dark, cornerRadius: HeaderDappIcon.cornerRadius)
+            VStack(spacing: 4) {
+                Text(L10n.connectDappTitle(name: dapp.name))
+                    .textStyle(.prominentTitle)
+                    .frame(minHeight: 32)
+                    .skeletonPlaceholder(surface: .dark, cornerRadius: 8)
+                HStack {
+                    if dapp.shouldShowUrlTrustStatusWarning {
+                        DappOriginWarning(urlTrustStatus: dapp.resolvedUrlTrustStatus)
+                            .offset(y: 1)
+                    }
+                    Text(dapp.displayUrl)
+                        .textStyle(
+                            .body,
+                            content: .technical,
+                            scaling: .dynamic
+                        )
+                        .foregroundStyle(.tint)
+                }
+                .skeletonPlaceholder(surface: .dark)
+            }
+            .padding(.horizontal, 8)
+
+            Text(descriptionText)
+                .textStyle(.body, scaling: .dynamic)
+        }
+        .padding(.horizontal, 32)
+        .multilineTextAlignment(.center)
+    }
+
+    private var descriptionText: String {
+        if isLoading || !needsNewMultichainWallet {
+            return lang("$connect_dapp_description")
+        }
+        return lang("$connect_dapp_no_compatible_wallets_found")
+    }
+}
+
+private struct SelectSection: View {
+
+    let viewModel: ConnectViewModel
+    let isLoading: Bool
+
+    var body: some View {
+        WithPerceptionTracking {
+            InsetSection {
+                InsetButtonCell(horizontalPadding: 12, verticalPadding: 10, action: viewModel.onSelectWallet) {
+                    HStack {
+                        AccountListCell(accountContext: viewModel.accountContext, isReordering: false, showCurrentAccountHighlight: false)
+                        InsetListChevron()
+                    }
+                }
+                .allowsHitTesting(!isLoading)
+            } header: {
+                Text(lang("Selected Wallet"))
+                    .padding(.top, 6)
+                    .padding(.bottom, 5)
+            }
+        }
+    }
+}
+
+private struct ConnectButton: View {
+
+    let viewModel: ConnectViewModel
+
+    var body: some View {
+        WithPerceptionTracking {
+            Button(action: viewModel.onConnectWallet) {
+                Text(viewModel.connectButtonTitle)
+            }
+            .disabled(viewModel.isDisabled || viewModel.isSubmitting)
+            .buttonStyle(isDangerous ? WUIButtonStyle(style: .destructive) : .airPrimary)
+            .environment(\.isLoading, viewModel.isSubmitting)
+            .padding(.horizontal, 30)
+        }
+    }
+
+    var isDangerous: Bool {
+        viewModel.update?.dapp.resolvedUrlTrustStatus == .dangerous
+    }
+}
+
+private struct CreateMultichainWalletButton: View {
+
+    let viewModel: ConnectViewModel
+
+    var body: some View {
+        Button(action: viewModel.onCreateMultichainWallet) {
+            Text(lang("Create Multichain Wallet"))
+        }
+        .disabled(viewModel.isCreateMultichainWalletDisabled)
+        .buttonStyle(.airPrimary)
+        .padding(.horizontal, 30)
+    }
+}
+
+#if DEBUG
+private struct ConnectDappViewOrPlaceholderPreview: View {
+    let viewModel: ConnectViewModel
+
+    var body: some View {
+        ScrollView {
+            ConnectDappViewOrPlaceholder(viewModel: viewModel, onHeightChange: { _ in })
+        }
+        .background(Color.air.sheetBackground)
+    }
+}
+
+@available(iOS 18, *)
+#Preview("Loading") {
+    @Previewable @AccountContext(source: .current) var account: MAccount
+    ConnectDappViewOrPlaceholderPreview(
+        viewModel: ConnectViewModel(accountId: account.id, update: nil)
+    )
+}
+
+@available(iOS 18, *)
+#Preview("Connect") {
+    ConnectDappViewOrPlaceholderPreview(
+        viewModel: ConnectViewModel(
+            accountId: ApiUpdate.DappConnect.sample.accountId,
+            update: .sample,
+            onCreateMultichainWallet: {}
+        )
+    )
+}
+#endif

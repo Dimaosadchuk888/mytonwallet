@@ -1,0 +1,34 @@
+@use "../../../styles/mixins";
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.card {
+  position: relative;
+
+  // Single-cell grid so the skeleton and the chart stack in the same box and cross-fade in place;
+  // the cell sizes to the taller of the two, avoiding a height jump when the skeleton is removed
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+
+  padding: 1rem 0;
+  border-radius: 1.5rem;
+
+  background-color: var(--color-background-first);
+}
+
+.chartContainer {
+  position: relative;
+  grid-area: 1 / 1;
+  width: 100%;
+  min-height: 18rem;
+}
+
+.skeletonLayer {
+  display: flex;
+  grid-area: 1 / 1;
+  flex-direction: column;
+}

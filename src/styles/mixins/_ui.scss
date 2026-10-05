@@ -1,0 +1,277 @@
+@use "../scssVariables" as v;
+
+@use "./transition" as t;
+
+@mixin _separator-base($position-offset, $inset: null) {
+  content: '';
+
+  position: absolute;
+  inset-inline-start: 0;
+
+  width: 100%;
+  height: 0.0625rem;
+
+  box-shadow: $inset 0 $position-offset 0 0 var(--color-separator);
+}
+
+@mixin separator-list-base($edge, $inline-start-offset: 0) {
+  content: '';
+
+  position: absolute;
+  inset-inline-start: $inline-start-offset;
+  inset-inline-end: 0;
+
+  height: 0.0625rem;
+  #{$edge}: 0;
+
+  @if $edge == 'top' {
+    box-shadow: inset 0 0.03rem 0 0 var(--color-separator);
+  }
+
+  @if $edge == 'bottom' {
+    box-shadow: inset 0 -0.03rem 0 0 var(--color-separator);
+  }
+}
+
+@mixin separator() {
+  &:not(:first-child)::before {
+    @include _separator-base(-0.03rem);
+
+    top: 0;
+  }
+}
+
+@mixin separatorBottom() {
+  &::after {
+    @include _separator-base(0.03rem, inset);
+
+    bottom: 0;
+  }
+}
+
+@mixin separatorBottomSettings($inline-start-offset: 0, $inline-end-offset: 0, $bottom-offset: 0) {
+  &:not(:last-child):not(:has(+ :global(.collapsible:not(.open))))::after {
+    content: '';
+
+    position: absolute;
+    bottom: $bottom-offset;
+    inset-inline-start: $inline-start-offset;
+    inset-inline-end: $inline-end-offset;
+
+    height: 0.0625rem;
+
+    box-shadow: inset 0 -0.025rem 0 0 var(--color-separator);
+  }
+}
+
+@mixin separatorList($inline-start-offset: 0) {
+  &:not(:last-child)::after {
+    @include separator-list-base('bottom', $inline-start-offset);
+  }
+}
+
+@mixin separatorListTop($inline-start-offset: 0) {
+  &:not(:first-child)::before {
+    @include separator-list-base('top', $inline-start-offset);
+  }
+}
+
+// Mixin is used to fix the background when it's necessary to cover a part of an element appearing above the backdrop.
+// For example, see `BottomBar` component.
+
+@mixin backdropPatch($pseudoElement: 'after') {
+  &::#{$pseudoElement} {
+    pointer-events: none;
+    content: '';
+
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+
+    opacity: 0;
+    background: var(--color-tint);
+
+    @include t.transition(opacity 200ms);
+  }
+
+  :global(html.with-menu-backdrop) &::#{$pseudoElement} {
+    opacity: 1;
+  }
+}
+
+// Quiet "frosted glass" look used by the bottom bar and adjacent floating
+// surfaces (agent input pill, explore search). Skipped on Android, where
+// the effect looks out of place visually.
+
+@mixin frostedGlass($bgAlpha: 0.65) {
+  @supports (backdrop-filter: blur(25px)) {
+    :global(html:not(.is-android)) & {
+      background-color: rgba(255, 255, 255, $bgAlpha);
+      backdrop-filter: blur(25px);
+      box-shadow:
+        inset 1px 2px 1px -1px rgba(0, 0, 0, 0.07),
+        inset -1px -2px 1px -1px rgba(0, 0, 0, 0.07),
+        0 4px 12px 0 rgba(0, 0, 0, 0.05);
+    }
+
+    :global(html:not(.is-android).theme-dark) & {
+      background-color: rgba(28, 28, 30, $bgAlpha);
+      box-shadow:
+        inset 1px 2px 1px -1px rgba(255, 255, 255, 0.05),
+        inset -1px -2px 1px -1px rgba(0, 0, 0, 0.2),
+        0 4px 12px 0 rgba(0, 0, 0, 0.25);
+    }
+  }
+}
+
+// Fixed bottom bar with a fade-out gradient (light/dark) so scrolled content dissolves under it.
+// Consumers add their own positioning and responsive overrides around this include.
+
+@mixin bottomBarFade() {
+  pointer-events: none;
+
+  position: fixed;
+  z-index: var(--z-bottom-bar);
+  right: 0;
+  bottom: 0;
+  left: 0;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+
+  height: var(--bottombar-height);
+  padding: 0 1rem;
+
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.9) 66.65%);
+
+  :global(html.theme-dark) & {
+    background: linear-gradient(180deg, rgba(28, 28, 30, 0) 0%, rgba(28, 28, 30, 0.9) calc(66.65% + var(--safe-area-bottom)));
+  }
+}
+
+// Shared container for the draggable segmented "pill" controls (bottom bar, time-range selector).
+// Holds the glass capsule look + drag feedback; pair with `useDraggablePill` and the `Pill` component.
+// Per-component specifics (margin, max-width, responsive overrides) are added by the consumer -
+// place them before this include so they stay ahead of the nested rules it emits.
+
+@mixin glass-capsule() {
+  // `Pill` reads this to match the grid column geometry
+  --capsule-padding-x: 0.25rem;
+
+  pointer-events: auto;
+  touch-action: none;
+
+  position: relative;
+
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+
+  width: 100%;
+  padding: 0.25rem var(--capsule-padding-x);
+  border-radius: 5rem;
+
+  background-color: var(--color-app-background);
+  box-shadow: var(--shadow-glass-capsule);
+
+  @include t.transition(transform 200ms cubic-bezier(0.32, 0.72, 0, 1));
+
+  @supports (backdrop-filter: blur(16px)) {
+    background-color: var(--color-background-lock);
+    backdrop-filter: blur(var(--blur-glass-capsule));
+  }
+
+  @include backdropPatch();
+
+  &::after {
+    border-radius: 5rem;
+  }
+
+  @include frostedGlass();
+
+  &.dragging {
+    cursor: grabbing;
+    transform: scale(1.02);
+  }
+}
+
+// Mirror directional icons (back chevrons, carets) horizontally in RTL layouts
+
+@mixin rtl-mirror() {
+  :global(html[dir="rtl"]) & {
+    transform: scaleX(-1);
+  }
+}
+
+@mixin squircleIcon() {
+  @supports (corner-shape: squircle) {
+    border-radius: 1.5rem !important;
+
+    corner-shape: squircle;
+  }
+}
+
+// See $byChain for the available $variables map keys
+
+@mixin byChain() {
+  @each $chain, $variables in v.$byChain {
+    @content($chain, $variables);
+  }
+}
+
+@mixin byChainClass() {
+  @include byChain() using ($chain, $variables) {
+    &.#{$chain} {
+      @content($variables);
+    }
+  }
+}
+
+// Read-only dapp payload/message preview field shared across dapp and WalletConnect Pay sign flows
+
+@mixin payloadField() {
+  position: relative;
+
+  overflow: hidden;
+
+  box-sizing: border-box;
+  margin-bottom: 1.25rem;
+  padding: 0.875rem 0.75rem;
+  border: none;
+  border-radius: var(--border-radius-default);
+
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--color-black);
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  background: var(--color-background-first);
+  outline: none;
+
+  &_expanded {
+    word-break: break-all !important;
+    white-space: normal;
+  }
+
+  &_text {
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+}
+
+// The `AccountSwitcherPill` position in the corner of a modal header
+
+@mixin accountPillPosition() {
+  position: absolute;
+  z-index: 1;
+  top: 0.5625rem;
+  inset-inline-start: 0.5625rem;
+}

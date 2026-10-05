@@ -1,0 +1,20 @@
+Sep 07 22:48:39 srv1920273 sshd[183494]: Connection closed by authenticating user root 74.235.117.97 port 28681 [preauth]
+Sep 07 22:48:40 srv1920273 sshd[183496]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=74.235.117.97  user=root
+Sep 07 22:48:42 srv1920273 sshd[183496]: Failed password for root from 74.235.117.97 port 28682 ssh2
+Sep 07 22:48:43 srv1920273 sshd[183496]: Connection closed by authenticating user root 74.235.117.97 port 28682 [preauth]
+Sep 07 22:48:43 srv1920273 sshd[183498]: pam_unix(sshd:auth): authentication failure; logname= uid=0 euid=0 tty=ssh ruser= rhost=74.235.117.97  user=root
+Sep 07 22:48:46 srv1920273 sshd[183498]: Failed password for root from 74.235.117.97 port 28680 ssh2
+Sep 07 22:48:46 srv1920273 sshd[183498]: Connection closed by authenticating user root 74.235.117.97 port 28680 [preauth]
+Sep 08 22:28:46 srv1920273 sshd[190638]: Connection closed by 179.51.247.235 port 6089
+Sep 08 22:47:38 srv1920273 sshd[190857]: Connection closed by 190.48.21.214 port 58494
+Sep 08 23:22:36 srv1920273 sshd[191018]: Connection closed by 190.244.94.164 port 44650
+Sep 08 23:54:26 srv1920273 sshd[191149]: error: kex_exchange_identification: read: Connection reset by peer
+Sep 08 23:54:26 srv1920273 sshd[191149]: Connection reset by 80.246.243.226 port 42906
+Sep 09 00:26:57 srv1920273 sshd[191339]: Connection closed by 2.61.139.169 port 57726
+Sep 09 00:40:09 srv1920273 sshd[191921]: Connection closed by 181.104.87.16 port 53610
+Sep 09 04:18:30 srv1920273 sshd[192939]: Connection closed by 179.26.67.38 port 60754
+Sep 09 04:20:20 srv1920273 sshd[192948]: Connection closed by 179.26.67.38 port 38488
+Sep 09 07:13:56 srv1920273 sshd[193827]: Connection closed by 94.232.177.42 port 40601
+Sep 09 12:27:14 srv1920273 sshd[195219]: Accepted publickey for root from 169.254.0.1 port 52654 ssh2: RSA SHA256:/KSaphsqrGq2N37BJqGAgXpsbcjiznPCnWuInz4+f3Q
+Sep 09 12:27:14 srv1920273 sshd[195219]: pam_unix(sshd:session): session opened for user root(uid=0) by root(uid=0)
+root@srv1920273:~#

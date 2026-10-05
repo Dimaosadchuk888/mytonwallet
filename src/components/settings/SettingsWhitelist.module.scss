@@ -1,0 +1,514 @@
+.intro {
+  padding: 1rem 1rem 0.75rem;
+  text-align: center;
+}
+
+.intro h2 {
+  margin: 0 0 0.5rem;
+  color: var(--color-black);
+  font-size: 1.25rem;
+}
+
+.intro p {
+  max-width: 22rem;
+  margin: 0 auto;
+  color: var(--color-gray-2);
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.progressSteps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1rem 1rem 0.75rem;
+}
+
+.progressStep {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--color-gray-2);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.progressConnector {
+  position: absolute;
+  z-index: 0;
+  top: 0.8125rem;
+  inset-inline-start: calc(50% + 1rem);
+  width: calc(100% - 2rem);
+  height: 2px;
+  background: var(--color-gray-1-10o);
+}
+
+.progressConnector_complete {
+  background: var(--color-accent);
+}
+
+.progressNode {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--color-gray-1-10o);
+  border-radius: 50%;
+  color: var(--color-gray-2);
+  background: var(--color-background-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.progressStep_active .progressNode,
+.progressStep_complete .progressNode {
+  border-color: var(--color-accent);
+  color: var(--color-white);
+  background: var(--color-accent);
+}
+
+.progressStep_active .progressStepLabel,
+.progressStep_complete .progressStepLabel {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.progressStepLabel {
+  max-width: 100%;
+  padding: 0 0.125rem;
+  overflow-wrap: anywhere;
+}
+
+.walletCard,
+.infoCard,
+.verificationCard,
+.successCard {
+  margin: 0.5rem 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-gray-1-10o);
+  border-radius: var(--border-radius-default);
+  background: var(--color-background-secondary);
+}
+
+.walletCard {
+  position: relative;
+}
+
+.walletCard_verified {
+  border-color: var(--color-green);
+}
+
+.walletCard_disabled {
+  opacity: 0.72;
+}
+
+.walletCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.walletIdentity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.walletIcon {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  color: var(--color-accent);
+  background: var(--color-accent-10o);
+  font-size: 2.25rem;
+}
+
+.walletName {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.walletName strong {
+  overflow: hidden;
+  color: var(--color-black);
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.walletName span,
+.walletNetwork {
+  color: var(--color-gray-2);
+  font-size: 0.75rem;
+}
+
+.cardChevron {
+  flex: 0 0 auto;
+  color: var(--color-gray-2);
+  font-size: 1.25rem;
+}
+
+.walletAddress {
+  margin: 0.8125rem 0 0.3125rem;
+  color: var(--color-black);
+  font-family: var(--font-monospace);
+  font-size: 0.875rem;
+}
+
+.walletNetwork {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.walletStatusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 1.75rem;
+  margin-bottom: 0.75rem;
+  gap: 0.5rem;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.statusDot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.status_muted {
+  color: var(--color-gray-2);
+}
+
+.status_warning {
+  color: #D99A00;
+}
+
+.status_success {
+  color: var(--color-green);
+}
+
+.status_progress {
+  color: var(--color-accent);
+}
+
+.walletCard button,
+.successCard button {
+  width: 100%;
+}
+
+.disabledDescription {
+  margin: 0 0 0.75rem;
+  color: var(--color-gray-2);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.infoCard {
+  margin-top: 0.75rem;
+}
+
+.infoTitle,
+.permissionTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-black);
+  font-size: 0.875rem;
+}
+
+.infoTitle i,
+.permissionTitle i {
+  color: var(--color-accent);
+  font-size: 1.125rem;
+}
+
+.infoCard ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  color: var(--color-gray-2);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  list-style: none;
+}
+
+.infoCard li {
+  position: relative;
+  padding-inline-start: 1rem;
+}
+
+.infoCard li::before {
+  position: absolute;
+  content: "•";
+  inset-inline-start: 0;
+  color: var(--color-accent);
+}
+
+.autoDebitCard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.75rem 1rem;
+  padding: 1rem;
+  border: 1px solid var(--color-gray-1-10o);
+  border-radius: var(--border-radius-default);
+  background: var(--color-background-second);
+}
+
+.autoDebitHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.autoDebitHeader h3 {
+  margin: 0.25rem 0 0;
+  color: var(--color-black);
+  font-size: 1rem;
+}
+
+.autoDebitPolicy,
+.autoDebitHint,
+.autoDebitError {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.autoDebitPolicy {
+  color: var(--color-black);
+}
+
+.autoDebitHint {
+  color: var(--color-gray-2);
+}
+
+.autoDebitError {
+  color: var(--color-red);
+}
+
+.autoDebitRecipient {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.625rem;
+  border-radius: var(--border-radius-default);
+  background: var(--color-background-second);
+  font-size: 0.75rem;
+}
+
+.autoDebitRecipient span {
+  color: var(--color-gray-2);
+}
+
+.autoDebitRecipient strong {
+  overflow-wrap: anywhere;
+  color: var(--color-black);
+  font-family: var(--font-monospace);
+  font-size: 0.75rem;
+}
+
+.autoDebitAcceptance {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  color: var(--color-black);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.autoDebitAcceptance input {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  margin: 0.125rem 0 0;
+  accent-color: var(--color-accent);
+}
+
+.autoDebitCard button {
+  width: 100%;
+}
+
+.verificationCard {
+  border-color: var(--color-accent);
+}
+
+.verificationHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.verificationHeader h3 {
+  margin: 0.25rem 0 0;
+  color: var(--color-black);
+  font-size: 1.0625rem;
+}
+
+.stepLabel {
+  color: var(--color-gray-2);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+}
+
+.verificationDescription {
+  margin: 0.75rem 0;
+  color: var(--color-gray-2);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.verificationCard button {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.walletActionButton:active:not(:disabled) {
+  transform: scale(0.985);
+  filter: brightness(0.92);
+}
+
+.verificationCard.activationCard button.activationButton {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 3rem;
+  height: auto;
+  padding: 0.5rem 1rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.permissionCard {
+  padding: 0.75rem;
+  border-radius: var(--border-radius-default);
+  background: var(--color-background-second);
+}
+
+.permissionRows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  margin-top: 0.75rem;
+}
+
+.permissionRows > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  color: var(--color-gray-2);
+  font-size: 0.75rem;
+}
+
+.permissionRows strong {
+  color: var(--color-black);
+  font-weight: 500;
+  text-align: end;
+}
+
+.monospace {
+  font-family: var(--font-monospace);
+}
+
+.checkList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-radius: var(--border-radius-default);
+  background: var(--color-background-second);
+  color: var(--color-gray-2);
+  font-size: 0.8125rem;
+}
+
+.checkList > div {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.checkList i {
+  color: var(--color-green);
+}
+
+.successCard {
+  margin-top: 1.5rem;
+  text-align: center;
+}
+
+.successIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4rem;
+  height: 4rem;
+  margin: 0 auto 1rem;
+  border-radius: 50%;
+  color: var(--color-white);
+  background: var(--color-green);
+  font-size: 2rem;
+}
+
+.successCard h2 {
+  margin: 0 0 0.5rem;
+  color: var(--color-black);
+  font-size: 1.25rem;
+}
+
+.successCard p {
+  margin: 0 0 0.75rem;
+  color: var(--color-gray-2);
+  font-size: 0.875rem;
+  line-height: 1.35;
+}
+
+.address {
+  color: var(--color-black) !important;
+  font-family: var(--font-monospace);
+}
+
+.successStatus {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0 1rem;
+}
+
+.error {
+  margin: 0.5rem 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--border-radius-default);
+  color: var(--color-red);
+  background: var(--color-background-red);
+  font-size: 0.875rem;
+}

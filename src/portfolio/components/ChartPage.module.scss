@@ -1,0 +1,20 @@
+.chartContainer {
+  margin: 1rem;
+  padding: 0.5rem 0 0;
+  border-radius: var(--border-radius-default);
+  background-color: var(--color-background-first);
+
+  :global(.lovely-chart--container) {
+    font: 300 13px 'Nunito Sans', sans-serif;
+  }
+}
+
+:global(.lovely-chart--button) {
+  margin-block: 0 8px;
+  margin-inline: 0 8px;
+  padding: 4px 8px;
+}
+
+:global(.lovely-chart--button-check) {
+  top: auto;
+}

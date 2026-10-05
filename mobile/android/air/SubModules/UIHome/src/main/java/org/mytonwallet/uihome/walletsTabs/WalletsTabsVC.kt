@@ -1,0 +1,804 @@
+package org.mytonwallet.uihome.walletsTabs
+
+import android.content.Context
+import android.graphics.Color
+import android.text.SpannableString
+import android.text.Spanned
+import android.view.Gravity
+import android.view.View
+import android.view.View.generateViewId
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.LinearLayout
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_CONSTRAINT
+import androidx.core.view.isGone
+import androidx.core.view.setPadding
+import androidx.core.view.updateLayoutParams
+import androidx.core.widget.NestedScrollView
+import java.lang.ref.WeakReference
+import kotlin.math.min
+import kotlin.math.roundToInt
+import org.json.JSONArray
+import org.mytonwallet.app_air.uicomponents.base.WNavigationBar
+import org.mytonwallet.app_air.uicomponents.base.WNavigationController
+import org.mytonwallet.app_air.uicomponents.base.WViewController
+import org.mytonwallet.app_air.uicomponents.commonViews.ReversedCornerView
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.helpers.AccountDialogHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.widgets.WButton
+import org.mytonwallet.app_air.uicomponents.widgets.WImageButton
+import org.mytonwallet.app_air.uicomponents.widgets.WReplaceableLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WScaleLabel
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup.BackgroundStyle
+import org.mytonwallet.app_air.uicomponents.widgets.segmentedController.WSegmentedController
+import org.mytonwallet.app_air.uicomponents.widgets.segmentedController.WSegmentedControllerItem
+import org.mytonwallet.app_air.uicomponents.widgets.sensitiveDataContainer.WSensitiveDataContainer
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.getDrawableCompat
+import org.mytonwallet.app_air.walletbasecontext.utils.smartDecimalsCount
+import org.mytonwallet.app_air.walletbasecontext.utils.toBigInteger
+import org.mytonwallet.app_air.walletbasecontext.utils.toString
+import org.mytonwallet.app_air.walletcontext.WalletContextManager
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.models.MBlockchainNetwork
+import org.mytonwallet.app_air.walletcontext.models.MWalletSettingsViewMode
+import org.mytonwallet.app_air.walletcontext.utils.MarginImageSpan
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.WalletEvent
+import org.mytonwallet.app_air.walletcore.stores.BalanceStore
+import org.mytonwallet.uihome.wallets.WalletsVC
+
+class WalletsTabsVC(context: Context, val defaultMode: MWalletSettingsViewMode) :
+    WViewController(context),
+    WalletCore.EventObserver {
+    @Suppress("PropertyName")
+    override val TAG = "WalletsTabs"
+
+    override val isSwipeBackAllowed = false
+
+    companion object {
+        const val DEFAULT_HEIGHT = 560
+    }
+
+    override val shouldDisplayTopBar = false
+    override val topBarConfiguration: ReversedCornerView.Config
+        get() = super.topBarConfiguration.copy(blurRootView = scrollView)
+    override val shouldDisplayBottomBar: Boolean
+        get() = !isInCenteredWindow
+    override val ignoreSideGuttering = true
+
+    enum class WalletCategory(val value: String) {
+        MY("My"),
+        ALL("All"),
+        LEDGER("Ledger"),
+        VIEW("\$view_mode");
+
+        val localized: String
+            get() {
+                return LocaleController.getString(value)
+            }
+    }
+
+    private val defaultTabs =
+        listOf(WalletCategory.ALL, WalletCategory.MY, WalletCategory.LEDGER, WalletCategory.VIEW)
+    private val tabs: List<WalletCategory> = run {
+        val savedOrder = WGlobalStorage.getWalletTabOrder()
+        if (savedOrder != null) {
+            val mapped = savedOrder.mapNotNull { value ->
+                WalletCategory.entries.find { it.value == value }
+            }
+            if (mapped.size == defaultTabs.size) mapped else defaultTabs
+        } else {
+            defaultTabs
+        }
+    }
+    private var isReordering = false
+
+    private val selectedCategory: WalletCategory
+        get() {
+            val id = segmentedController.items.getOrNull(selectedTabIndex)?.identifier
+            return WalletCategory.entries.find { it.value == id } ?: WalletCategory.ALL
+        }
+
+    var allAccounts = WalletCore.getAllAccounts()
+
+    val walletsViewControllers = mutableListOf<WalletsVC>()
+
+    private val isRtlTitle = LocaleController.isRTL
+
+    val titleLabel: View by lazy {
+        if (isRtlTitle) {
+            // WScaleLabel doesn't support RTL language
+            WReplaceableLabel(context)
+        } else {
+            WScaleLabel(context).apply {
+                setStyle(20F, WFont.Medium)
+            }
+        }
+    }
+
+    val subtitleLabel = WReplaceableLabel(context)
+
+    val totalBalanceContainerView = WSensitiveDataContainer(
+        subtitleLabel,
+        WSensitiveDataContainer.MaskConfig(
+            6,
+            2,
+            Gravity.CENTER
+        )
+    )
+
+    private val titleLinearLayout: LinearLayout by lazy {
+        LinearLayout(context).apply {
+            id = generateViewId()
+            clipChildren = false
+            clipToPadding = false
+            orientation = LinearLayout.VERTICAL
+            addView(titleLabel, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+            val subtitleHeight = if (LocaleController.isRTL) WRAP_CONTENT else 16.dp
+            addView(totalBalanceContainerView, LayoutParams(WRAP_CONTENT, subtitleHeight))
+            gravity = Gravity.CENTER
+            z = 1f
+        }
+    }
+
+    val segmentItems by lazy {
+        tabs.mapIndexed { index, tab ->
+            val vc = WalletsVC(
+                context,
+                tab,
+                window!!.windowView.width
+            ).apply {
+                onAccountsReordered = { accounts ->
+                    WGlobalStorage.setOrderedAccountIds(JSONArray(accounts.map { it.accountId }))
+                    WalletCore.notifyEvent(WalletEvent.AccountsReordered)
+                    allAccounts = accounts
+                }
+                onCheckChanged = {
+                    updateRemoveWalletButton()
+                }
+                onToggleReorderTapped = {
+                    toggleReorder(true)
+                }
+                onDragReorderStarted = {
+                    if (!isReordering) toggleReorder(true, fromDrag = true)
+                }
+                onSwitchAccountInProgress = {
+                    WalletCore.unregisterObserver(this@WalletsTabsVC)
+                }
+            }
+            walletsViewControllers.add(vc)
+            WSegmentedControllerItem(
+                walletsViewControllers[index],
+                identifier = tab.value
+            )
+        }.toMutableList()
+    }
+
+    private val segmentedController: WSegmentedController by lazy {
+        WSegmentedController(
+            navigationController!!,
+            segmentItems,
+            0,
+            applySideGutters = false,
+            navTopPadding = 44.dp,
+            onOffsetChange = { _, currentOffset ->
+                val nearestIndex = currentOffset.roundToInt()
+                if (segmentedController.targetIndex == null ||
+                    segmentedController.targetIndex == nearestIndex
+                ) {
+                    onTabChanged(nearestIndex)
+                }
+            },
+            onItemsReordered = { saveTabOrder() },
+            onReorderingStarted = {
+                if (!isReordering) toggleReorder(true)
+            },
+            onForceEndReorderingRequested = {
+                if (isReordering) toggleReorder(false)
+            }
+        ).apply {
+            z = 2f
+            setDragAllowed(true)
+        }
+    }
+
+    private val scrollView: NestedScrollView by lazy {
+        NestedScrollView(context).apply {
+            id = generateViewId()
+            addView(
+                segmentedController,
+                LayoutParams(
+                    MATCH_PARENT,
+                    MATCH_PARENT
+                )
+            )
+            isFillViewport = true
+        }
+    }
+
+    private val addNewWalletButton by lazy {
+        WButton(context).apply {
+            id = generateViewId()
+            clickableError = true
+            setOnClickListener {
+                if (isReordering && !isListReordering) {
+                    toggleReorder(false)
+                }
+                if (isListReordering) {
+                    val checkedAccounts =
+                        walletsViewControllers[tabs.indexOf(WalletCategory.ALL)].checkedAccounts
+                    AccountDialogHelpers.presentSignOut(window!!, checkedAccounts.toList())
+                } else {
+                    val walletCategory = selectedCategory
+                    val vc = when (walletCategory) {
+                        WalletCategory.MY, WalletCategory.ALL -> {
+                            WalletContextManager.delegate?.get()
+                                ?.getAddAccountVC(MBlockchainNetwork.MAINNET)
+                        }
+
+                        WalletCategory.LEDGER -> {
+                            WalletContextManager.delegate?.get()
+                                ?.getImportLedgerVC(MBlockchainNetwork.MAINNET)
+                        }
+
+                        WalletCategory.VIEW -> {
+                            WalletContextManager.delegate?.get()
+                                ?.getAddViewAccountVC(MBlockchainNetwork.MAINNET)
+                        }
+                    } as? WViewController ?: return@setOnClickListener
+                    val nav = WNavigationController(
+                        window!!,
+                        if (walletCategory == WalletCategory.LEDGER) {
+                            WNavigationController.PresentationConfig()
+                        } else {
+                            WNavigationController.PresentationConfig(
+                                style = WNavigationController.PresentationStyle.BottomSheet
+                            )
+                        }
+                    ).apply {
+                        setRoot(vc)
+                    }
+                    window?.dismissLastNav {
+                        window?.present(nav)
+                    }
+                }
+            }
+        }
+    }
+
+    private val listButton: WImageButton by lazy {
+        WImageButton(context).apply {
+            val closeDrawable = context.getDrawableCompat(
+                org.mytonwallet.app_air.icons.R.drawable.ic_list
+            )
+            setImageDrawable(closeDrawable)
+            updateColors(WColor.SecondaryText, WColor.BackgroundRipple)
+            setPadding(8.dp)
+            setOnClickListener {
+                if (isReordering) {
+                    toggleReorder(false)
+                } else {
+                    showMenuPressed(this)
+                }
+            }
+        }
+    }
+
+    override fun setupViews() {
+        super.setupViews()
+
+        setupNavBar(true, WNavigationBar.DEFAULT_HEIGHT_THICK)
+
+        navigationBar?.addCloseButton(trailingMarginDp = 8f)
+        navigationBar?.addLeadingView(listButton)
+
+        view.addView(scrollView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        view.addView(addNewWalletButton, ViewGroup.LayoutParams(MATCH_CONSTRAINT, 50.dp))
+        view.addView(titleLinearLayout, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        view.setConstraints {
+            toCenterX(titleLinearLayout)
+            toTop(titleLinearLayout, 16.5f)
+        }
+        applyLayoutForCurrentMode()
+        switchViewMode(defaultMode)
+
+        WalletCore.registerObserver(this)
+        updateTheme()
+        updateAccounts()
+        onTabChanged(0)
+
+        view.post {
+            updateTitleBar(animated = false)
+            // Workaround! Otherwise, the icon doesn't appear correctly!
+            updateAddNewWalletButton(animated = false)
+        }
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldW: Int, oldH: Int) {
+        super.onSizeChanged(w, h, oldW, oldH)
+        if (w != oldW) walletsViewControllers.forEach { it.setLayoutWidth(w) }
+    }
+
+    override fun didSetupViews() {
+        super.didSetupViews()
+        bottomReversedCornerView?.updateLayoutParams {
+            height = bottomCornerHeight()
+        }
+        walletsViewControllers.forEach {
+            it.parentTopReversedCornerView = WeakReference(segmentedController.reversedCornerView)
+            it.parentBottomReversedCornerView = WeakReference(bottomReversedCornerView)
+        }
+        addNewWalletButton.bringToFront()
+    }
+
+    override fun updateTheme() {
+        super.updateTheme()
+        updateBackground()
+        (titleLabel as? WScaleLabel)?.setTextColor(WColor.PrimaryText.color)
+        (titleLabel as? WReplaceableLabel)?.updateTheme()
+        segmentedController.updateTheme()
+        segmentedController.items.forEach {
+            it.viewController.updateTheme()
+        }
+    }
+
+    private fun applyLayoutForCurrentMode() {
+        if (scrollView.layoutParams == null) return
+        val centered = isInCenteredWindow
+        val isBottomSheet = navigationController?.isBottomSheet == true
+        scrollView.updateLayoutParams {
+            height = if (centered) MATCH_CONSTRAINT else window!!.windowView.height
+        }
+        view.setConstraints {
+            toStartPx(addNewWalletButton, 20.dp + if (centered) 0 else systemBarStartInset)
+            toEndPx(addNewWalletButton, 20.dp + if (centered) 0 else systemBarEndInset)
+            toBottom(scrollView)
+            if (centered) {
+                toTop(scrollView)
+                toBottomPx(addNewWalletButton, 16.dp)
+            } else {
+                clear(scrollView.id, androidx.constraintlayout.widget.ConstraintSet.TOP)
+            }
+        }
+        if (!isBottomSheet) {
+            titleLinearLayout.translationY = 0f
+            navigationBar?.translationY = 0f
+            bottomReversedCornerView?.translationY = 0f
+            addNewWalletButton.translationY = 0f
+            if (scrollView.paddingTop != 0) scrollView.setPadding(0, 0, 0, 0)
+        }
+    }
+
+    override fun insetsUpdated() {
+        super.insetsUpdated()
+        segmentedController.insetsUpdated()
+        walletsViewControllers.forEach { it.insetsUpdated() }
+        bottomReversedCornerView?.let { corner ->
+            corner.updateLayoutParams { height = bottomCornerHeight() }
+            corner.isGone =
+                walletsViewControllers.firstOrNull()?.viewMode == MWalletSettingsViewMode.LIST
+            walletsViewControllers.forEach {
+                it.parentBottomReversedCornerView = WeakReference(corner)
+            }
+            corner.bringToFront()
+            addNewWalletButton.bringToFront()
+        }
+        applyLayoutForCurrentMode()
+        if (!isInCenteredWindow) {
+            view.setConstraints {
+                toBottomPx(
+                    addNewWalletButton,
+                    16.dp + (navigationController?.getSystemBars()?.bottom ?: 0)
+                )
+            }
+        }
+    }
+
+    private fun bottomCornerHeight(): Int = (bottomReversedCornerView?.cornerHeight ?: 0) +
+        ViewConstants.GAP.dp +
+        50.dp +
+        16.dp +
+        (navigationController?.getSystemBars()?.bottom ?: 0)
+
+    override fun onDestroy() {
+        super.onDestroy()
+        WalletCore.unregisterObserver(this)
+        segmentedController.onDestroy()
+    }
+
+    fun updateAccounts(excludeTabs: List<WalletCategory> = emptyList()) {
+        walletsViewControllers.filter { !excludeTabs.contains(it.walletCategory) }
+            .forEach { walletViewController ->
+                walletViewController.setAccounts(
+                    allAccounts.filter { account ->
+                        return@filter when (walletViewController.walletCategory) {
+                            WalletCategory.MY -> {
+                                !account.isViewOnly
+                            }
+
+                            WalletCategory.ALL -> {
+                                true
+                            }
+
+                            WalletCategory.LEDGER -> {
+                                account.isHardware
+                            }
+
+                            WalletCategory.VIEW -> {
+                                account.isViewOnly
+                            }
+
+                            else -> {
+                                false
+                            }
+                        }
+                    }
+                )
+            }
+    }
+
+    private fun updateBackground() {
+        val expandProgress = 10f / 3f * (((modalExpandProgress ?: 0f) - 0.7f).coerceIn(0f, 1f))
+        val topRadius = (1 - expandProgress) * ViewConstants.BLOCK_RADIUS.dp
+        view.setBackgroundColor(
+            WColor.SecondaryBackground.color,
+            topRadius,
+            0f,
+            true
+        )
+    }
+
+    override fun onWalletEvent(walletEvent: WalletEvent) {
+        when (walletEvent) {
+            WalletEvent.BalanceChanged -> {
+                walletsViewControllers.forEach {
+                    it.notifyBalanceChange(async = true)
+                }
+            }
+
+            is WalletEvent.AccountChangedInApp -> {
+                if (walletEvent.persistedAccountsModified) allAccounts = WalletCore.getAllAccounts()
+                updateAccounts()
+                walletsViewControllers.forEach {
+                    it.reloadData()
+                }
+                if (walletEvent.persistedAccountsModified) {
+                    updateTitleBar()
+                    if (isListReordering) {
+                        updateRemoveWalletButton()
+                    } else {
+                        updateAddNewWalletButton()
+                    }
+                }
+            }
+
+            is WalletEvent.AccountNameChanged,
+            WalletEvent.NftCardUpdated,
+            is WalletEvent.ByChainUpdated -> {
+                updateAccounts()
+                walletsViewControllers.forEach {
+                    it.reloadData()
+                }
+            }
+
+            else -> {}
+        }
+    }
+
+    private var selectedTabIndex = -1
+    private fun onTabChanged(newIndex: Int) {
+        if (newIndex == selectedTabIndex) {
+            return
+        }
+        selectedTabIndex = newIndex
+        if (isReordering) return
+        updateAddNewWalletButton()
+        updateTitleBar()
+    }
+
+    private val titleText: String?
+        get() {
+            val tabAccounts =
+                (
+                    segmentedController.items.getOrNull(
+                        selectedTabIndex
+                    )?.viewController as? WalletsVC
+                    )?.accounts
+                    ?: allAccounts
+            return LocaleController.getPlural(tabAccounts.size, "\$wallets_amount")
+        }
+    private val subtitleText: String?
+        get() {
+            val tabAccounts =
+                (
+                    segmentedController.items.getOrNull(
+                        selectedTabIndex
+                    )?.viewController as? WalletsVC
+                    )?.accounts
+                    ?: allAccounts
+            val baseCurrency = WalletCore.baseCurrency
+            val amount = tabAccounts.sumOf {
+                BalanceStore.totalBalanceInBaseCurrency(it.accountId) ?: 0.0
+            }.toBigInteger(baseCurrency.decimalsCount)
+            val amountString = amount?.toString(
+                decimals = baseCurrency.decimalsCount,
+                currency = baseCurrency.sign,
+                currencyDecimals = amount.smartDecimalsCount(baseCurrency.decimalsCount),
+                false
+            )
+            return LocaleController.getStringWithKeyValues(
+                "\$total_balance",
+                listOf(Pair("%balance%", amountString ?: ""))
+            )
+        }
+
+    private fun updateTitleBar(animated: Boolean = true) {
+        when (val label = titleLabel) {
+            is WScaleLabel -> label.animateText(titleText, animated)
+
+            is WReplaceableLabel -> label.setText(
+                WReplaceableLabel.Config(
+                    text = titleText ?: "",
+                    isLoading = false,
+                    isExpandable = false,
+                    textColor = WColor.PrimaryText,
+                    textSize = 20f,
+                    font = WFont.Medium
+                ),
+                animated = animated
+            )
+        }
+        subtitleLabel.setText(
+            WReplaceableLabel.Config(
+                text = subtitleText ?: "",
+                isLoading = false,
+                isExpandable = false,
+                textColor = WColor.SecondaryText,
+                textSize = 12f,
+                font = WFont.Regular
+            ),
+            animated = animated
+        )
+    }
+
+    override fun getModalHalfExpandedHeight(): Int? = DEFAULT_HEIGHT.dp
+
+    private var prevExpandProgress = 0f
+    override fun onModalSlide(expandOffset: Int, expandProgress: Float) {
+        modalExpandOffset = expandOffset
+        modalExpandProgress = expandProgress
+        topReversedCornerView?.translationZ = navigationBar?.translationZ ?: 0f
+        if (expandProgress < 1) {
+            topReversedCornerView?.setBackgroundColor(
+                Color.TRANSPARENT,
+                min(1f, ((1 - expandProgress) * 5)) * ViewConstants.BLOCK_RADIUS.dp,
+                0f,
+                true
+            )
+            if (prevExpandProgress == 1f) {
+                walletsViewControllers.forEach {
+                    if (it != segmentedController.currentItem) it.scrollToTop()
+                    it.isModalExpanded = false
+                }
+            }
+        } else {
+            walletsViewControllers.forEach {
+                it.isModalExpanded = true
+            }
+            topReversedCornerView?.background = null
+        }
+        prevExpandProgress = expandProgress
+        walletsViewControllers.forEach {
+            it.onModalSlide(expandOffset, expandProgress)
+        }
+        val normalizedExpandProgress = 10 / 3 * ((expandProgress - 0.7f).coerceIn(0f, 1f))
+        titleLinearLayout.translationY =
+            normalizedExpandProgress * (navigationController?.getSystemBars()?.top ?: 0)
+        navigationBar?.translationY =
+            -(navigationController?.getSystemBars()?.top?.toFloat() ?: 0f) +
+            normalizedExpandProgress * (navigationController?.getSystemBars()?.top ?: 0)
+        bottomReversedCornerView?.translationY = DEFAULT_HEIGHT.toFloat().dp -
+            (window?.windowView?.height ?: 0) +
+            (navigationController?.getSystemBars()?.bottom ?: 0) +
+            expandOffset
+        addNewWalletButton.translationY = bottomReversedCornerView?.translationY ?: 0f
+        val newTopPadding = (
+            normalizedExpandProgress * (
+                navigationController?.getSystemBars()?.top
+                    ?: 0
+                )
+            ).roundToInt()
+        if (scrollView.paddingTop != newTopPadding) {
+            scrollView.setPadding(0, newTopPadding, 0, 0)
+        }
+        updateBackground()
+    }
+
+    private fun showMenuPressed(view: View) {
+        val isShowingList = walletsViewControllers.first().viewMode == MWalletSettingsViewMode.LIST
+        WMenuPopup.present(
+            view = view,
+            items = listOf(
+                WMenuPopup.Item(
+                    WMenuPopup.Item.Config.Item(
+                        icon = WMenuPopup.Item.Config.Icon(
+                            if (isShowingList) {
+                                org.mytonwallet.app_air.icons.R.drawable.ic_card
+                            } else {
+                                org.mytonwallet.app_air.icons.R.drawable.ic_bullets
+                            }
+                        ),
+                        title = LocaleController.getString(
+                            if (isShowingList) "View as Cards" else "View as List"
+                        )
+                    ),
+                    onTap = {
+                        val viewMode =
+                            if (walletsViewControllers.first().viewMode ==
+                                MWalletSettingsViewMode.LIST
+                            ) {
+                                MWalletSettingsViewMode.GRID
+                            } else {
+                                MWalletSettingsViewMode.LIST
+                            }
+                        switchViewMode(viewMode)
+                        WGlobalStorage.setAccountSelectorViewMode(viewMode)
+                    }
+                ),
+                WMenuPopup.Item(
+                    WMenuPopup.Item.Config.Item(
+                        icon = WMenuPopup.Item.Config.Icon(
+                            org.mytonwallet.app_air.icons.R.drawable.ic_reorder,
+                            tintColor = WColor.SecondaryText
+                        ),
+                        title = LocaleController.getString("Reorder")
+                    ),
+                    onTap = {
+                        toggleReorder(true)
+                    }
+                )
+            ),
+            positioning = WMenuPopup.Positioning.BELOW,
+            windowBackgroundStyle = BackgroundStyle.Cutout.fromView(view, roundRadius = 16f.dp),
+            backdropStyle = WMenuPopup.BackdropStyle.Transparent,
+            usePillShadow = true
+        )
+    }
+
+    private fun switchViewMode(viewMode: MWalletSettingsViewMode) {
+        segmentedController.reversedCornerView.isGone =
+            viewMode == MWalletSettingsViewMode.LIST
+        bottomReversedCornerView?.isGone =
+            viewMode == MWalletSettingsViewMode.LIST
+        walletsViewControllers.forEach {
+            it.viewMode = viewMode
+        }
+    }
+
+    private var isListReordering = false
+
+    private fun toggleReorder(reorder: Boolean, fromDrag: Boolean = false) {
+        isReordering = reorder
+        val allVC = walletsViewControllers[tabs.indexOf(WalletCategory.ALL)]
+        val wasListReordering = isListReordering
+        if (reorder) {
+            if (selectedCategory != WalletCategory.ALL) {
+                val allSegmentIndex = segmentedController.items.indexOfFirst {
+                    it.identifier == WalletCategory.ALL.value
+                }
+                if (allSegmentIndex >= 0) {
+                    segmentedController.onIndexChanged(
+                        allSegmentIndex,
+                        true,
+                        onCompletion = {
+                            segmentedController.post {
+                                segmentedController.startSorting()
+                            }
+                        }
+                    )
+                    selectedTabIndex = allSegmentIndex
+                    updateTitleBar()
+                }
+            } else {
+                segmentedController.startSorting()
+            }
+            isListReordering = allVC.viewMode == MWalletSettingsViewMode.LIST
+        } else {
+            segmentedController.endSorting()
+            saveTabOrder()
+            isListReordering = false
+            updateAccounts(listOf(WalletCategory.ALL))
+        }
+        view.post {
+            if (reorder && !fromDrag) {
+                allVC.toggleReorder(reordering = true, animated = true)
+            } else if (!reorder) {
+                allVC.toggleReorder(reordering = false, animated = true)
+            }
+            listButton.setImageDrawable(
+                context.getDrawableCompat(
+                    if (isReordering) {
+                        org.mytonwallet.app_air.icons.R.drawable.ic_check
+                    } else {
+                        org.mytonwallet.app_air.icons.R.drawable.ic_list
+                    }
+                )
+            )
+            listButton.updateColors(
+                if (isReordering) WColor.Tint else WColor.SecondaryText,
+                WColor.BackgroundRipple
+            )
+            if (isListReordering || !reorder) {
+                updateAddNewWalletButton(animated = !reorder && wasListReordering)
+            }
+        }
+    }
+
+    private fun saveTabOrder() {
+        val order = segmentedController.items.mapNotNull { it.identifier }
+        WGlobalStorage.setWalletTabOrder(order)
+    }
+
+    private fun updateAddNewWalletButton(animated: Boolean = true) {
+        val text = LocaleController.getString(
+            if (isListReordering) {
+                "Remove Wallet"
+            } else {
+                when (selectedCategory) {
+                    WalletCategory.MY, WalletCategory.ALL -> {
+                        "Add Wallet"
+                    }
+
+                    WalletCategory.LEDGER -> {
+                        "Add Ledger Wallet"
+                    }
+
+                    WalletCategory.VIEW -> {
+                        "Add View Wallet"
+                    }
+                }
+            }
+        )
+
+        if (isListReordering) {
+            addNewWalletButton.setText(text, animated)
+        } else {
+            val drawable = context.getDrawableCompat(
+                org.mytonwallet.app_air.icons.R.drawable.ic_plus
+            )?.apply {
+                setTint(WColor.TextOnTint.color)
+                val size = 20.dp
+                setBounds(0, 0, size, size)
+            }
+            val spannable = SpannableString(" $text")
+            drawable?.let {
+                val imageSpan = MarginImageSpan(it, -0.5f.dp.roundToInt(), 4.5f.dp.roundToInt())
+                spannable.setSpan(imageSpan, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            addNewWalletButton.setText(spannable, animated)
+        }
+
+        addNewWalletButton.isError = isListReordering
+        addNewWalletButton.isEnabled = !isListReordering
+    }
+
+    private fun updateRemoveWalletButton() {
+        val checkedAccounts =
+            walletsViewControllers[tabs.indexOf(WalletCategory.ALL)].checkedAccounts
+        val checkedAccountsCount = checkedAccounts.size
+        addNewWalletButton.text = LocaleController.getPlural(
+            checkedAccountsCount,
+            "\$remove_wallets"
+        )
+        addNewWalletButton.isEnabled = checkedAccountsCount > 0
+    }
+}

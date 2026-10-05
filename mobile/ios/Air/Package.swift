@@ -1,0 +1,763 @@
+// swift-tools-version: 6.2
+
+import PackageDescription
+
+let sharedUpcomingFeatures = [
+    "ConciseMagicFile",
+    "ForwardTrailingClosures",
+    "GlobalConcurrency",
+    "ImplicitOpenExistentials",
+    "ImportObjcForwardDeclarations",
+    "IsolatedDefaultValues",
+    "NonfrozenEnumExhaustivity",
+    "RegionBasedIsolation",
+    "StrictConcurrency",
+    "DisableOutwardActorInference",
+    "GlobalActorIsolatedTypesUsability",
+    "InferIsolatedConformances",
+    "InferSendableFromCaptures",
+    "NonisolatedNonsendingByDefault",
+    "BareSlashRegexLiterals",
+]
+
+let sharedSwiftSettings: [SwiftSetting] =
+    sharedUpcomingFeatures.map { .enableUpcomingFeature($0) } + [
+        .unsafeFlags(
+            [
+                "-swift-version", "5",
+            ]
+        ),
+        .unsafeFlags(
+            [
+                "-Xfrontend", "-strict-concurrency=complete",
+            ]
+        ),
+        .unsafeFlags(
+            [
+                "-Xfrontend", "-warn-long-expression-type-checking=100",
+                "-Xfrontend", "-warn-long-function-bodies=200",
+            ],
+            .when(configuration: .debug)
+        ),
+        .unsafeFlags(
+            [
+                "-Xfrontend", "-disable-dynamic-actor-isolation",
+            ],
+            .when(configuration: .release)
+        ),
+    ]
+
+let contextMenuKitDependency: Target.Dependency = .product(name: "ContextMenuKit", package: "ContextMenuKit")
+
+func airLibrary(_ name: String, type: Product.Library.LibraryType? = nil) -> Product {
+    .library(name: name, type: type, targets: [name])
+}
+
+func airTarget(
+    _ name: String,
+    dependencies: [Target.Dependency] = [],
+    resources: [Resource]? = nil,
+    swiftSettings: [SwiftSetting]? = nil,
+) -> Target {
+    .target(
+        name: name,
+        dependencies: dependencies,
+        path: "SubModules/\(name)",
+        resources: resources,
+        swiftSettings: swiftSettings ?? sharedSwiftSettings
+    )
+}
+
+func airTestTarget(
+    _ name: String,
+    dependencies: [Target.Dependency] = [],
+    swiftSettings: [SwiftSetting]? = nil,
+) -> Target {
+    .testTarget(
+        name: name,
+        dependencies: dependencies,
+        path: "Tests/\(name)",
+        swiftSettings: swiftSettings ?? sharedSwiftSettings
+    )
+}
+
+let package = Package(
+    name: "AirModules",
+    defaultLocalization: "en",
+    platforms: [
+        .iOS(.v16),
+    ],
+    products: [
+        airLibrary("AirUILab"),
+        airLibrary("AirAsFramework"),
+        airLibrary("Ledger"),
+        airLibrary("NativeEnclave"),
+        airLibrary("MyAgent"),
+        airLibrary("ProtectedAction"),
+        airLibrary("UIAssets"),
+        airLibrary("UIActivityList"),
+        airLibrary("UIAgent"),
+        airLibrary("UIBrowser"),
+        airLibrary("UIComponents"),
+        airLibrary("UICreateWallet"),
+        airLibrary("UIDapp"),
+        airLibrary("UIEarn"),
+        airLibrary("UIHome"),
+        airLibrary("UIInAppBrowser"),
+        airLibrary("UIPortfolio"),
+        airLibrary("UIPasscode"),
+        airLibrary("UIProtectedAction"),
+        airLibrary("UIQRScan"),
+        airLibrary("UIReceive"),
+        airLibrary("UISend"),
+        airLibrary("UISettings"),
+        airLibrary("UIUniversalSearch"),
+        airLibrary("UISwap"),
+        airLibrary("UIToken"),
+        airLibrary("UITransaction"),
+        airLibrary("UniversalSearchFeature"),
+        airLibrary("UniversalSearchCore"),
+        airLibrary("UniversalSearchPersistence"),
+        airLibrary("UniversalSearchWalletCore"),
+        airLibrary("WReachability"),
+        airLibrary("WalletContext"),
+        airLibrary("WalletCoreTypes"),
+        airLibrary("WalletCore", type: .dynamic),
+        airLibrary("WalletResources"),
+    ],
+    dependencies: [
+        .package(path: "../Packages/ContextMenuKit"),
+        .package(path: "../Packages/GraphKit"),
+        .package(path: "../Packages/LottieKit"),
+        .package(path: "../Packages/SwiftSVG"),
+        .package(
+            url: "https://github.com/airbnb/lottie-spm.git",
+            exact: "4.5.2"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-collections.git",
+            exact: "1.1.4"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-async-algorithms",
+            exact: "1.1.3"
+        ),
+        .package(
+            url: "https://github.com/groue/GRDB.swift",
+            exact: "7.9.0"
+        ),
+        .package(
+            url: "https://github.com/mytonwallet-org/hw-transport-ios-ble",
+            revision: "dbfb781e0c883e533acc06c54ca395adb9fbd862"
+        ),
+        .package(
+            url: "https://github.com/mytonwallet-org/swift-bigint",
+            revision: "0485115b4ef6bd789ea320a1269d89fb09d1e8e6"
+        ),
+        .package(
+            url: "https://github.com/onevcat/Kingfisher",
+            exact: "8.6.2"
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-dependencies",
+            exact: "1.10.0"
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-navigation",
+            exact: "2.6.0"
+        ),
+        .package(
+            url: "https://github.com/pointfreeco/swift-perception",
+            exact: "2.0.9"
+        ),
+        .package(
+            url: "https://github.com/siteline/swiftui-introspect",
+            exact: "1.3.0"
+        ),
+        .package(
+            url: "https://github.com/tevelee/SwiftUI-Flow",
+            exact: "3.1.1"
+        ),
+        .package(
+            url: "https://github.com/yamoridon/ColorThiefSwift",
+            exact: "0.5.0"
+        ),
+        .package(
+            url: "https://github.com/weichsel/ZIPFoundation.git",
+            from: "0.9.19"
+        ),
+    ],
+    targets: [
+        .target(
+            name: "WReachability",
+            path: "SubModules/WReachability",
+            resources: [
+                .process("Sources/PrivacyInfo.xcprivacy"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "NativeEnclave",
+            path: "SubModules/NativeEnclave",
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "WalletResources",
+            path: "SubModules/WalletResources",
+            resources: [
+                .process("Resources/Animations"),
+                .process("Resources/Assets.xcassets"),
+                .process("Resources/Fonts"),
+                .process("Resources/Sounds"),
+                .process("Resources/Strings"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "WalletContext",
+            dependencies: [
+                .product(name: "BigInt", package: "swift-bigint"),
+                .product(name: "ColorThiefSwift", package: "colorthiefswift"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+            ],
+            path: "SubModules/WalletContext",
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "WalletCore",
+            dependencies: [
+                "NativeEnclave",
+                "WalletContext",
+                "WalletCoreTypes",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "GRDB", package: "grdb.swift"),
+                .product(name: "Kingfisher", package: "kingfisher"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+            ],
+            path: "SubModules/WalletCore",
+            swiftSettings: sharedSwiftSettings
+        ),
+        .target(
+            name: "WalletCoreTypes",
+            dependencies: [
+                "WalletContext",
+            ],
+            path: "SubModules/WalletCoreTypes",
+            swiftSettings: sharedSwiftSettings
+        ),
+        airTarget(
+            "UIComponents",
+            dependencies: [
+                contextMenuKitDependency,
+                "WReachability",
+                "WalletContext",
+                "WalletCore",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Kingfisher", package: "kingfisher"),
+                .product(name: "LottieKit", package: "LottieKit"),
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "Lottie", package: "lottie-spm"),
+                .product(name: "SwiftSVG", package: "SwiftSVG"),
+                .product(name: "SwiftUIIntrospect", package: "swiftui-introspect"),
+            ]
+        ),
+        airTarget(
+            "UIActivityList",
+            dependencies: [
+                "UIComponents",
+                "WalletContext",
+                "WalletCore",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Kingfisher", package: "kingfisher"),
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+            ],
+            swiftSettings: sharedSwiftSettings + [
+                .unsafeFlags(
+                    [
+                        "-Xfrontend", "-strict-concurrency=minimal", // data source snapshot is applied on background queue
+                    ]
+                ),
+            ]
+        ),
+        airTarget(
+            "UIQRScan",
+            dependencies: [
+                "UIComponents",
+                "WalletContext",
+                "WalletCore",
+            ]
+        ),
+        airTarget(
+            "ProtectedAction",
+            dependencies: [
+                "WalletCore",
+            ]
+        ),
+        airTarget(
+            "Ledger",
+            dependencies: [
+                .product(name: "BleTransport", package: "hw-transport-ios-ble"),
+                "ProtectedAction",
+                "WalletCore",
+                "WalletContext",
+                "UIComponents",
+                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "Perception", package: "swift-perception"),
+            ]
+        ),
+        airTarget(
+            "UIPasscode",
+            dependencies: [
+                "WalletContext",
+                "WalletCore",
+                "UIComponents",
+                .product(name: "Perception", package: "swift-perception"),
+            ]
+        ),
+        airTarget(
+            "UIProtectedAction",
+            dependencies: [
+                "ProtectedAction",
+                "WalletContext",
+                "WalletCore",
+                "UIComponents",
+                "UIPasscode",
+                "Ledger",
+            ]
+        ),
+        airTarget(
+            "UIDapp",
+            dependencies: [
+                "UIComponents",
+                "UIActivityList",
+                "WalletCore",
+                "WalletContext",
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                "ProtectedAction",
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "Kingfisher", package: "kingfisher"),
+            ]
+        ),
+        airTarget(
+            "UIInAppBrowser",
+            dependencies: [
+                "UIComponents",
+                "WalletCore",
+                "WalletContext",
+                "UIDapp",
+                .product(name: "GRDB", package: "grdb.swift"),
+                .product(name: "Perception", package: "swift-perception"),
+            ]
+        ),
+        airTarget(
+            "UISend",
+            dependencies: [
+                contextMenuKitDependency,
+                "UIComponents",
+                "WalletCore",
+                "WalletContext",
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                "ProtectedAction",
+                .product(name: "OrderedCollections", package: "swift-collections"),
+            ]
+        ),
+        airTarget(
+            "UISwap",
+            dependencies: [
+                contextMenuKitDependency,
+                "WalletCore",
+                "WalletContext",
+                "UIComponents",
+                .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                "ProtectedAction",
+            ]
+        ),
+        airTarget(
+            "UIReceive",
+            dependencies: [
+                contextMenuKitDependency,
+                "UIComponents",
+                "WalletContext",
+                "WalletCore",
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+            ]
+        ),
+        airTarget(
+            "UniversalSearchCore"
+        ),
+        airTarget(
+            "UniversalSearchPersistence",
+            dependencies: [
+                "UniversalSearchCore",
+                .product(name: "GRDB", package: "grdb.swift"),
+            ]
+        ),
+        airTarget(
+            "UniversalSearchWalletCore",
+            dependencies: [
+                "UniversalSearchCore",
+                "WalletContext",
+                "WalletCore",
+                "WalletCoreTypes",
+            ]
+        ),
+        airTarget(
+            "UniversalSearchFeature",
+            dependencies: [
+                "UIComponents",
+                "UIAgent",
+                "UIInAppBrowser",
+                "UIUniversalSearch",
+                "UniversalSearchCore",
+                "UniversalSearchPersistence",
+                "UniversalSearchWalletCore",
+                "WalletContext",
+                "WalletCore",
+                "WalletCoreTypes",
+            ]
+        ),
+        airTarget(
+            "UIUniversalSearch",
+            dependencies: [
+                "UIComponents",
+                "WalletContext",
+            ]
+        ),
+        airTarget(
+            "UITransaction",
+            dependencies: [
+                "UIComponents",
+                "UIActivityList",
+                "WalletContext",
+                "WalletCore",
+                .product(name: "Kingfisher", package: "kingfisher"),
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                "UIPasscode",
+            ]
+        ),
+        airTarget(
+            "UIAssets",
+            dependencies: [
+                contextMenuKitDependency,
+                "WalletCore",
+                "WalletContext",
+                .product(name: "Perception", package: "swift-perception"),
+                "UIComponents",
+                "UIActivityList",
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "GRDB", package: "grdb.swift"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "Kingfisher", package: "kingfisher"),
+                "ProtectedAction",
+            ]
+        ),
+        airTarget(
+            "UIToken",
+            dependencies: [
+                "UIComponents",
+                "UIActivityList",
+                "WalletContext",
+                "WalletCore",
+                "WReachability",
+                .product(name: "GraphKit", package: "GraphKit"),
+                .product(name: "Flow", package: "swiftui-flow"),
+                .product(name: "Perception", package: "swift-perception"),
+            ]
+        ),
+        airTarget(
+            "UIEarn",
+            dependencies: [
+                "WalletCore",
+                "WalletContext",
+                "UIComponents",
+                .product(name: "Perception", package: "swift-perception"),
+                "ProtectedAction",
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+            ]
+        ),
+        airTarget(
+            "UIPortfolio",
+            dependencies: [
+                "UIComponents",
+                "WalletContext",
+                "WalletCore",
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "GraphKit", package: "GraphKit"),
+            ]
+        ),
+        .target(
+            name: "MyAgent",
+            dependencies: [
+                .product(name: "ZIPFoundation", package: "ZIPFoundation"),
+            ],
+            path: "SubModules/MyAgent",
+            resources: [
+                .copy("I18n/Translations"),
+            ],
+            swiftSettings: sharedSwiftSettings
+        ),
+        airTarget(
+            "UIAgent",
+            dependencies: [
+                "UIComponents",
+                "WalletContext",
+                "WalletCore",
+                "MyAgent",
+                .product(name: "BigInt", package: "swift-bigint"),
+                .product(name: "GraphKit", package: "GraphKit"),
+                .product(name: "GRDB", package: "grdb.swift"),
+            ]
+        ),
+        airTarget(
+            "UIBrowser",
+            dependencies: [
+                .product(name: "Kingfisher", package: "kingfisher"),
+                "UIComponents",
+                "UIInAppBrowser",
+                "WalletContext",
+                "WalletCore",
+                .product(name: "GRDB", package: "grdb.swift"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "Perception", package: "swift-perception"),
+                "WReachability",
+                "UIDapp",
+            ]
+        ),
+        airTarget(
+            "UISettings",
+            dependencies: [
+                "UIComponents",
+                "UIAssets",
+                "WalletCore",
+                "WalletContext",
+                "UIPasscode",
+                "ProtectedAction",
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "OrderedCollections", package: "swift-collections"),
+                .product(name: "UIKitNavigation", package: "swift-navigation"),
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "Flow", package: "swiftui-flow"),
+                .product(name: "Kingfisher", package: "kingfisher"),
+            ]
+        ),
+        airTarget(
+            "UIHome",
+            dependencies: [
+                contextMenuKitDependency,
+                "UIComponents",
+                "UIActivityList",
+                "WalletContext",
+                "WalletCore",
+                "WReachability",
+                "UIEarn",
+                .product(name: "Perception", package: "swift-perception"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                "UIAssets",
+                "UISettings",
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                .product(name: "UIKitNavigation", package: "swift-navigation"),
+                .product(name: "SwiftUIIntrospect", package: "swiftui-introspect"),
+            ]
+        ),
+        airTarget(
+            "UICreateWallet",
+            dependencies: [
+                "UIComponents",
+                "WalletCore",
+                "WalletContext",
+                "UIPasscode",
+                "Ledger",
+                "UISettings",
+                .product(name: "Flow", package: "swiftui-flow"),
+                .product(name: "Perception", package: "swift-perception"),
+            ]
+        ),
+        airTarget(
+            "AirUILab",
+            dependencies: [
+                "ProtectedAction",
+                "UIAssets",
+                "UIAgent",
+                "UIComponents",
+                "UIDapp",
+                "UIEarn",
+                "UIPasscode",
+                "UIProtectedAction",
+                "UISend",
+                "UISettings",
+                "UISwap",
+                "UITransaction",
+                "UIUniversalSearch",
+                "WalletContext",
+                "WalletCore",
+            ],
+            resources: [
+                .process("Resources"),
+            ]
+        ),
+        airTarget(
+            "AirAsFramework",
+            dependencies: [
+                contextMenuKitDependency,
+                "UIComponents",
+                "UIActivityList",
+                "WalletCore",
+                "WalletContext",
+                "WalletCoreTypes",
+                .product(name: "GRDB", package: "grdb.swift"),
+                .product(name: "Dependencies", package: "swift-dependencies"),
+                "UISwap",
+                "UITransaction",
+                "UIQRScan",
+                "UISend",
+                "UIAssets",
+                "UIAgent",
+                "UISettings",
+                "UIReceive",
+                "UIEarn",
+                "UIToken",
+                "UIInAppBrowser",
+                "UIPortfolio",
+                .product(name: "Perception", package: "swift-perception"),
+                "UIHome",
+                "UIBrowser",
+                "UIUniversalSearch",
+                "UniversalSearchFeature",
+                .product(name: "SwiftNavigation", package: "swift-navigation"),
+                "UIPasscode",
+                "ProtectedAction",
+                "UIProtectedAction",
+                "UIDapp",
+                "UICreateWallet",
+            ]
+        ),
+        airTestTarget(
+            "UniversalSearchCoreTests",
+            dependencies: [
+                "UniversalSearchCore",
+            ]
+        ),
+        airTestTarget(
+            "UniversalSearchWalletCoreTests",
+            dependencies: [
+                "UniversalSearchCore",
+                "UniversalSearchWalletCore",
+                "WalletContext",
+                "WalletCore",
+                "WalletCoreTypes",
+            ]
+        ),
+        airTestTarget(
+            "UniversalSearchFeatureTests",
+            dependencies: [
+                "UIUniversalSearch",
+                "UniversalSearchCore",
+                "UniversalSearchFeature",
+                "UniversalSearchWalletCore",
+                "WalletCoreTypes",
+            ]
+        ),
+        airTestTarget(
+            "WalletContextTests",
+            dependencies: [
+                "WalletContext",
+            ]
+        ),
+        airTestTarget(
+            "WalletCoreTests",
+            dependencies: [
+                "NativeEnclave",
+                "WalletCore",
+                "WalletContext",
+                "WalletCoreTypes",
+            ]
+        ),
+        airTestTarget(
+            "UISwapTests",
+            dependencies: [
+                "UISwap",
+                "WalletCore",
+                "WalletContext",
+            ]
+        ),
+        airTestTarget(
+            "UISendTests",
+            dependencies: [
+                "UISend",
+                "WalletCore",
+                "WalletContext",
+            ]
+        ),
+        airTestTarget(
+            "UIComponentsTests",
+            dependencies: [
+                "UIComponents",
+            ]
+        ),
+        airTestTarget(
+            "UIAgentTests",
+            dependencies: [
+                "UIAgent",
+                "WalletCore",
+                "WalletContext",
+            ]
+        ),
+        airTestTarget(
+            "ProtectedActionTests",
+            dependencies: [
+                "ProtectedAction",
+                "WalletCore",
+            ]
+        ),
+        airTestTarget(
+            "UIProtectedActionTests",
+            dependencies: [
+                "ProtectedAction",
+                "UIProtectedAction",
+                "WalletCore",
+            ]
+        ),
+        airTestTarget(
+            "UIAssetsTests",
+            dependencies: [
+                "ProtectedAction",
+                "UIAssets",
+                "WalletCore",
+            ]
+        ),
+        airTestTarget(
+            "UITokenTests",
+            dependencies: [
+                "UIToken",
+                "WalletContext",
+                "WalletCore",
+                "WalletResources",
+            ]
+        ),
+        airTestTarget(
+            "UIDappTests",
+            dependencies: [
+                "UIDapp",
+                "WalletCore",
+            ]
+        ),
+    ],
+    swiftLanguageModes: [.v5],
+    cxxLanguageStandard: .gnucxx20
+)

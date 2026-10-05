@@ -1,0 +1,50 @@
+import { getActions } from '../../../../../global';
+
+import type { DropdownItem } from '../../../../ui/Dropdown';
+
+import { MULTISEND_DAPP_URL } from '../../../../../config';
+import { vibrate } from '../../../../../util/haptics';
+import { getTranslation } from '../../../../../util/langProvider';
+import { openUrl } from '../../../../../util/openUrl';
+import { getHostnameFromUrl } from '../../../../../util/url';
+
+export type MenuHandler = 'send' | 'sell' | 'multisend';
+
+export const SEND_CONTEXT_MENU_ITEMS: DropdownItem<MenuHandler>[] = [{
+  name: 'Send',
+  fontIcon: 'menu-send',
+  value: 'send',
+}, {
+  name: 'Multisend',
+  fontIcon: 'menu-multisend',
+  value: 'multisend',
+}, {
+  name: 'Sell',
+  fontIcon: 'menu-sell',
+  value: 'sell',
+}];
+
+export const SEND_CONTEXT_MENU_ITEMS_WITHOUT_SELL = SEND_CONTEXT_MENU_ITEMS
+  .filter(({ value }) => value !== 'sell');
+
+export function handleSendMenuItemClick(value: MenuHandler) {
+  switch (value) {
+    case 'send':
+      vibrate();
+      getActions().startTransfer();
+      break;
+
+    case 'multisend':
+      vibrate();
+      void openUrl(MULTISEND_DAPP_URL, {
+        title: getTranslation('Multisend'),
+        subtitle: getHostnameFromUrl(MULTISEND_DAPP_URL),
+      });
+      break;
+
+    case 'sell':
+      vibrate();
+      getActions().openOffRampWidgetModal();
+      break;
+  }
+}

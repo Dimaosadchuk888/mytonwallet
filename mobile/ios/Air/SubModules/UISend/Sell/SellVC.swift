@@ -1,0 +1,225 @@
+import WebKit
+import UIKit
+import UIComponents
+import WalletCore
+import Dependencies
+import WalletContext
+
+public class SellVC: WViewController {
+    private enum State {
+        case idle
+        case loadingMoonpayUrl
+        case stoppedForFatalError
+        case openingMoonpayUrl
+        case initiallyLoaded
+    }
+    
+    private var state = State.idle {
+        didSet {
+            if state != oldValue {
+                updateState()
+            }
+        }
+    }
+    
+    @AccountContext private var account: MAccount
+    private let tokenSlug: String
+    private let webView = WKWebView()
+    private let activityIndicator = WActivityIndicator()
+
+    @Dependency(\.balancesStore) private var balancesStore
+    
+    public init(accountContext: AccountContext, tokenSlug: String) {
+        self.tokenSlug = tokenSlug
+        self._account = accountContext
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        setupViews()
+        updateState()
+        
+        // Let's wait for screen opened a little
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.getOfframpUrl()
+        }
+    }
+    
+    private func setupViews() {
+        title = lang("Sell on Card")
+        addCloseNavigationItemIfNeeded()
+        
+#if DEBUG
+        if #available(iOS 16.4, *) {
+            webView.isInspectable = true
+        }
+#endif
+        webView.isOpaque = false
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.navigationDelegate = self
+        
+        view.addSubview(webView)
+        view.addSubview(activityIndicator)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+        ])
+    }
+    
+    private func updateState() {
+        var showActivity = false
+        switch state {
+        case .idle, .loadingMoonpayUrl, .openingMoonpayUrl:
+            showActivity = true
+            
+        case .stoppedForFatalError, .initiallyLoaded:
+            break
+        }
+        
+        if showActivity {
+            activityIndicator.startAnimating(animated: true)
+        } else {
+            activityIndicator.stopAnimating(animated: true)
+        }
+    }
+    
+    private func showDisplayErrorThenDismiss(_ text: String) {
+        showErrorThenDismiss(DisplayError(text: text))
+    }
+    
+    private func showErrorThenDismiss(_ error: Error) {
+        state = .stoppedForFatalError
+        showAlert(error: error) { [weak self] in
+            self?.dismiss(animated: true)
+        }
+    }
+    
+    private func getOfframpUrl() {
+        guard let chain = getChainBySlug(tokenSlug), let address = account.getAddress(chain: chain) else {
+            showDisplayErrorThenDismiss(lang("$missing_offramp_deposit_address"))
+            return
+        }
+
+        guard chain.isOfframpSupported else {
+            showDisplayErrorThenDismiss(lang("Selling is not supported for this token."))
+            return
+        }
+        
+        guard let token = TokenStore.getToken(slug: tokenSlug) else {
+            showDisplayErrorThenDismiss(lang("Token Not Found"))
+            return
+        }
+        
+        Task { @MainActor in
+            do {
+                // Get max available amount to transfer
+                let amountString: String
+                do {
+                    let balance = balancesStore.getAccountBalances(accountId: account.id)[tokenSlug] ?? .zero
+                    let chainConfig = getChainConfig(chain: chain)
+                    var amount: BigInt?
+                    if chainConfig.canTransferFullNativeBalance {
+                        amount = balance
+                    } else {
+                        do {
+                            let draftResult = try await Api.checkTransactionDraft(chain: chain, options: .init(
+                                accountId: account.id,
+                                toAddress: chainConfig.feeCheckAddress,
+                                amount: balance,
+                                payload: nil,
+                                stateInit: nil,
+                                tokenAddress: nil,
+                                allowGasless: nil
+                            ))
+                            let explainedFee = draftResult.explainedFee
+                            amount = getMaxTransferAmount(.init(
+                                tokenBalance: balance,
+                                tokenSlug: tokenSlug,
+                                fullFee: explainedFee?.fullFee?.terms,
+                                canTransferFullBalance: explainedFee?.canTransferFullBalance ?? false
+                            ))
+                        } catch {
+                            amount = balance
+                        }
+                    }
+                    guard var amount, amount > 0 else {
+                        throw DisplayError(text: lang("Insufficient balance"))
+                    }
+                    if let limit = Moonpay.Offramp.limitsBySlug[tokenSlug] {
+                        let limitAsBigInt = doubleToBigInt(limit, decimals: token.decimals)
+                        if amount > limitAsBigInt {
+                            amount = limitAsBigInt
+                        }
+                    }
+                    amountString = bigIntToDoubleString(amount, decimals: token.decimals)
+                }
+                
+                // Get the best currency
+                let preferredCurrency = TokenStore.baseCurrency
+                let currency = Moonpay.Offramp.supportedCurrencies.first { $0 == preferredCurrency } ?? Moonpay.Offramp.supportedCurrencies.first!
+                
+                // fetch signed moonpay url
+                let result = try await Api.getMoonpayOfframpUrl(
+                    params: .init(
+                        chain: chain,
+                        address: address,
+                        theme: ResolvedTheme(traitCollection: traitCollection),
+                        currency: currency,
+                        amount: amountString,
+                        baseUrl: SHORT_UNIVERSAL_URL + "offramp/"
+                    )
+                )
+                openOfframpUrl(result.url)
+            } catch {
+                showErrorThenDismiss(error)
+            }
+        }
+    }
+    
+    private func openOfframpUrl(_ url: String) {
+        guard let url = URL(string: url) else {
+            showDisplayErrorThenDismiss("An error on the server side. Please try again.")
+            return
+        }
+        
+        state = .openingMoonpayUrl
+        webView.load(URLRequest(url: url))
+    }
+    
+}
+
+extension SellVC: WKNavigationDelegate {
+    
+    public func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+        if let url = navigationAction.request.url {
+            let handled = WalletContextManager.delegate?.handleDeeplink(url: url) ?? false
+            if handled {
+                decisionHandler(.cancel)
+                return
+            }
+        }
+        
+        decisionHandler(.allow)
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        state = .initiallyLoaded
+    }
+
+    public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        showErrorThenDismiss(error)
+    }
+
+    public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        showErrorThenDismiss(error)
+    }
+}

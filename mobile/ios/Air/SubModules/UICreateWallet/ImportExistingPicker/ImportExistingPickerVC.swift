@@ -1,0 +1,57 @@
+import UIKit
+import SwiftUI
+import WalletContext
+import WalletCore
+import UIComponents
+
+public final class ImportExistingPickerVC: CreateWalletBaseVC {
+    
+    private let introModel: IntroModel
+
+    private var hostingController: UIHostingController<ImportExistingPickerView>?
+    private let navHeight: CGFloat = 60
+
+    public init(introModel: IntroModel) {
+        self.introModel = introModel
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    @MainActor required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        title = lang("Import Wallet")
+        addCloseNavigationItemIfNeeded()
+        
+        hostingController = addHostingController(makeView(), constraints: .fill)
+        
+        configureSheetWithOpaqueBackground(color: .air.sheetBackground)
+        view.backgroundColor = .air.sheetBackground
+    }
+    
+    private func makeView() -> ImportExistingPickerView {
+        ImportExistingPickerView(
+            introModel: introModel,
+            onHeightChange: { [weak self] height in self?.onHeightChange(height) }
+        )
+    }
+    
+    private func onHeightChange(_ height: CGFloat) {
+        if let sheet = sheetPresentationController {
+            sheet.detents = [.custom(identifier: .content, resolver: { [navHeight] _ in height + navHeight })]
+        }
+    }
+}
+
+private extension UISheetPresentationController.Detent.Identifier {
+    static let content = UISheetPresentationController.Detent.Identifier("content")
+}
+
+#if DEBUG
+@available(iOS 18, *)
+#Preview {
+    ImportExistingPickerVC(introModel: IntroModel(network: .mainnet, authMode: .requiresPasscodeSetup))
+}
+#endif

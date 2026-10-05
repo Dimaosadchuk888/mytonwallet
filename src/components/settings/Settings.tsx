@@ -1,0 +1,899 @@
+import React, { memo, useEffect, useMemo, useRef, useState } from '../../lib/teact/teact';
+import { getActions, withGlobal } from '../../global';
+
+import type { ApiTonWalletVersion } from '../../api/chains/ton/types';
+import type { StoredDappConnection } from '../../api/dappProtocols/storage';
+import type { ApiChain, ApiStakingState, ApiWalletWithVersionInfo } from '../../api/types';
+import type { AccountChain, AccountType, GlobalState, UserToken } from '../../global/types';
+import type { Wallet } from './wallets/SettingsWalletVariants';
+import { SettingsState } from '../../global/types';
+
+import {
+  APP_ENV_MARKER, APP_INSTALL_URL,
+  APP_NAME,
+  APP_VERSION,
+  IS_EXPLORER,
+  IS_EXTENSION,
+  LANG_LIST,
+  MW_CARDS_WEBSITE,
+  PROXY_HOSTS,
+  SUPPORT_USERNAME,
+  TONCOIN,
+} from '../../config';
+import {
+  selectAccount,
+  selectAccountStakingStates,
+  selectCurrentAccountId,
+  selectCurrentAccountState,
+  selectCurrentAccountTokens,
+  selectHasPassword,
+  selectIsCurrentAccountViewMode,
+} from '../../global/selectors';
+import { getDoesUsePinPad } from '../../util/biometrics';
+import buildClassName from '../../util/buildClassName';
+import { calculateFullBalance } from '../../util/calculateFullBalance';
+import captureEscKeyListener from '../../util/captureEscKeyListener';
+import { toBig, toDecimal } from '../../util/decimals';
+import { formatCurrency, getShortCurrencySymbol } from '../../util/formatNumber';
+import isViewAccount from '../../util/isViewAccount';
+import { MEMO_EMPTY_ARRAY } from '../../util/memo';
+import { openUrl } from '../../util/openUrl';
+import resolveSlideTransitionName from '../../util/resolveSlideTransitionName';
+import { captureControlledSwipe } from '../../util/swipeController';
+import useTelegramMiniAppSwipeToClose from '../../util/telegram/hooks/useTelegramMiniAppSwipeToClose';
+import { getTelegramTipsChannelUrl } from '../../util/url';
+import {
+  IS_DAPP_SUPPORTED,
+  IS_ELECTRON,
+  IS_TOUCH_ENV,
+  IS_WEB,
+} from '../../util/windowEnvironment';
+
+import { useDeviceScreen } from '../../hooks/useDeviceScreen';
+import useFlag from '../../hooks/useFlag';
+import useHideBottomBar from '../../hooks/useHideBottomBar';
+import useHistoryBack from '../../hooks/useHistoryBack';
+import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
+import usePrevious2 from '../../hooks/usePrevious2';
+import useScrolledState from '../../hooks/useScrolledState';
+import { useStateRef } from '../../hooks/useStateRef';
+
+import LedgerConnect from '../ledger/LedgerConnect';
+import LedgerSelectWallets from '../ledger/LedgerSelectWallets';
+import LogOutModal from '../main/modals/LogOutModal';
+import Switcher from '../ui/Switcher';
+import Transition from '../ui/Transition';
+import SettingsAbout from './SettingsAbout';
+import SettingsAppearance from './SettingsAppearance';
+import SettingsAssets from './SettingsAssets';
+import SettingsChains from './SettingsChains';
+import SettingsDapps from './SettingsDapps';
+import SettingsDeveloperOptions from './SettingsDeveloperOptions';
+import SettingsDisclaimer from './SettingsDisclaimer';
+import SettingsHeader from './SettingsHeader';
+import SettingsHiddenNfts from './SettingsHiddenNfts';
+import SettingsLanguage from './SettingsLanguage';
+import SettingsPermissions from './SettingsPermissions';
+import SettingsPushNotifications from './SettingsPushNotifications';
+import SettingsSecurity from './SettingsSecurity';
+import SettingsTokenList from './SettingsTokenList';
+import SettingsWhitelist from './SettingsWhitelist';
+import SettingsWalletVariants from './wallets/SettingsWalletVariants';
+import SettingsWalletVersions from './wallets/SettingsWalletVersions';
+
+import modalStyles from '../ui/Modal.module.scss';
+import styles from './Settings.module.scss';
+
+import aboutImg from '../../assets/settings/settings_about.svg';
+import appearanceImg from '../../assets/settings/settings_appearance.svg';
+import assetsActivityImg from '../../assets/settings/settings_assets-activity.svg';
+import connectedDappsImg from '../../assets/settings/settings_connected-dapps.svg';
+import disclaimerImg from '../../assets/settings/settings_disclaimer.svg';
+import exitImg from '../../assets/settings/settings_exit.svg';
+import installAppImg from '../../assets/settings/settings_install-app.svg';
+import installMobileImg from '../../assets/settings/settings_install-mobile.svg';
+import languageImg from '../../assets/settings/settings_language.svg';
+import mwCardsImg from '../../assets/settings/settings_mw-cards.svg';
+import notifications from '../../assets/settings/settings_notifications.svg';
+import portfolioImg from '../../assets/settings/settings_portfolio.svg';
+import securityImg from '../../assets/settings/settings_security.svg';
+import supportImg from '../../assets/settings/settings_support.svg';
+import tipsImg from '../../assets/settings/settings_tips.svg';
+import tonLinksImg from '../../assets/settings/settings_ton-links.svg';
+import tonProxyImg from '../../assets/settings/settings_ton-proxy.svg';
+import tonWallets from '../../assets/settings/settings_ton-wallets.svg';
+import walletVersionImg from '../../assets/settings/settings_wallet-version.svg';
+
+type OwnProps = {
+  isActive: boolean;
+  isInsideModal?: boolean;
+};
+
+type StateProps = {
+  settings: GlobalState['settings'];
+  dapps: StoredDappConnection[];
+  isOpen?: boolean;
+  tokens?: UserToken[];
+  hasPassword?: boolean;
+  currentVersion?: ApiTonWalletVersion;
+  versions?: ApiWalletWithVersionInfo[];
+  isCopyStorageEnabled?: boolean;
+  arePushNotificationsAvailable?: boolean;
+  isNftBuyingDisabled?: boolean;
+  isViewMode: boolean;
+  accountType?: AccountType;
+  isMultichain: boolean;
+  accountChains?: Partial<Record<ApiChain, AccountChain>>;
+  stakingStates?: ApiStakingState[];
+  currencyRates: GlobalState['currencyRates'];
+};
+
+const AMOUNT_OF_CLICKS_FOR_DEVELOPERS_MODE = 5;
+const ARE_LEGACY_PROMO_LINKS_VISIBLE = false;
+function Settings({
+  settings: {
+    state: renderingKey,
+    theme,
+    animationLevel,
+    isTestnet,
+    langCode,
+    isTonProxyEnabled,
+    isDeeplinkHookEnabled,
+    baseCurrency,
+  },
+  dapps,
+  isActive,
+  isOpen = false,
+  tokens,
+  isInsideModal,
+  hasPassword,
+  currentVersion,
+  versions,
+  isCopyStorageEnabled,
+  arePushNotificationsAvailable,
+  isNftBuyingDisabled,
+  isViewMode,
+  accountType,
+  isMultichain,
+  accountChains,
+  stakingStates,
+  currencyRates,
+}: OwnProps & StateProps) {
+  const {
+    setSettingsState,
+    closeSettings,
+    toggleDeeplinkHook,
+    toggleTonProxy,
+    getDapps,
+    openPortfolio,
+  } = getActions();
+
+  const lang = useLang();
+  const { isPortrait } = useDeviceScreen();
+
+  const transitionRef = useRef<HTMLDivElement>();
+  const { disableSwipeToClose, enableSwipeToClose } = useTelegramMiniAppSwipeToClose(isOpen);
+  const [clicksAmount, setClicksAmount] = useState<number>(isTestnet ? AMOUNT_OF_CLICKS_FOR_DEVELOPERS_MODE : 0);
+  const prevRenderingKeyRef = useStateRef(usePrevious2(renderingKey));
+
+  const [isDeveloperModalOpen, openDeveloperModal, closeDeveloperModal] = useFlag();
+  const [withAllWalletVersions, markWithAllWalletVersions] = useFlag();
+
+  const [isLogOutModalOpened, openLogOutModal, closeLogOutModal] = useFlag();
+  const isInitialScreen = renderingKey === SettingsState.Initial;
+
+  const { isScrolled, handleScroll: handleContentScroll } = useScrolledState();
+
+  const activeLang = useMemo(() => LANG_LIST.find((l) => l.langCode === langCode), [langCode]);
+  const featuresTitle = lang('%app_name% Features', { app_name: APP_NAME }) as string;
+
+  const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
+
+  const tonToken = useMemo(() => tokens?.find(({ slug }) => slug === TONCOIN.slug), [tokens]);
+
+  const isPortfolioAvailable = useMemo(() => {
+    if (!tokens) return false;
+    return calculateFullBalance(tokens, stakingStates, currencyRates[baseCurrency]).primaryValue !== '0';
+  }, [tokens, stakingStates, currencyRates, baseCurrency]);
+
+  const wallets = useMemo(() => {
+    return versions
+      ?.filter((v) => v.lastTxId || v.version === 'W5' || withAllWalletVersions)
+      ?.map((v) => {
+        const tonBalance = formatCurrency(toDecimal(v.balance), tonToken?.symbol ?? '');
+        const balanceInCurrency = formatCurrency(
+          toBig(v.balance).mul(tonToken?.price ?? 0).round(tonToken?.decimals),
+          shortBaseSymbol,
+        );
+
+        const accountTokens = [tonBalance];
+
+        return {
+          address: v.address,
+          version: v.version,
+          totalBalance: balanceInCurrency,
+          tokens: accountTokens,
+          isTestnetSubwalletId: v.isTestnetSubwalletId,
+        } satisfies Wallet;
+      }) ?? [];
+  }, [shortBaseSymbol, tonToken, versions, withAllWalletVersions]);
+
+  const handleCloseSettings = useLastCallback(() => {
+    closeSettings(undefined, { forceOnHeavyAnimation: true });
+    setSettingsState({ state: SettingsState.Initial });
+  });
+
+  useHistoryBack({
+    isActive: isActive && isInitialScreen,
+    onBack: handleCloseSettings,
+    shouldIgnoreForTelegram: isInsideModal,
+  });
+
+  useHideBottomBar(isOpen && !isInitialScreen);
+
+  const handlCloseDeveloperModal = useLastCallback(() => {
+    closeDeveloperModal();
+  });
+
+  const handleConnectedDappsOpen = useLastCallback(() => {
+    getDapps();
+    setSettingsState({ state: SettingsState.Dapps });
+  });
+
+  const handleOpenPortfolio = useLastCallback(() => {
+    closeSettings(undefined, { forceOnHeavyAnimation: true });
+    openPortfolio({ returnTo: 'settings' });
+  });
+
+  function handleAppearanceOpen() {
+    setSettingsState({ state: SettingsState.Appearance });
+  }
+
+  function handlePushNotificationsOpen() {
+    setSettingsState({ state: SettingsState.PushNotifications });
+  }
+
+  function handleSecurityOpen() {
+    setSettingsState({ state: SettingsState.Security });
+  }
+
+  function handleAssetsOpen() {
+    setSettingsState({ state: SettingsState.Assets });
+  }
+
+  function handleLanguageOpen() {
+    setSettingsState({ state: SettingsState.Language });
+  }
+
+  function handleAboutOpen() {
+    setSettingsState({ state: SettingsState.About });
+  }
+
+  function handleDisclaimerOpen() {
+    setSettingsState({ state: SettingsState.Disclaimer });
+  }
+
+  function handlePermissionsOpen() {
+    setSettingsState({ state: SettingsState.Permissions });
+  }
+
+  function handleWhitelistOpen() {
+    setSettingsState({ state: SettingsState.ExternalEvmWhitelist });
+  }
+
+  const handleBackClick = useLastCallback(() => {
+    switch (renderingKey) {
+      case SettingsState.HiddenNfts:
+      case SettingsState.SelectTokenList:
+      case SettingsState.Chains:
+        setSettingsState({ state: SettingsState.Assets });
+        break;
+
+      default:
+        setSettingsState({ state: SettingsState.Initial });
+    }
+  });
+
+  const handleBackClickToAssets = useLastCallback(() => {
+    setSettingsState({ state: SettingsState.Assets });
+  });
+
+  const handleOpenWalletVersion = useLastCallback(() => {
+    setSettingsState({ state: SettingsState.WalletVariants });
+  });
+
+  const handleOpenWalletVersions = useLastCallback(() => {
+    setSettingsState({ state: SettingsState.WalletVersions });
+  });
+
+  const handleDeeplinkHookToggle = useLastCallback(() => {
+    toggleDeeplinkHook({ isEnabled: !isDeeplinkHookEnabled });
+  });
+
+  const handleTonProxyToggle = useLastCallback(() => {
+    toggleTonProxy({ isEnabled: !isTonProxyEnabled });
+  });
+
+  function handleClickInstallApp() {
+    void openUrl(APP_INSTALL_URL, { isExternal: true });
+  }
+
+  function handleClickInstallOnMobile() {
+    void openUrl(`${APP_INSTALL_URL}mobile`, { isExternal: true });
+  }
+
+  const handleLedgerConnected = useLastCallback(() => {
+    setSettingsState({ state: SettingsState.LedgerSelectWallets });
+  });
+
+  const [isTrayIconEnabled, setIsTrayIconEnabled] = useState(false);
+  useEffect(() => {
+    void window.electron?.getIsTrayIconEnabled?.().then(setIsTrayIconEnabled);
+  }, []);
+
+  const handleTrayIconEnabledToggle = useLastCallback(() => {
+    setIsTrayIconEnabled(!isTrayIconEnabled);
+    void window.electron?.setIsTrayIconEnabled?.(!isTrayIconEnabled);
+  });
+
+  const [isAutoUpdateEnabled, setIsAutoUpdateEnabled] = useState(false);
+  useEffect(() => {
+    void window.electron?.getIsAutoUpdateEnabled?.().then(setIsAutoUpdateEnabled);
+  }, []);
+
+  const handleAutoUpdateEnabledToggle = useLastCallback(() => {
+    setIsAutoUpdateEnabled(!isAutoUpdateEnabled);
+    void window.electron?.setIsAutoUpdateEnabled?.(!isAutoUpdateEnabled);
+  });
+
+  const handleBackOrCloseAction = useLastCallback(() => {
+    if (isInitialScreen) {
+      handleCloseSettings();
+    } else {
+      handleBackClick();
+    }
+  });
+
+  useEffect(() => isActive ? captureEscKeyListener(handleBackOrCloseAction) : undefined, [isActive]);
+
+  const handleCloseLogOutModal = useLastCallback((shouldCloseSettings: boolean) => {
+    closeLogOutModal();
+    if (shouldCloseSettings) {
+      handleCloseSettings();
+    }
+  });
+
+  const handleMultipleClick = () => {
+    if (clicksAmount + 1 >= AMOUNT_OF_CLICKS_FOR_DEVELOPERS_MODE) {
+      openDeveloperModal();
+    } else {
+      setClicksAmount(clicksAmount + 1);
+    }
+  };
+
+  const handleShowAllWalletVersions = useLastCallback(() => {
+    markWithAllWalletVersions();
+    handlCloseDeveloperModal();
+    handleOpenWalletVersion();
+  });
+
+  const handleOpenPermissionsFromDev = useLastCallback(() => {
+    handlCloseDeveloperModal();
+    handlePermissionsOpen();
+  });
+
+  useEffect(() => {
+    if (!IS_TOUCH_ENV) {
+      return undefined;
+    }
+
+    return captureControlledSwipe(transitionRef.current!, {
+      onSwipeRightStart: () => {
+        handleBackOrCloseAction();
+
+        disableSwipeToClose();
+      },
+      onCancel: () => {
+        setSettingsState({ state: prevRenderingKeyRef.current! });
+
+        enableSwipeToClose();
+      },
+    });
+  }, [disableSwipeToClose, enableSwipeToClose, prevRenderingKeyRef]);
+
+  function renderHandleDeeplinkButton() {
+    return (
+      <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleDeeplinkHookToggle}>
+        <img className={styles.menuIcon} src={tonLinksImg} alt={lang('Handle ton:// links')} />
+        {lang('Handle ton:// links')}
+
+        <Switcher
+          className={styles.menuSwitcher}
+          label={lang('Handle ton:// links')}
+          checked={isDeeplinkHookEnabled}
+        />
+      </div>
+    );
+  }
+
+  function renderSettings() {
+    return (
+      <div className={styles.slide}>
+        {isPortrait && (
+          <SettingsHeader title={lang('Settings')} className={styles.mobileHeader} isScrolled={isScrolled} />
+        )}
+
+        <div
+          className={buildClassName(
+            styles.content,
+            styles.content_main,
+            'custom-scroll',
+            !isPortrait && styles.content_noHeader,
+          )}
+          onScroll={isPortrait ? handleContentScroll : undefined}
+        >
+
+          {IS_WEB && (
+            <div className={styles.block}>
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleClickInstallApp}>
+                <img className={styles.menuIcon} src={installAppImg} alt={lang('Install App')} />
+                <span className={styles.itemTitle}>{lang('Install App')}</span>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+          {IS_EXTENSION && (
+            <div className={styles.block}>
+              {PROXY_HOSTS && (
+                <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleTonProxyToggle}>
+                  <img className={styles.menuIcon} src={tonProxyImg} alt={lang('TON Proxy')} />
+                  <span className={styles.itemTitle}>{lang('TON Proxy')}</span>
+
+                  <Switcher
+                    className={styles.menuSwitcher}
+                    label={lang('Toggle TON Proxy')}
+                    checked={isTonProxyEnabled}
+                  />
+                </div>
+              )}
+              {renderHandleDeeplinkButton()}
+            </div>
+          )}
+          {IS_ELECTRON && (
+            <div className={styles.block}>
+              {renderHandleDeeplinkButton()}
+            </div>
+          )}
+
+          {isPortfolioAvailable && (
+            <div className={styles.block}>
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleOpenPortfolio}>
+                <img className={styles.menuIcon} src={portfolioImg} alt={lang('Portfolio')} />
+                <div className={styles.itemContent}>
+                  <span className={styles.itemTitle}>{lang('Portfolio')}</span>
+                  <span className={styles.itemSubtitle}>{lang('Performance, insights and P&L')}</span>
+                </div>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+
+          <p className={buildClassName(styles.blockTitle, styles.blockTitleSmall)}>
+            {lang('Settings')}
+          </p>
+
+          <div className={styles.block}>
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleAppearanceOpen}>
+              <img className={styles.menuIcon} src={appearanceImg} alt={lang('Appearance')} />
+              <div className={styles.itemContent}>
+                <span className={styles.itemTitle}>{lang('Appearance')}</span>
+                <span className={styles.itemSubtitle}>{lang('Night Mode, Palette, Card')}</span>
+              </div>
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+            {/* Passcode and auto-lock belong to the profile rather than to one wallet, so this section keys off
+                the wallet type instead of the signing gate: a wallet whose secret cannot be read must not lose
+                the only way to reach them when it is the only wallet in the profile. */}
+            {hasPassword && !isViewAccount(accountType) && (
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleSecurityOpen}>
+                <img className={styles.menuIcon} src={securityImg} alt={lang('Security')} />
+                <div className={styles.itemContent}>
+                  <span className={styles.itemTitle}>{lang('Security')}</span>
+                  <span className={styles.itemSubtitle}>
+                    {lang(getDoesUsePinPad() ? 'Back Up, Passcode, Auto-Lock' : 'Back Up, Password, Auto-Lock')}
+                  </span>
+                </div>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            )}
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleAssetsOpen}>
+              <img className={styles.menuIcon} src={assetsActivityImg} alt={lang('Assets & Activity')} />
+              <div className={styles.itemContent}>
+                <span className={styles.itemTitle}>{lang('Assets & Activity')}</span>
+                <span className={styles.itemSubtitle}>{lang('Base Currency, Token Order, Hidden NFTs')}</span>
+              </div>
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleWhitelistOpen}>
+              <img className={styles.menuIcon} src={connectedDappsImg} alt={lang('White List')} />
+              <div className={styles.itemContent}>
+                <span className={styles.itemTitle}>{lang('White List')}</span>
+                <span className={styles.itemSubtitle}>{lang('External Ethereum wallet permissions')}</span>
+              </div>
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+            {accountType === 'mnemonic' && isMultichain && (
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleOpenWalletVersion}>
+                <img className={styles.menuIcon} src={walletVersionImg} alt={lang('Subwallets')} />
+                <div className={styles.itemContent}>
+                  <span className={styles.itemTitle}>{lang('Subwallets')}</span>
+                  <span className={styles.itemSubtitle}>{lang('Other addresses for this wallet')}</span>
+                </div>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            )}
+            {accountType === 'mnemonic' && wallets.length > 0 && (
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleOpenWalletVersions}>
+                <img className={styles.menuIcon} src={tonWallets} alt={lang('Wallet Versions')} />
+                <div className={styles.itemContent}>
+                  <span className={styles.itemTitle}>{lang('Wallet Versions')}</span>
+                  <span className={styles.itemSubtitle}>{lang('Your assets on other TON contracts')}</span>
+                </div>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            )}
+            {IS_DAPP_SUPPORTED && !isViewMode && dapps.length > 0 && (
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleConnectedDappsOpen}>
+                <img className={styles.menuIcon} src={connectedDappsImg} alt={lang('Apps')} />
+                <div className={styles.itemContent}>
+                  <span className={styles.itemTitle}>{lang('Apps')}</span>
+                  <span className={styles.itemSubtitle}>{lang('$connected_apps', dapps.length)}</span>
+                </div>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            )}
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handlePushNotificationsOpen}>
+              <img
+                className={styles.menuIcon}
+                src={notifications}
+                alt={arePushNotificationsAvailable ? lang('Notifications') : lang('Sounds')}
+              />
+              <div className={styles.itemContent}>
+                <span className={styles.itemTitle}>
+                  {arePushNotificationsAvailable ? lang('Notifications') : lang('Sounds')}
+                </span>
+                <span className={styles.itemSubtitle}>{lang('Wallets, Sounds')}</span>
+              </div>
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleLanguageOpen}>
+              <img className={styles.menuIcon} src={languageImg} alt={lang('Language')} />
+              <div className={styles.itemContent}>
+                <span className={styles.itemTitle}>{lang('Language')}</span>
+                <span className={styles.itemSubtitle}>{activeLang?.name}</span>
+              </div>
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+          </div>
+
+          <p className={buildClassName(styles.blockTitle, styles.blockTitleSmall)}>
+            {lang('Help')}
+          </p>
+
+          <div className={styles.block}>
+            <a
+              href={`https://t.me/${SUPPORT_USERNAME}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buildClassName(styles.item, styles.itemMenu)}
+            >
+              <img className={styles.menuIcon} src={supportImg} alt={lang('Ask a Question')} />
+              <span className={styles.itemTitle}>{lang('Ask a Question')}</span>
+
+              <div className={styles.itemInfo}>
+                @{SUPPORT_USERNAME}
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </a>
+            {ARE_LEGACY_PROMO_LINKS_VISIBLE && (
+              <a
+                href={getTelegramTipsChannelUrl(langCode)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buildClassName(styles.item, styles.itemMenu)}
+              >
+                <img className={styles.menuIcon} src={tipsImg} alt={featuresTitle} />
+                <span className={styles.itemTitle}>{featuresTitle}</span>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </a>
+            )}
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleDisclaimerOpen}>
+              <img className={styles.menuIcon} src={disclaimerImg} alt={lang('Use Responsibly')} />
+              <span className={styles.itemTitle}>{lang('Use Responsibly')}</span>
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+          </div>
+
+          <p className={buildClassName(styles.blockTitle, styles.blockTitleSmall)}>{lang('About')}</p>
+          <div className={styles.block}>
+            {ARE_LEGACY_PROMO_LINKS_VISIBLE && !isNftBuyingDisabled && (
+              <a
+                href={MW_CARDS_WEBSITE}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buildClassName(styles.item, styles.itemMenu)}
+              >
+                <img className={styles.menuIcon} src={mwCardsImg} alt={lang('Gram Wallet Cards NFT')} />
+                <span className={styles.itemTitle}>{lang('Gram Wallet Cards NFT')}</span>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </a>
+            )}
+            {IS_EXTENSION && (
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleClickInstallApp}>
+                <img className={styles.menuIcon} src={installAppImg} alt={lang('Install App')} />
+                <span className={styles.itemTitle}>{lang('Install App')}</span>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            )}
+            {IS_ELECTRON && (
+              <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleClickInstallOnMobile}>
+                <img className={styles.menuIcon} src={installMobileImg} alt={lang('Install on Mobile')} />
+                <span className={styles.itemTitle}>{lang('Install on Mobile')}</span>
+
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            )}
+            <div className={buildClassName(styles.item, styles.itemMenu)} onClick={handleAboutOpen}>
+              <img className={styles.menuIcon} src={aboutImg} alt="" />
+              <span className={styles.itemTitle}>{lang('About %app_name%', { app_name: APP_NAME })}</span>
+
+              <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+            </div>
+          </div>
+
+          {!isPortrait && (
+            <div className={styles.block}>
+              <div className={buildClassName(styles.item, styles.itemMenu, styles.item_red)} onClick={openLogOutModal}>
+                <img
+                  className={styles.menuIcon}
+                  src={exitImg}
+                  alt={lang('Exit')}
+                />
+                <span className={styles.itemTitle}>
+                  {lang('Exit')}
+                </span>
+                <i className={buildClassName(styles.iconChevronRight, 'icon-chevron-right')} aria-hidden />
+              </div>
+            </div>
+          )}
+
+          <div className={styles.version} onClick={IS_EXPLORER ? undefined : handleMultipleClick}>
+            {APP_NAME} {APP_VERSION} {APP_ENV_MARKER}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderContent(isSlideActive: boolean, _isFrom: boolean, currentKey: SettingsState) {
+    switch (currentKey) {
+      case SettingsState.Initial:
+        return renderSettings();
+      case SettingsState.PushNotifications:
+        return (
+          <SettingsPushNotifications
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.Appearance:
+        return (
+          <SettingsAppearance
+            isActive={isActive && isSlideActive}
+            theme={theme}
+            animationLevel={animationLevel}
+            isTrayIconEnabled={isTrayIconEnabled}
+            onBackClick={handleBackClick}
+            onTrayIconEnabledToggle={handleTrayIconEnabledToggle}
+          />
+        );
+      case SettingsState.Assets:
+        return (
+          <SettingsAssets
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.Security:
+        return (
+          <SettingsSecurity
+            isActive={isActive && isSlideActive}
+            isInsideModal={isInsideModal}
+            isAutoUpdateEnabled={isAutoUpdateEnabled}
+            onBackClick={handleBackClick}
+            onAutoUpdateEnabledToggle={handleAutoUpdateEnabledToggle}
+            onSettingsClose={handleCloseSettings}
+          />
+        );
+      case SettingsState.Dapps:
+        return (
+          <SettingsDapps
+            isActive={isActive && isSlideActive}
+            dapps={dapps}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.Language:
+        return (
+          <SettingsLanguage
+            isActive={isActive && isSlideActive}
+            langCode={langCode}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.About:
+        return (
+          <SettingsAbout
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.Disclaimer:
+        return (
+          <SettingsDisclaimer
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.SelectTokenList:
+        return (
+          <SettingsTokenList
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClickToAssets}
+          />
+        );
+      case SettingsState.Chains:
+        return (
+          <SettingsChains
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClickToAssets}
+          />
+        );
+      case SettingsState.WalletVariants:
+        return (
+          <SettingsWalletVariants
+            isActive={isActive && isSlideActive}
+            isInsideModal={isInsideModal}
+            accountChains={accountChains}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.WalletVersions:
+        return (
+          <SettingsWalletVersions
+            isActive={isActive && isSlideActive}
+            currentVersion={currentVersion}
+            wallets={wallets}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.LedgerConnectHardware:
+        return (
+          <div className={styles.slide}>
+            <LedgerConnect
+              isActive={isActive && isSlideActive}
+              isStatic={!isInsideModal}
+              className={styles.nestedTransition}
+              onBackClick={handleBackClick}
+              onConnected={handleLedgerConnected}
+              onClose={handleBackOrCloseAction}
+            />
+          </div>
+        );
+      case SettingsState.LedgerSelectWallets:
+        return (
+          <div className={styles.slide}>
+            <LedgerSelectWallets
+              isActive={isActive && isSlideActive}
+              isStatic={!isInsideModal}
+              onBackClick={handleBackClick}
+              onClose={handleBackOrCloseAction}
+            />
+          </div>
+        );
+      case SettingsState.HiddenNfts:
+        return (
+          <SettingsHiddenNfts
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClickToAssets}
+          />
+        );
+      case SettingsState.Permissions:
+        return (
+          <SettingsPermissions
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
+      case SettingsState.ExternalEvmWhitelist:
+        return (
+          <SettingsWhitelist
+            isActive={isActive && isSlideActive}
+            onBackClick={handleBackClick}
+          />
+        );
+    }
+  }
+
+  return (
+    <div className={styles.wrapper}>
+      <Transition
+        ref={transitionRef}
+        name={resolveSlideTransitionName()}
+        className={buildClassName(isInsideModal ? modalStyles.transition : styles.transitionContainer, 'custom-scroll')}
+        activeKey={renderingKey}
+        slideClassName={buildClassName(isInsideModal && modalStyles.transitionSlide)}
+        withSwipeControl
+      >
+        {renderContent}
+      </Transition>
+      {!IS_EXPLORER && (
+        <SettingsDeveloperOptions
+          isOpen={isDeveloperModalOpen}
+          isTestnet={isTestnet}
+          isCopyStorageEnabled={isCopyStorageEnabled}
+          isViewMode={isViewMode}
+          onShowAllWalletVersions={handleShowAllWalletVersions}
+          onOpenPermissions={handleOpenPermissionsFromDev}
+          onClose={handlCloseDeveloperModal}
+        />
+      )}
+      <LogOutModal isOpen={isLogOutModalOpened} onClose={handleCloseLogOutModal} />
+    </div>
+  );
+}
+
+export default memo(withGlobal<OwnProps>((global): StateProps => {
+  const hasPassword = selectHasPassword(global);
+  const { isCopyStorageEnabled, isNftBuyingDisabled } = global.restrictions;
+
+  const { currentVersion, byId: versionsById } = global.walletVersions ?? {};
+  const currentAccountId = selectCurrentAccountId(global);
+  const versions = versionsById?.[currentAccountId!];
+  const { dapps = MEMO_EMPTY_ARRAY } = selectCurrentAccountState(global) || {};
+
+  const account = selectAccount(global, currentAccountId!);
+
+  return {
+    settings: global.settings,
+    dapps,
+    isOpen: global.areSettingsOpen,
+    tokens: selectCurrentAccountTokens(global),
+    hasPassword,
+    currentVersion,
+    versions,
+    isCopyStorageEnabled,
+    isNftBuyingDisabled,
+    arePushNotificationsAvailable: global.pushNotifications.isAvailable,
+    isViewMode: selectIsCurrentAccountViewMode(global),
+    accountType: account?.type,
+    isMultichain: Object.keys(account?.byChain ?? {}).length > 1,
+    accountChains: account?.byChain,
+    stakingStates: currentAccountId ? selectAccountStakingStates(global, currentAccountId) : undefined,
+    currencyRates: global.currencyRates,
+  };
+})(Settings));

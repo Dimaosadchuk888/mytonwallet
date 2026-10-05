@@ -1,0 +1,1170 @@
+package org.mytonwallet.app_air.uitonconnect.viewControllers
+
+import android.graphics.RectF
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.AbsoluteSizeSpan
+import android.text.style.ClickableSpan
+import android.view.Gravity
+import android.view.View
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import java.math.BigDecimal
+import java.math.BigInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import org.mytonwallet.app_air.uicomponents.adapter.BaseListItem
+import org.mytonwallet.app_air.uicomponents.adapter.implementation.Item
+import org.mytonwallet.app_air.uicomponents.commonViews.cells.HeaderCell
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.styleDots
+import org.mytonwallet.app_air.uicomponents.helpers.DappWarningPopupHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.FakeLoading
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.spans.WForegroundColorSpan
+import org.mytonwallet.app_air.uicomponents.helpers.spans.WSpacingSpan
+import org.mytonwallet.app_air.uicomponents.helpers.typeface
+import org.mytonwallet.app_air.uicomponents.image.Content
+import org.mytonwallet.app_air.uitonconnect.viewControllers.send.adapter.TonConnectItem
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.logger.Logger
+import org.mytonwallet.app_air.walletbasecontext.models.MBaseCurrency
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.utils.ApplicationContextHolder
+import org.mytonwallet.app_air.walletbasecontext.utils.formatStartEndAddress
+import org.mytonwallet.app_air.walletbasecontext.utils.getDrawableCompat
+import org.mytonwallet.app_air.walletbasecontext.utils.smartDecimalsCount
+import org.mytonwallet.app_air.walletbasecontext.utils.toProcessedSpannableStringBuilder
+import org.mytonwallet.app_air.walletbasecontext.utils.toString
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.utils.CoinUtils
+import org.mytonwallet.app_air.walletcontext.utils.VerticalImageSpan
+import org.mytonwallet.app_air.walletcore.JSWebViewBridge
+import org.mytonwallet.app_air.walletcore.TONCOIN_SLUG
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.WalletEvent
+import org.mytonwallet.app_air.walletcore.api.requestDAppList
+import org.mytonwallet.app_air.walletcore.helpers.DappFeeHelpers
+import org.mytonwallet.app_air.walletcore.models.MBridgeError
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+import org.mytonwallet.app_air.walletcore.moshi.ApiDappTransfer
+import org.mytonwallet.app_air.walletcore.moshi.ApiParsedPayload
+import org.mytonwallet.app_air.walletcore.moshi.ApiTokenWithPrice
+import org.mytonwallet.app_air.walletcore.moshi.ApiTransactionType
+import org.mytonwallet.app_air.walletcore.moshi.MApiTransaction
+import org.mytonwallet.app_air.walletcore.moshi.MSignDataPayload
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiMethod
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiMethod.DApp.ConfirmDappRequestSendTransaction
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiMethod.Transfer.SignDappTransfers
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiMethod.Transfer.SignDappTransfers.Options
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiUpdate
+import org.mytonwallet.app_air.walletcore.moshi.explainedFee.MExplainedTransferFee
+import org.mytonwallet.app_air.walletcore.moshi.explainedFee.MFee
+import org.mytonwallet.app_air.walletcore.moshi.explainedFee.MFeePrecision
+import org.mytonwallet.app_air.walletcore.moshi.explainedFee.MFeeTerms
+import org.mytonwallet.app_air.walletcore.stores.AccountStore
+import org.mytonwallet.app_air.walletcore.stores.BalanceStore
+import org.mytonwallet.app_air.walletcore.stores.TokenStore
+import org.mytonwallet.app_air.walletcore.toAmountString
+
+private const val WRAPPED_TON_SLUG = "ton-eqcm3b12qk"
+private const val UNKNOWN_TOKEN_SYMBOL = "[Unknown]"
+
+internal fun buildSignDataUiItems(update: ApiUpdate.ApiUpdateDappSignData): List<BaseListItem> {
+    val uiItems = mutableListOf<BaseListItem>()
+
+    when (update.payloadToSign) {
+        is MSignDataPayload.SignDataPayloadBinary -> {
+            val payload =
+                update.payloadToSign as MSignDataPayload.SignDataPayloadBinary
+            uiItems.addAll(
+                listOf(
+                    Item.ListTitle(
+                        LocaleController.getString(
+                            "Binary Data"
+                        ),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        payload.bytes,
+                        "Binary Data",
+                        LocaleController.getString("Data Copied")
+                    )
+                )
+            )
+        }
+
+        is MSignDataPayload.SignDataPayloadCell -> {
+            val payload =
+                update.payloadToSign as MSignDataPayload.SignDataPayloadCell
+
+            update.parsedPayloadToSign?.let { parsedPreview ->
+                uiItems.addAll(
+                    listOf(
+                        Item.ListTitle(
+                            LocaleController.getString(
+                                "Parsed Cell"
+                            ),
+                            topRounding = HeaderCell.TopRounding.NORMAL
+                        ),
+                        Item.CopyableText(
+                            formatParsedCellPreview(parsedPreview),
+                            "Parsed Cell",
+                            LocaleController.getString("Data Copied")
+                        ),
+                        Item.Gap()
+                    )
+                )
+            }
+
+            uiItems.addAll(
+                listOf(
+                    Item.ListTitle(
+                        LocaleController.getString(
+                            "Cell Schema"
+                        ),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        payload.schema,
+                        "Cell Schema",
+                        LocaleController.getString("Data Copied")
+                    ),
+                    Item.Gap(),
+                    Item.ListTitle(
+                        LocaleController.getString(
+                            "Cell Data"
+                        ),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        payload.cell,
+                        "Cell Data",
+                        LocaleController.getString("Data Copied")
+                    )
+                )
+            )
+        }
+
+        is MSignDataPayload.SignDataPayloadText -> {
+            val payload =
+                update.payloadToSign as MSignDataPayload.SignDataPayloadText
+            uiItems.addAll(
+                listOf(
+                    Item.ListTitle(
+                        LocaleController.getString(
+                            "Message"
+                        ),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        payload.text,
+                        "Message",
+                        LocaleController.getString("Data Copied")
+                    )
+                )
+            )
+        }
+
+        is MSignDataPayload.SignDataPayloadEip712 -> {
+            val eip712 = update.payloadToSign as MSignDataPayload.SignDataPayloadEip712
+            fun pretty(value: Any?): String =
+                org.json.JSONObject.wrap(value)?.toString() ?: value.toString()
+            uiItems.addAll(
+                listOf(
+                    Item.ListTitle(
+                        LocaleController.getString("Primary type"),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        eip712.primaryType,
+                        "Primary type",
+                        LocaleController.getString("Data Copied")
+                    ),
+                    Item.Gap(),
+                    Item.ListTitle(
+                        LocaleController.getString("EIP-712 typed data"),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        pretty(eip712.types),
+                        "EIP-712 typed data",
+                        LocaleController.getString("Data Copied")
+                    ),
+                    Item.Gap(),
+                    Item.ListTitle(
+                        LocaleController.getString("Domain"),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        pretty(eip712.domain),
+                        "Domain",
+                        LocaleController.getString("Data Copied")
+                    ),
+                    Item.Gap(),
+                    Item.ListTitle(
+                        LocaleController.getString("Message"),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    Item.CopyableText(
+                        pretty(eip712.message),
+                        "Message",
+                        LocaleController.getString("Data Copied")
+                    )
+                )
+            )
+        }
+    }
+
+    signDataWarningKinds(update.payloadToSign).forEach { warning ->
+        uiItems.add(Item.Gap())
+        uiItems.add(Item.Alert(LocaleController.getString(warning.localizationKey)))
+    }
+
+    return uiItems
+}
+
+private fun formatParsedCellPreview(
+    preview: ApiUpdate.ApiUpdateDappSignData.ParsedSignDataCellPreview
+): String {
+    val result = StringBuilder()
+    result.append(preview.title)
+    result.append(" · ")
+        .append(LocaleController.getString("Bits"))
+        .append(": ")
+        .append(preview.bits)
+        .append(" · ")
+        .append(LocaleController.getString("References"))
+        .append(": ")
+        .append(preview.refs)
+    preview.hash?.let {
+        result.append(" · ").append(shortenHash(it))
+    }
+    preview.error?.let {
+        result.append('\n')
+            .append(LocaleController.getString("Parsing Error"))
+            .append(": ")
+            .append(it)
+    }
+    preview.fields.forEach { field ->
+        result.append('\n')
+        result.append("  ".repeat(field.depth.coerceAtLeast(0)))
+        result.append(field.label).append(": ").append(field.value)
+    }
+    return result.toString()
+}
+
+private fun shortenHash(hash: String): String {
+    if (hash.length <= 20) {
+        return hash
+    }
+    return hash.take(10) + "..." + hash.takeLast(10)
+}
+
+class TonConnectRequestSendViewModel private constructor(
+    private val update: ApiUpdate.ApiUpdateDappSignRequest
+) : ViewModel() {
+    private val transactionTokenSlugs =
+        if (update is ApiUpdate.ApiUpdateDappSendTransactions) {
+            update.transactions.map {
+                it.payload?.payloadTokenSlug
+            }
+        } else {
+            emptyList()
+        }
+    private val tokensMapFlow = TokenStore.tokensFlow.map { tokens ->
+        Tokens(
+            currency = WalletCore.baseCurrency,
+            tokens = tokens?.tokens,
+            list = transactionTokenSlugs.map {
+                val t = tokens?.tokens?.get(it ?: TONCOIN_SLUG)
+                Token(
+                    slug = it ?: TONCOIN_SLUG,
+                    token = t,
+                    isUnknown = t == null && !tokens?.tokens.isNullOrEmpty()
+                )
+            }
+        )
+    }.distinctUntilChanged()
+    val uiItemsFlow = tokensMapFlow.map(this::buildUiItems)
+
+    val insufficientTokensFlow = combine(
+        BalanceStore.balancesFlow,
+        TokenStore.tokensFlow
+    ) { balances, _ ->
+        insufficientTokens(balances[update.accountId])
+    }.distinctUntilChanged()
+
+    private fun insufficientTokens(balances: Map<String, BigInteger>?): String? {
+        if (update !is ApiUpdate.ApiUpdateDappSendTransactions) return null
+        val nativeSlug =
+            MBlockchain.valueOfOrNull(update.operationChain)?.nativeSlug ?: return null
+
+        val totals = linkedMapOf<String, BigInteger>()
+        fun addAmount(slug: String, amount: BigInteger) {
+            totals[slug] = (totals[slug] ?: BigInteger.ZERO) + amount
+        }
+
+        for (transaction in update.transactions) {
+            addAmount(nativeSlug, transaction.amount + transaction.networkFee)
+
+            val payload = transaction.payload
+            if (payload is ApiParsedPayload.ApiTokensTransferPayload ||
+                payload is ApiParsedPayload.ApiTokensTransferNonStandardPayload
+            ) {
+                val slug = payload.payloadTokenSlug
+                val amount = payload.payloadTokenAmount
+                if (slug != null && amount != null) addAmount(slug, amount)
+            }
+        }
+
+        val insufficientSymbols = totals.mapNotNull { (slug, requiredAmount) ->
+            val balanceSlug = if (slug == WRAPPED_TON_SLUG) MBlockchain.ton.nativeSlug else slug
+            val availableBalance = balances?.get(balanceSlug) ?: BigInteger.ZERO
+            if (availableBalance < requiredAmount) {
+                if (slug == WRAPPED_TON_SLUG) {
+                    TokenStore.getToken(MBlockchain.ton.nativeSlug)?.symbol ?: "TON"
+                } else {
+                    TokenStore.getToken(slug)?.symbol ?: UNKNOWN_TOKEN_SYMBOL
+                }
+            } else {
+                null
+            }
+        }
+
+        return if (insufficientSymbols.isEmpty()) null else insufficientSymbols.joinToString(", ")
+    }
+
+    private data class Tokens(
+        val currency: MBaseCurrency,
+        val tokens: Map<String, ApiTokenWithPrice>?,
+        val list: List<Token>
+    )
+
+    private data class Token(
+        val slug: String,
+        val token: ApiTokenWithPrice?,
+        val isUnknown: Boolean
+    ) {
+        val icon by lazy {
+            token?.let {
+                Content.of(it, showChain = false)
+            } ?: TokenStore.getToken(slug)
+                ?.takeIf { it.isBlockchainNative }
+                ?.mBlockchain
+                ?.let(Content::chain)
+        }
+    }
+
+    data class UiState(val cancelButtonIsLoading: Boolean) {
+        val isLocked = cancelButtonIsLoading
+    }
+
+    private val _uiStateFlow = MutableStateFlow(UiState(cancelButtonIsLoading = false))
+    val uiStateFlow = _uiStateFlow.asStateFlow()
+
+    fun cancel(promiseId: String, reason: String?, scope: CoroutineScope? = null) {
+        if (isConfirmed) return
+        assert(promiseId)
+        if (_uiStateFlow.value.isLocked) {
+            return
+        }
+
+        _uiStateFlow.value = _uiStateFlow.value.copy(cancelButtonIsLoading = true)
+        (scope ?: viewModelScope).launch {
+            val t = FakeLoading.init()
+            try {
+                WalletCore.call(
+                    ApiMethod.DApp.CancelDappRequest(
+                        promiseId = update.promiseId,
+                        reason = reason
+                    )
+                )
+                FakeLoading.start(500, t)
+            } catch (err: JSWebViewBridge.ApiError) {
+                Logger.e(Logger.LogTag.TON_CONNECT, "cancelSendTransactions: $err")
+                // todo: show error
+            }
+            _eventsFlow.tryEmit(Event.Close)
+            _uiStateFlow.value = _uiStateFlow.value.copy(cancelButtonIsLoading = false)
+        }
+    }
+
+    fun accept(promiseId: String, enclaveToken: String) {
+        assert(promiseId)
+        if (_uiStateFlow.value.isLocked) {
+            return
+        }
+
+        viewModelScope.launch {
+            when (update) {
+                is ApiUpdate.ApiUpdateDappSendTransactions -> {
+                    try {
+                        val account = AccountStore.accountById(update.accountId) ?: return@launch
+                        val dappChain = account.dappChain(update.operationChain) ?: return@launch
+                        val signResult = WalletCore.call(
+                            SignDappTransfers(
+                                dappChain = dappChain,
+                                accountId = update.accountId,
+                                transactions = update.transactions,
+                                options = Options(
+                                    enclaveToken = enclaveToken,
+                                    validUntil = update.validUntil,
+                                    vestingAddress = update.vestingAddress,
+                                    isLegacyOutput = update.isLegacyOutput
+                                )
+                            )
+                        )
+                        val mfaHash = (signResult as? Map<*, *>)?.get("mfaRequestHash") as? String
+                        if (mfaHash != null) {
+                            // The transfer is already signed and queued — only Telegram
+                            // approval remains. Mark as confirmed so the request VC's
+                            // teardown (which otherwise calls cancel(promiseId)) does
+                            // not reject the dapp promise.
+                            isConfirmed = true
+                            _eventsFlow.tryEmit(Event.MfaRequested(mfaHash, update.promiseId))
+                            return@launch
+                        }
+                        val signedMessages = when (signResult) {
+                            is org.json.JSONArray -> signResult
+                            is List<*> -> org.json.JSONArray(signResult)
+                            else -> org.json.JSONArray(signResult?.toString().orEmpty())
+                        }
+                        WalletCore.call(
+                            ConfirmDappRequestSendTransaction(
+                                update.promiseId,
+                                signedMessages
+                            )
+                        )
+                        notifyDone(true, null)
+                    } catch (err: JSWebViewBridge.ApiError) {
+                        Logger.e(Logger.LogTag.TON_CONNECT, "submitSendTransactions: $err")
+                        notifyDone(false, err.parsed)
+                    }
+                }
+
+                is ApiUpdate.ApiUpdateDappSignData -> {
+                    try {
+                        val account = AccountStore.accountById(update.accountId) ?: return@launch
+                        val dappChain = account.dappChain(update.operationChain) ?: return@launch
+                        val signedData = WalletCore.call(
+                            ApiMethod.Transfer.SignDappData(
+                                dappChain = dappChain,
+                                accountId = update.accountId,
+                                dappUrl = update.dapp.url!!,
+                                payloadToSign = update.payloadToSign,
+                                enclaveToken = enclaveToken
+                            )
+                        )
+                        WalletCore.call(
+                            ApiMethod.DApp.ConfirmDappRequestSignData(
+                                update.promiseId,
+                                signedData
+                            )
+                        )
+                        notifyDone(true, null)
+                    } catch (err: JSWebViewBridge.ApiError) {
+                        Logger.e(Logger.LogTag.TON_CONNECT, "submitSignData: $err")
+                        notifyDone(false, err.parsed)
+                    }
+                }
+            }
+        }
+    }
+
+    var isConfirmed = false
+    fun notifyDone(success: Boolean, err: MBridgeError?) {
+        if (isConfirmed) return
+        if (success) isConfirmed = true
+        _eventsFlow.tryEmit(Event.Complete(success, err))
+    }
+
+    private fun assert(promiseId: String) {
+        if (update.promiseId != promiseId) {
+            // Theoretically unreachable code. Just for safety.
+            throw IllegalStateException("PromiseId do not match")
+        }
+    }
+
+    sealed class Event {
+        data object Close : Event()
+        data class Complete(val success: Boolean, val err: MBridgeError?) : Event()
+
+        data class ShowWarningAlert(
+            val title: String,
+            val text: CharSequence,
+            val allowLinkInText: Boolean = false
+        ) : Event()
+
+        data class OpenDappInBrowser(val url: String) : Event()
+
+        data class MfaRequested(val requestHash: String, val promiseId: String) : Event()
+    }
+
+    private val _eventsFlow =
+        MutableSharedFlow<Event>(replay = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val eventsFlow = _eventsFlow.asSharedFlow()
+
+    private fun buildUiItems(tokens: Tokens): List<BaseListItem> {
+        val uiItems = mutableListOf<BaseListItem>(
+            TonConnectItem.SendRequestHeader(update, {
+                val warningContent = DappWarningPopupHelpers.warningContent(
+                    update.dapp.resolvedUrlTrustStatus
+                ) {
+                    WalletCore.call(
+                        ApiMethod.DApp.DeleteDapp(
+                            update.accountId,
+                            update.dapp.sse?.appClientId ?: "",
+                            update.dapp.url ?: ""
+                        ),
+                        callback = { _, _ ->
+                            WalletCore.notifyEvent(WalletEvent.DappRemoved(update.dapp))
+                            WalletCore.requestDAppList()
+                        }
+                    )
+                    update.dapp.url?.let { url ->
+                        _eventsFlow.tryEmit(Event.OpenDappInBrowser(url))
+                    }
+                }
+
+                _eventsFlow.tryEmit(
+                    Event.ShowWarningAlert(
+                        warningContent.title.toString(),
+                        warningContent.text,
+                        allowLinkInText = true
+                    )
+                )
+            })
+        )
+
+        uiItems.add(Item.Gap())
+
+        when (update) {
+            is ApiUpdate.ApiUpdateDappSendTransactions -> {
+                if (update.shouldHideTransfers != true) {
+                    uiItems.addAll(buildUiItemsListTransactions(update, tokens))
+
+                    uiItems.addAll(
+                        listOf(
+                            Item.Gap()
+                        )
+                    )
+                } else if (update.isDangerous) {
+                    uiItems.add(dangerousWarningItem())
+                    uiItems.add(Item.Gap())
+                }
+
+                var previewFee: TonConnectItem.PreviewFee? = null
+                update.emulation?.activities?.let { previewActivities ->
+                    val isMultichain = WGlobalStorage.isMultichain(update.accountId)
+                    val previewTitle = SpannableStringBuilder()
+                    previewTitle.append(LocaleController.getString("Preview"))
+                    previewTitle.append(" ", WSpacingSpan(6.dp), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    ApplicationContextHolder.applicationContext.getDrawableCompat(
+                        org.mytonwallet.app_air.icons.R.drawable.ic_warning_14
+                    )?.let { drawable ->
+                        val width = 12.dp
+                        val height = 12.dp
+                        drawable.setBounds(0, 0, width, height)
+                        val imageSpan = VerticalImageSpan(drawable)
+                        val start = previewTitle.length
+                        previewTitle.append(" ", imageSpan, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+
+                        val clickableSpan = object : ClickableSpan() {
+                            override fun onClick(widget: View) {
+                                _eventsFlow.tryEmit(
+                                    Event.ShowWarningAlert(
+                                        LocaleController.getString("Warning"),
+                                        LocaleController.getString("\$preview_not_guaranteed")
+                                            .toProcessedSpannableStringBuilder()
+                                    )
+                                )
+                            }
+                        }
+                        previewTitle.setSpan(
+                            clickableSpan,
+                            start,
+                            previewTitle.length,
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                    }
+
+                    val tonToken = MBlockchain.valueOfOrNull(update.operationChain)
+                        ?.let { TokenStore.getToken(it.nativeSlug) }
+                    tonToken?.let {
+                        val excessFee = previewActivities
+                            .filterIsInstance<MApiTransaction.Transaction>()
+                            .firstOrNull { it.type == ApiTransactionType.EXCESS }
+                            ?.amount
+                        val realFee = update.emulation?.realFee
+                        realFee?.let {
+                            if (realFee != BigInteger.ZERO) {
+                                val realFeeTerms = MFeeTerms(
+                                    token = null,
+                                    native = realFee,
+                                    stars = null
+                                )
+                                previewFee = TonConnectItem.PreviewFee(
+                                    text = LocaleController.getStringWithKeyValues(
+                                        "\$fee_value",
+                                        listOf(
+                                            Pair(
+                                                "%fee%",
+                                                "\u202D**~" + realFee.toString(
+                                                    tonToken.decimals,
+                                                    tonToken.symbol,
+                                                    realFee.smartDecimalsCount(tonToken.decimals),
+                                                    false,
+                                                    forceCurrencyToRight = true,
+                                                    roundUp = true
+                                                ) + "**\u200F"
+                                            )
+                                        )
+                                    ).toProcessedSpannableStringBuilder(),
+                                    token = tonToken,
+                                    feeDetails = excessFee?.let { excess ->
+                                        val fullFee = realFee + excess
+                                        MExplainedTransferFee(
+                                            isGasless = false,
+                                            fullFee = MFee(
+                                                MFeePrecision.APPROXIMATE,
+                                                MFeeTerms(
+                                                    token = null,
+                                                    native = fullFee,
+                                                    stars = null
+                                                ),
+                                                fullFee
+                                            ),
+                                            realFee = MFee(
+                                                MFeePrecision.APPROXIMATE,
+                                                realFeeTerms,
+                                                realFee
+                                            ),
+                                            excessFee = excess,
+                                            canTransferFullBalance = false
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    uiItems.add(
+                        Item.ListTitleValue(
+                            previewTitle,
+                            null
+                        )
+                    )
+
+                    previewActivities.forEachIndexed { index, activity ->
+                        uiItems.add(
+                            Item.Activity(
+                                activity = activity.apply {
+                                    isEmulation = true
+                                },
+                                isMultichain = isMultichain,
+                                accountId = AccountStore.activeAccountId!!,
+                                isFirst = index == 0,
+                                isLast = index == previewActivities.lastIndex
+                            )
+                        )
+                    }
+                }
+
+                if (update.emulation?.activities.isNullOrEmpty()) {
+                    uiItems.add(
+                        Item.ListText(
+                            title = LocaleController.getString("Preview is currently unavailable."),
+                            paddingDp = RectF(16f, 24f, 16f, 24f),
+                            Gravity.CENTER,
+                            font = WFont.Regular.typeface,
+                            textColor = WColor.SecondaryText,
+                            textSize = 14f
+                        )
+                    )
+                }
+
+                previewFee?.let {
+                    uiItems.add(Item.Gap(0))
+                    uiItems.add(it)
+                }
+            }
+
+            is ApiUpdate.ApiUpdateDappSignData -> {
+                uiItems.addAll(buildSignDataUiItems(update))
+            }
+        }
+
+        return uiItems
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    class Factory(private val update: ApiUpdate.ApiUpdateDappSignRequest) :
+        ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(TonConnectRequestSendViewModel::class.java)) {
+                return TonConnectRequestSendViewModel(update) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class")
+        }
+    }
+
+    companion object {
+        private fun formatTransactionAmountString(
+            chain: String,
+            transaction: ApiDappTransfer,
+            tokens: Tokens,
+            includeNetworkFee: Boolean
+        ): SpannableStringBuilder {
+            val tonAmount = transaction.amount +
+                if (!includeNetworkFee) BigInteger.ZERO else transaction.networkFee
+            val amountBySlug = mutableMapOf<String, BigInteger>()
+            val payload = transaction.payload
+
+            if (payload is ApiParsedPayload.ApiTokensTransferPayload ||
+                payload is ApiParsedPayload.ApiTokensTransferNonStandardPayload ||
+                payload is ApiParsedPayload.ApiTokensBurnPayload
+            ) {
+                val tokenSlug = payload.payloadTokenSlug
+                val tokenAmount = payload.payloadTokenAmount
+                if (tokenSlug != null && tokenAmount != null) {
+                    amountBySlug[tokenSlug] = tokenAmount
+                }
+            }
+
+            if (tonAmount != BigInteger.ZERO || amountBySlug.isEmpty()) {
+                MBlockchain.valueOfOrNull(chain)?.let {
+                    amountBySlug[it.nativeSlug] = tonAmount
+                }
+            }
+
+            if (amountBySlug.isEmpty()) {
+                return SpannableStringBuilder()
+            }
+
+            val sortedEntries = amountBySlug.entries.sortedBy { (slug, _) ->
+                if (TokenStore.getToken(slug)?.isBlockchainNative == true) 0 else 1
+            }
+
+            val amountParts = sortedEntries.mapNotNull { (slug, amount) ->
+                if (amount == BigInteger.ZERO) return@mapNotNull null
+
+                val token = tokens.tokens?.get(slug) ?: TokenStore.getToken(slug)
+                token?.let {
+                    CoinUtils.setSpanToSymbolPart(
+                        SpannableStringBuilder(amount.toAmountString(it)),
+                        WForegroundColorSpan(WColor.SecondaryText)
+                    )
+                }
+            }
+
+            return when {
+                amountParts.isEmpty() -> SpannableStringBuilder()
+
+                amountParts.size == 1 -> amountParts[0]
+
+                else -> {
+                    val result = SpannableStringBuilder()
+                    amountParts.forEachIndexed { index, part ->
+                        if (index > 0) {
+                            result.append(" + ")
+                        }
+                        result.append(part)
+                    }
+                    result
+                }
+            }
+        }
+
+        private fun formatTransactionAmountInBaseCurrencyString(
+            transaction: ApiDappTransfer,
+            token: Token,
+            baseCurrency: MBaseCurrency
+        ): SpannableStringBuilder? {
+            if (token.isUnknown) return null
+
+            // Tokens
+            val tokenWithPrice = token.token ?: return null
+            val nativeToken =
+                TokenStore.getToken(tokenWithPrice.mBlockchain?.nativeSlug) ?: return null
+
+            // Token amount
+            val tokenAmount = if (transaction.payload?.payloadIsToken == true) {
+                transaction.payload?.payloadTokenAmount ?: BigInteger.ZERO
+            } else {
+                BigInteger.ZERO
+            }
+            val tokenAmountInBaseCurrency =
+                CoinUtils.toBigDecimal(tokenAmount, tokenWithPrice.decimals) *
+                    BigDecimal.valueOf(tokenWithPrice.price ?: 0.0)
+
+            val feeAmount =
+                if (transaction.payload?.payloadIsToken == true) {
+                    BigInteger.ZERO
+                } else {
+                    transaction.amount
+                }
+            val feeAmountInBaseCurrency =
+                CoinUtils.toBigDecimal(feeAmount, nativeToken.decimals) *
+                    BigDecimal.valueOf(nativeToken.price ?: 0.0)
+
+            return nativeToken.let {
+                val totalBaseCurrencyAmount = tokenAmountInBaseCurrency + feeAmountInBaseCurrency
+                SpannableStringBuilder(
+                    CoinUtils.fromDecimal(
+                        totalBaseCurrencyAmount,
+                        9
+                    )?.toString(
+                        currency = baseCurrency.sign,
+                        decimals = 9,
+                        currencyDecimals = totalBaseCurrencyAmount.smartDecimalsCount(),
+                        showPositiveSign = false,
+                        roundUp = false
+                    )
+                )
+            }
+        }
+
+        private fun formatAddressSubtitle(transaction: ApiDappTransfer): SpannableStringBuilder {
+            val payload = transaction.payload
+            val receivingAddress = when (payload) {
+                is ApiParsedPayload.ApiTokensTransferPayload -> payload.destination
+                is ApiParsedPayload.ApiTokensTransferNonStandardPayload -> payload.destination
+                is ApiParsedPayload.ApiTokensBurnPayload -> payload.address
+                is ApiParsedPayload.ApiNftTransferPayload -> payload.newOwner
+                else -> transaction.toAddress
+            }
+            return SpannableStringBuilder(
+                LocaleController.getString("to") + " " + receivingAddress.formatStartEndAddress()
+            ).apply {
+                styleDots()
+            }
+        }
+
+        private fun formatCurrencyAmount(
+            amount: String,
+            currencySign: String
+        ): SpannableStringBuilder = SpannableStringBuilder(amount).apply {
+            setSpan(
+                AbsoluteSizeSpan(36, true),
+                0,
+                length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+
+            val decimalStart = amount.indexOf('.')
+            if (decimalStart >= 0) {
+                val decimalEnd = amount.indexOf(' ', decimalStart).takeIf { it >= 0 }
+                    ?: amount.length
+                setSpan(
+                    WForegroundColorSpan(WColor.Decimals),
+                    decimalStart,
+                    decimalEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                setSpan(
+                    AbsoluteSizeSpan(28, true),
+                    decimalStart,
+                    decimalEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+
+            val currencyStart = amount.indexOf(currencySign)
+            if (currencyStart >= 0) {
+                val spanStart =
+                    if (currencyStart > 0 && amount[currencyStart - 1] == ' ') {
+                        currencyStart - 1
+                    } else {
+                        currencyStart
+                    }
+                val currencyEnd = currencyStart + currencySign.length
+                setSpan(
+                    WForegroundColorSpan(WColor.Decimals),
+                    spanStart,
+                    currencyEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                setSpan(
+                    AbsoluteSizeSpan(32, true),
+                    spanStart,
+                    currencyEnd,
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+        }
+
+        private fun dangerousWarningItem() = Item.Alert(
+            LocaleController.getString("\$hardware_payload_warning")
+                .toProcessedSpannableStringBuilder()
+        )
+
+        private fun buildUiItemsListTransactions(
+            update: ApiUpdate.ApiUpdateDappSendTransactions,
+            tokens: Tokens
+        ): List<BaseListItem> {
+            val uiItems = mutableListOf<BaseListItem>()
+            uiItems.add(
+                Item.ListTitle(
+                    LocaleController.getPlural(update.transactions.size, "transfer"),
+                    topRounding = HeaderCell.TopRounding.NORMAL
+                )
+            )
+
+            var totalPrice = BigDecimal.ZERO
+
+            for (a in 0..<update.transactions.size) {
+                val transaction = update.transactions[a]
+                val token = tokens.list[a]
+                val nativeToken = tokens.tokens?.get(token.token?.mBlockchain?.nativeSlug)
+                val tokenIcon = token.icon
+                val payload = transaction.payload
+
+                val amount = if (payload?.payloadIsToken == true && !token.isUnknown) {
+                    transaction.payload?.payloadTokenAmount ?: BigInteger.ZERO
+                } else {
+                    transaction.amount
+                }
+
+                val totalFee = transaction.networkFee + if (payload?.payloadIsToken == true) {
+                    transaction.amount
+                } else {
+                    BigInteger.ZERO
+                }
+
+                token.token?.let { token ->
+                    totalPrice += amount.toBigDecimal(token.decimals) * BigDecimal.valueOf(
+                        token.price ?: 0.0
+                    )
+                }
+                nativeToken?.let { nativeToken ->
+                    totalPrice += totalFee.toBigDecimal(nativeToken.decimals) * BigDecimal.valueOf(
+                        nativeToken.price ?: 0.0
+                    )
+                }
+
+                uiItems.add(
+                    Item.IconDualLine(
+                        image = tokenIcon,
+                        title = formatTransactionAmountString(
+                            update.operationChain,
+                            transaction,
+                            tokens,
+                            true
+                        ),
+                        subtitle = formatAddressSubtitle(transaction),
+                        clickable = Item.Clickable.Items(
+                            buildUiItemsSingleTransaction(
+                                update.accountId,
+                                update.operationChain,
+                                transaction,
+                                tokens,
+                                a
+                            )
+                        )
+                    )
+                )
+            }
+
+            val summaryItems = mutableListOf<BaseListItem>()
+            CoinUtils.fromDecimal(totalPrice, 9)?.toString(
+                currency = tokens.currency.sign,
+                decimals = 9,
+                currencyDecimals = tokens.currency.decimalsCount,
+                showPositiveSign = false,
+                roundUp = false
+            )?.let { totalCurrencyAmount ->
+                summaryItems.add(
+                    TonConnectItem.CurrencyAmount(
+                        formatCurrencyAmount(totalCurrencyAmount, tokens.currency.sign)
+                    )
+                )
+                summaryItems.add(Item.Gap())
+            }
+
+            if (update.isDangerous) {
+                summaryItems.add(dangerousWarningItem())
+                summaryItems.add(Item.Gap())
+            }
+
+            uiItems.addAll(0, summaryItems)
+            return uiItems
+        }
+
+        private fun buildUiItemsSingleTransaction(
+            accountId: String,
+            chain: String,
+            transaction: ApiDappTransfer,
+            tokens: Tokens,
+            index: Int
+        ): List<BaseListItem> {
+            val token = tokens.list[index]
+            val uiItems = mutableListOf<BaseListItem>()
+            val tokenIcon = token.icon
+            val nativeToken =
+                TokenStore.getToken(token.token?.mBlockchain?.nativeSlug ?: TONCOIN_SLUG)
+
+            val payload = transaction.payload
+            val receivingAddress = when (payload) {
+                is ApiParsedPayload.ApiTokensTransferPayload -> payload.destination
+                is ApiParsedPayload.ApiTokensTransferNonStandardPayload -> payload.destination
+                is ApiParsedPayload.ApiTokensBurnPayload -> payload.address
+                is ApiParsedPayload.ApiNftTransferPayload -> payload.newOwner
+                else -> transaction.toAddress
+            }
+
+            uiItems.addAll(
+                listOf(
+                    Item.ListTitle(
+                        LocaleController.getString("Receiving Address"),
+                        topRounding = HeaderCell.TopRounding.NORMAL
+                    ),
+                    TonConnectItem.Address(
+                        accountId = accountId,
+                        chain = chain,
+                        address = receivingAddress
+                    ),
+                    Item.Gap()
+                )
+            )
+
+            if (payload?.payloadIsNft == true) {
+                uiItems.addAll(
+                    listOf(
+                        Item.ListTitle(
+                            LocaleController.getString("NFT"),
+                            topRounding = HeaderCell.TopRounding.NORMAL
+                        ),
+                        Item.IconDualLine(
+                            title = transaction.payload?.payloadNft?.name,
+                            subtitle = DappFeeHelpers.calculateDappTransferFee(
+                                chain,
+                                transaction.networkFee,
+                                BigInteger.ZERO
+                            ),
+                            image = Content(
+                                image = Content.Image.Url(
+                                    transaction.payload?.payloadNft?.image ?: ""
+                                ),
+                                rounding = Content.Rounding.Radius(8f.dp)
+                            )
+                        )
+                    )
+                )
+            } else {
+                uiItems.addAll(
+                    listOfNotNull(
+                        Item.ListTitle(
+                            LocaleController.getString("Amount"),
+                            topRounding = HeaderCell.TopRounding.NORMAL
+                        ),
+                        Item.IconDualLine(
+                            title = formatTransactionAmountString(
+                                chain,
+                                transaction,
+                                tokens,
+                                false
+                            ),
+                            subtitle = formatTransactionAmountInBaseCurrencyString(
+                                transaction,
+                                token,
+                                tokens.currency
+                            ),
+                            image = tokenIcon
+                        )
+                    )
+                )
+                uiItems.addAll(
+                    listOf(
+                        Item.Gap(),
+                        Item.ListTitle(
+                            LocaleController.getString("Fee"),
+                            topRounding = HeaderCell.TopRounding.NORMAL
+                        ),
+                        Item.IconDualLine(
+                            title = nativeToken?.let {
+                                CoinUtils.setSpanToSymbolPart(
+                                    SpannableStringBuilder(
+                                        transaction.networkFee.toAmountString(
+                                            nativeToken
+                                        )
+                                    ),
+                                    WForegroundColorSpan(WColor.SecondaryText)
+                                )
+                            },
+                            subtitle = SpannableStringBuilder(
+                                CoinUtils.fromDecimal(
+                                    CoinUtils.toBigDecimal(transaction.networkFee, 9) *
+                                        BigDecimal.valueOf(nativeToken?.price ?: 0.0),
+                                    9
+                                )?.toString(
+                                    currency = tokens.currency.sign,
+                                    decimals = 9,
+                                    currencyDecimals = transaction.networkFee.smartDecimalsCount(9),
+                                    showPositiveSign = false,
+                                    roundUp = false
+                                )
+                            ),
+                            image = null
+                        )
+                    )
+                )
+            }
+
+            val comment = payload?.payloadComment
+            comment?.let { text ->
+                uiItems.addAll(
+                    listOf(
+                        Item.Gap(),
+                        Item.ListTitle(
+                            LocaleController.getString("Comment"),
+                            topRounding = HeaderCell.TopRounding.NORMAL
+                        ),
+                        Item.CopyableText(
+                            text,
+                            "Comment",
+                            LocaleController.getString("Comment Copied")
+                        )
+                    )
+                )
+            }
+
+            if (payload !is ApiParsedPayload.ApiCommentPayload) {
+                transaction.rawPayload?.let { base64 ->
+                    uiItems.addAll(
+                        listOf(
+                            Item.Gap(),
+                            Item.ListTitle(
+                                LocaleController.getString("Payload"),
+                                topRounding = HeaderCell.TopRounding.NORMAL
+                            ),
+                            Item.ExpandableText(base64)
+                        )
+                    )
+                }
+            }
+
+            if (transaction.isDangerous) {
+                uiItems.addAll(
+                    listOf(
+                        Item.Gap(24.dp),
+                        Item.Alert(
+                            LocaleController.getString("\$hardware_payload_warning")
+                                .toProcessedSpannableStringBuilder()
+                        )
+                    )
+                )
+            }
+
+            return uiItems
+        }
+    }
+}

@@ -1,0 +1,193 @@
+package org.mytonwallet.app_air.uicomponents.helpers
+
+import android.content.Context
+import android.graphics.drawable.GradientDrawable
+import android.view.View
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_CONSTRAINT
+import androidx.constraintlayout.widget.ConstraintSet
+import androidx.core.view.isGone
+import java.math.BigInteger
+import kotlin.math.roundToInt
+import org.mytonwallet.app_air.uicomponents.drawable.HighlightGradientBackgroundDrawable
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.widgets.WCounterLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.withLocalizedNumbers
+import org.mytonwallet.app_air.walletcontext.utils.solidColorWithAlpha
+import org.mytonwallet.app_air.walletcore.SOLANA_USDC_SLUG
+import org.mytonwallet.app_air.walletcore.SOLANA_USDT_SLUG
+import org.mytonwallet.app_air.walletcore.TON_USDT_SLUG
+import org.mytonwallet.app_air.walletcore.TON_USDT_TESTNET_SLUG
+import org.mytonwallet.app_air.walletcore.TRON_USDT_SLUG
+import org.mytonwallet.app_air.walletcore.TRON_USDT_TESTNET_SLUG
+import org.mytonwallet.app_air.walletcore.models.MToken
+import org.mytonwallet.app_air.walletcore.models.MTokenBalance
+import org.mytonwallet.app_air.walletcore.stores.StakingStore
+
+class TokenTagHelper(context: Context) {
+
+    val tagLabel: WCounterLabel = WCounterLabel(context).apply {
+        id = View.generateViewId()
+        textAlignment = View.TEXT_ALIGNMENT_CENTER
+        setPadding(4.5f.dp.roundToInt(), 4.dp, 4.5f.dp.roundToInt(), 0)
+        setStyle(11f, WFont.Medium)
+    }
+
+    private enum class StaticTagStyle { REGULAR, STOCK }
+
+    private var staticTagStyle: StaticTagStyle? = null
+    private var wasShowingTagLabel: Boolean? = null
+    private var cachedStakingTagDrawable: GradientDrawable? = null
+    private var cachedNotStakingTagDrawable: GradientDrawable? = null
+
+    fun configure(
+        cell: WView,
+        topLeftLabel: WLabel,
+        topRightView: View,
+        accountId: String?,
+        token: MToken?,
+        tokenBalance: MTokenBalance?
+    ) {
+        val shouldShow = when (token?.slug) {
+            TRON_USDT_SLUG, TRON_USDT_TESTNET_SLUG -> {
+                configureStaticTag("TRC-20")
+                true
+            }
+
+            TON_USDT_SLUG, TON_USDT_TESTNET_SLUG -> {
+                configureStaticTag("TON")
+                true
+            }
+
+            SOLANA_USDT_SLUG, SOLANA_USDC_SLUG -> {
+                configureStaticTag("Solana")
+                true
+            }
+
+            else -> configureStakingTag(accountId, token, tokenBalance) ||
+                configureLabelTag(token)
+        }
+        updateLabelSpacing(cell, topLeftLabel, topRightView, shouldShow)
+    }
+
+    fun onThemeChanged() {
+        tagLabel.updateTheme()
+        cachedStakingTagDrawable = null
+        cachedNotStakingTagDrawable = null
+        staticTagStyle?.let { applyStaticTagStyle(it) }
+    }
+
+    private fun getTagDrawable(hasStaking: Boolean, cornerRadius: Float = 8f): GradientDrawable =
+        if (hasStaking) {
+            cachedStakingTagDrawable ?: HighlightGradientBackgroundDrawable(true, cornerRadius)
+                .also { cachedStakingTagDrawable = it }
+        } else {
+            cachedNotStakingTagDrawable ?: HighlightGradientBackgroundDrawable(false, cornerRadius)
+                .also { cachedNotStakingTagDrawable = it }
+        }
+
+    private fun configureStaticTag(text: String, style: StaticTagStyle = StaticTagStyle.REGULAR) {
+        staticTagStyle = style
+        tagLabel.setAmount(text)
+        applyStaticTagStyle(style)
+    }
+
+    private fun applyStaticTagStyle(style: StaticTagStyle) {
+        when (style) {
+            StaticTagStyle.REGULAR -> {
+                tagLabel.setGradientColor(arrayOf(WColor.SecondaryText, WColor.SecondaryText))
+                tagLabel.setBackgroundColor(WColor.BadgeBackground.color, 8f.dp)
+            }
+
+            StaticTagStyle.STOCK -> {
+                tagLabel.setGradientColor(arrayOf(WColor.StockBadge, WColor.StockBadge))
+                tagLabel.setBackgroundColor(
+                    WColor.StockBadge.color.solidColorWithAlpha(38),
+                    8f.dp
+                )
+            }
+        }
+    }
+
+    private fun configureLabelTag(token: MToken?): Boolean {
+        val label = token?.label?.takeIf { it.isNotBlank() } ?: return false
+        configureStaticTag(
+            label,
+            if (token.isRwaStock) StaticTagStyle.STOCK else StaticTagStyle.REGULAR
+        )
+        return true
+    }
+
+    private fun configureStakingTag(
+        accountId: String?,
+        token: MToken?,
+        tokenBalance: MTokenBalance?
+    ): Boolean {
+        staticTagStyle = null
+        if (tokenBalance?.isVirtualStakingRow != true &&
+            token?.isEarnAvailable != true
+        ) {
+            return false
+        }
+        val stakingState = accountId?.let {
+            StakingStore.getStakingState(it)?.stakingState(token?.slug ?: "")
+        } ?: return false
+        val apy = stakingState.annualYield.takeIf { it > 0f } ?: return false
+        val hasStakingAmount = stakingState.balance > BigInteger.ZERO
+        val shouldShow = tokenBalance?.isVirtualStakingRow == true || !hasStakingAmount
+        if (shouldShow) {
+            tagLabel.setGradientColor(
+                if (hasStakingAmount) {
+                    arrayOf(WColor.White, WColor.White)
+                } else {
+                    arrayOf(WColor.EarnGradientLeft, WColor.EarnGradientRight)
+                }
+            )
+            tagLabel.setAmount(
+                if (hasStakingAmount) {
+                    "‭$apy%".withLocalizedNumbers
+                } else {
+                    "${stakingState.yieldType} ‭$apy%".withLocalizedNumbers
+                }
+            )
+            tagLabel.background = getTagDrawable(hasStakingAmount, 8f.dp)
+        }
+        return shouldShow
+    }
+
+    private fun updateLabelSpacing(
+        cell: WView,
+        topLeftLabel: WLabel,
+        topRightView: View,
+        showTagLabel: Boolean
+    ) {
+        tagLabel.isGone = !showTagLabel
+        if (wasShowingTagLabel == showTagLabel) return
+        wasShowingTagLabel = showTagLabel
+        topLeftLabel.layoutParams = topLeftLabel.layoutParams.apply {
+            width = MATCH_CONSTRAINT
+        }
+        if (showTagLabel) {
+            cell.setConstraints {
+                clear(topLeftLabel.id, ConstraintSet.END)
+                endToStart(topLeftLabel, tagLabel)
+                endToStart(tagLabel, topRightView, 4f)
+                constrainedWidth(topLeftLabel.id, true)
+                setHorizontalBias(topLeftLabel.id, 0f)
+                setHorizontalChainStyle(topLeftLabel.id, ConstraintSet.CHAIN_PACKED)
+            }
+        } else {
+            tagLabel.visibility = View.GONE
+            cell.setConstraints {
+                clear(topLeftLabel.id, ConstraintSet.END)
+                endToStart(topLeftLabel, topRightView, 4f)
+                constrainedWidth(topLeftLabel.id, true)
+                setHorizontalBias(topLeftLabel.id, 0f)
+            }
+        }
+    }
+}

@@ -1,0 +1,102 @@
+import React, { memo } from '../../lib/teact/teact';
+
+import type { ApiChain, ApiNft } from '../../api/types';
+import type { Account, AccountType } from '../../global/types';
+
+import { IS_GRAM_WALLET } from '../../config';
+import buildClassName from '../../util/buildClassName';
+import buildStyle from '../../util/buildStyle';
+import { getOrderedAccountChains } from '../../util/chain';
+import { formatAccountAddresses } from '../../util/formatAccountAddress';
+import { getPlatformByChain, usePlatformAccount } from '../../platform/accountStore';
+
+import { useCachedImage } from '../../hooks/useCachedImage';
+import useCardCustomization from '../../hooks/useCardCustomization';
+
+import styles from './AccountButton.module.scss';
+
+interface OwnProps {
+  accountId: string;
+  byChain: Account['byChain'];
+  visibleChains?: ApiChain[];
+  title?: string;
+  accountType: AccountType;
+  isActive?: boolean;
+  isLoading?: boolean;
+  ariaLabel?: string;
+  className?: string;
+  titleClassName?: string;
+  withCheckbox?: boolean;
+  cardBackgroundNft?: ApiNft;
+  isTestnet?: boolean;
+  onClick?: NoneToVoidFunction;
+}
+
+function AccountButton({
+  accountId,
+  byChain,
+  visibleChains,
+  title,
+  accountType,
+  ariaLabel,
+  isActive,
+  isLoading,
+  className,
+  titleClassName,
+  withCheckbox,
+  cardBackgroundNft,
+  isTestnet,
+  onClick,
+}: OwnProps) {
+  usePlatformAccount();
+  const {
+    backgroundImageUrl,
+    withTextGradient,
+    classNames: mwCardClassNames,
+  } = useCardCustomization(cardBackgroundNft);
+  const { imageUrl } = useCachedImage(backgroundImageUrl);
+
+  const isHardware = accountType === 'hardware';
+  const isViewMode = accountType === 'view';
+  const fullClassName = buildClassName(
+    className,
+    styles.account,
+    IS_GRAM_WALLET && 'gram',
+    imageUrl && styles.customCard,
+    imageUrl && mwCardClassNames,
+    isActive && !withCheckbox && styles.account_current,
+    isLoading && styles.account_disabled,
+    !onClick && styles.account_inactive,
+  );
+
+  const platformByChain = getPlatformByChain(byChain, Boolean(isTestnet));
+  const chains = visibleChains ?? getOrderedAccountChains(platformByChain);
+  const formattedAddress = formatAccountAddresses(platformByChain, chains, 'x-small');
+
+  return (
+    <div
+      key={accountId}
+      className={fullClassName}
+      onClick={onClick}
+      style={buildStyle(imageUrl && `--bg: url(${imageUrl})`)}
+      aria-label={ariaLabel}
+    >
+      {title && (
+        <span className={buildClassName(styles.accountName, titleClassName, withTextGradient && 'gradientText')}>
+          {title}
+        </span>
+      )}
+      <div className={buildClassName(styles.accountFooter, withTextGradient && 'gradientText')}>
+        {isViewMode && <i className={buildClassName('icon-eye-filled', styles.icon)} aria-hidden />}
+        {isHardware && <i className={buildClassName('icon-ledger', styles.icon)} aria-hidden />}
+        <span className={styles.accountAddress}>
+          {formattedAddress}
+        </span>
+      </div>
+      {withCheckbox
+        && <div className={buildClassName(styles.accountCheckMark, isActive && styles.accountCheckMark_active)} />}
+    </div>
+  );
+}
+
+export default memo(AccountButton);

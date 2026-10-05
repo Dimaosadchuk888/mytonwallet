@@ -1,0 +1,135 @@
+@use "../../styles/mixins";
+
+.inputButtonWrapper {
+  position: absolute;
+  z-index: 2;
+  bottom: 0.1875rem;
+  inset-inline-end: 0.1875rem;
+
+  display: flex;
+
+  padding-block: calc(0.5rem - 0.1875rem);
+  padding-inline: 0 0.5rem;
+  border-start-start-radius: 0;
+  border-start-end-radius: var(--border-radius-default);
+  border-end-start-radius: 0;
+  border-end-end-radius: var(--border-radius-default);
+
+  background: var(--color-background-first);
+
+  &::before {
+    content: '';
+
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    inset-inline-end: 100%;
+
+    width: 1.5rem;
+
+    background: var(--color-linear-effect-1);
+
+    @include mixins.transition(opacity 150ms);
+
+    @include mixins.rtl-mirror();
+  }
+
+  &:empty {
+    display: none;
+  }
+}
+
+.inputButtonWrapperWithFocus::before {
+  opacity: 0;
+}
+
+.inputButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--border-radius-small) !important;
+
+  font-size: 1.25rem;
+  color: var(--color-gray-3);
+
+  &:active {
+    color: var(--color-input-button-text);
+    background-color: var(--color-input-button-background);
+    transition: none;
+  }
+
+  @media (hover: hover) {
+    &:hover,
+    &:focus-visible {
+      color: var(--color-input-button-text);
+      background-color: var(--color-input-button-background);
+    }
+  }
+}
+
+.inputButtonClear {
+  color: var(--color-gray-2);
+
+  &:active {
+    color: var(--color-gray-2);
+    opacity: 0.85;
+    background-color: unset;
+    transition: none;
+  }
+
+  @media (hover: hover) {
+    &:hover,
+    &:focus-visible {
+      color: var(--color-gray-2);
+      opacity: 0.85;
+      background-color: unset;
+    }
+  }
+}
+
+.inputButtonTransition {
+  width: auto;
+  height: auto;
+}
+
+.addressName {
+  color: var(--color-black);
+
+  &::after {
+    content: '';
+
+    position: relative;
+    top: -0.25rem;
+
+    display: inline-block;
+
+    width: 0.125rem;
+    height: 0.125rem;
+    margin: 0 0.25rem;
+    border-radius: 50%;
+
+    background: var(--color-gray-3);
+  }
+}
+
+.addressValue {
+  color: var(--color-gray-3);
+
+  &Single {
+    color: var(--color-black);
+  }
+}
+
+.inputStatic {
+  /* Default input padding minus 1px accounted for border width */
+  padding: 0.5rem 0.6875rem 0.375rem;
+  border: 1px solid var(--color-separator-input-stroke);
+  background: var(--color-background-first);
+}
+
+.inputWithIcon {
+  padding-inline-end: 3rem;
+}

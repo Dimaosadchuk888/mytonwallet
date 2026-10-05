@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'none'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Продолжить в MetaMask · Gram Wallet</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { display: grid; min-height: 100dvh; margin: 0; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); place-items: center; background: Canvas; color: CanvasText; }
+    main { width: min(100%, 420px); padding: 28px 22px; border: 1px solid color-mix(in srgb, CanvasText 12%, transparent); border-radius: 24px; text-align: center; }
+    .mark { display: grid; width: 56px; height: 56px; margin: 0 auto 20px; place-items: center; border-radius: 18px; background: #eaf2ff; color: #1769e0; font-weight: 750; font-size: 20px; }
+    h1 { margin: 0 0 12px; font-size: 22px; line-height: 1.25; }
+    p { margin: 0; color: GrayText; line-height: 1.5; }
+    button { width: 100%; min-height: 52px; margin-top: 24px; border: 0; border-radius: 16px; background: #2481ed; color: white; font: inherit; font-size: 16px; font-weight: 650; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    button:focus-visible { outline: 3px solid #f5a623; outline-offset: 3px; }
+    .privacy { margin-top: 16px; font-size: 13px; }
+    .error { margin-top: 16px; color: #c93745; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">GW</div>
+    <h1>Продолжить подключение в MetaMask</h1>
+    <p>Нажмите кнопку ниже, чтобы передать запрос подключения в MetaMask. Затем вернитесь в Telegram.</p>
+    <button id="open-metamask" type="button" hidden>Открыть MetaMask</button>
+    <p class="privacy">Запрос передаётся из этой страницы напрямую в MetaMask и не отправляется серверу.</p>
+    <p id="invalid-link" class="error" role="alert" hidden>Ссылка подключения недействительна или устарела. Вернитесь в Gram Wallet и начните подключение заново.</p>
+  </main>
+  <script src="/metamask-connect-launcher.js" defer></script>
+</body>
+</html>

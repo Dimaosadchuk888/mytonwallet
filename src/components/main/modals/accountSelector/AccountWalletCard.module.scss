@@ -1,0 +1,225 @@
+@use "../../../../styles/mixins";
+
+@use "../../../../styles/scssVariables" as v;
+
+.wrapper {
+  min-width: 0;
+}
+
+.content {
+  position: relative;
+  padding: 0.25rem;
+  border-radius: 0.875rem;
+
+  @include mixins.transition("background-color 200ms");
+}
+
+.contentVisible {
+  z-index: calc(var(--z-menu-backdrop) + 1) !important;
+  background-color: var(--color-background-first);
+}
+
+.button {
+  cursor: var(--custom-cursor, pointer);
+
+  position: relative;
+
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  aspect-ratio: 1.51136;
+  width: 100%;
+  min-height: 3.75rem;
+  margin: 0;
+  padding: 0 0.5rem;
+  border: none;
+  border-radius: var(--border-radius-normal);
+
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--main-text, var(--color-card-text));
+  text-align: start;
+
+  background-clip: padding-box, padding-box;
+  background-origin: border-box;
+  background-size: cover, cover;
+
+  @include mixins.card-image("../../../../assets/", "account_button_bg", v.$defaultCardGradient);
+
+  &:global(.gram) {
+    @include mixins.card-image("../../../../assets/", "account_button_gram_bg", v.$gramCardGradient);
+  }
+
+  &.current {
+    cursor: default;
+    box-shadow: 0 0 0 0.046875rem var(--color-accent),
+                inset 0 0 0 0.046875rem var(--color-accent),
+                inset 0 0 0 0.140625rem var(--color-background-drop-down);
+  }
+
+  &.customCard {
+    --border-radius-card: 0;
+
+    background-image: var(--bg), linear-gradient(125deg, #{v.$defaultCardGradient}) !important;
+
+    // In Safari, the underlying gradient appears as stripes underneath the image
+    :global(html.is-safari) & {
+      background-image: var(--bg) !important;
+    }
+
+    &:global(.MwCard__black) {
+      background-image: var(--bg), linear-gradient(to bottom, #{v.$blackCardGradient}) !important;
+    }
+
+    &:global(.MwCard__platinum) {
+      background-image: var(--bg), linear-gradient(to bottom, #{v.$platinumCardGradient}) !important;
+    }
+
+    &:global(.MwCard__gold) {
+      background-image: var(--bg), linear-gradient(to bottom, #{v.$goldCardGradient}) !important;
+    }
+
+    &:global(.MwCard__silver) {
+      background-image: var(--bg), linear-gradient(to bottom, #{v.$silverCardGradient}) !important;
+    }
+  }
+
+  @media (hover: hover) {
+    &:hover .menuDots {
+      opacity: 1;
+    }
+  }
+}
+
+.recoveryIcon {
+  margin-inline-start: 0.25rem;
+}
+
+.accountName {
+  z-index: 1;
+
+  overflow: hidden;
+
+  max-width: 100%;
+  margin-top: 0.5rem;
+  padding: 0 !important;
+
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-black);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  .current > & {
+    margin-inline-end: 1rem;
+  }
+}
+
+.balanceWrapper {
+  z-index: 1;
+
+  width: 100%;
+  margin-top: 26.5%;
+  margin-bottom: auto;
+  padding: 0 !important;
+}
+
+.balanceContent {
+  width: 100%;
+  max-width: 100%;
+}
+
+.balanceMask {
+  top: -0.25rem;
+}
+
+.accountBalance {
+  unicode-bidi: plaintext;
+  overflow: hidden;
+
+  width: 100%;
+  max-width: 100%;
+
+  font-size: calc(1.25rem * var(--font-size-scale, 1));
+  font-weight: 850;
+  line-height: 1.25rem;
+  color: var(--main-text, var(--color-card-text));
+  text-align: center;
+  text-overflow: ellipsis;
+  letter-spacing: -0.04375rem;
+  white-space: nowrap;
+
+  &:global(.measure-hidden) {
+    // `visible` makes `scrollWidth` ignore the `overflow`, breaking `useFontScale`
+    overflow: hidden;
+    margin-top: 0;
+    padding: 0 0.125rem !important;
+    text-overflow: unset;
+  }
+
+  & + .accountAddressBlock {
+    margin-top: 0;
+  }
+}
+
+.currencySymbol {
+  margin-bottom: 0.5rem;
+  margin-inline-end: 0.0625rem;
+  font-size: calc(1.0625rem * var(--font-size-scale, 1));
+  color: var(--second-text, var(--color-card-second-text));
+}
+
+.fractionPart {
+  font-size: calc(0.875rem * var(--font-size-scale, 1));
+  color: var(--second-text, var(--color-card-second-text));
+}
+
+.accountAddressBlock {
+  z-index: 1;
+
+  overflow: hidden;
+  display: flex;
+  gap: 0.25rem;
+  justify-content: center;
+
+  margin-top: auto;
+  margin-bottom: 0.4375rem;
+
+  font-size: 0.6875rem;
+  color: var(--second-text, var(--color-card-second-text));
+  white-space: nowrap;
+
+  :global([class^="icon-chain-"]) {
+    margin-inline-end: 0.125rem;
+    vertical-align: -0.125rem;
+  }
+}
+
+.menu {
+  --offset-y-value: -0.125rem;
+
+  // Keep physical: the bubble is positioned by `useMenuPosition` via the container's physical `left`
+  // in viewport coordinates, so a logical inset would flip it to the wrong edge in RTL
+  right: auto !important;
+  left: 0 !important;
+}
+
+.menuIcon {
+  font-size: 1.5rem;
+}
+
+.menuDots {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+
+  padding: 0.5rem 0.625rem;
+
+  font-size: 1rem;
+
+  opacity: 0;
+
+  @include mixins.transition(opacity 200ms);
+}

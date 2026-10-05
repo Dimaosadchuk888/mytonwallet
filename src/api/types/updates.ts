@@ -1,0 +1,511 @@
+import type { GlobalState } from '../../global/types';
+import type { ApiUpdateAgentV2, ApiUpdateAgentV2PortfolioHistory } from '../agentV2/types';
+import type { ApiTonWalletVersion } from '../chains/ton/types';
+import type { TonConnectProof } from '../dappProtocols/adapters';
+import type {
+  WcPayMerchant,
+  WcPayPaymentAmount,
+  WcPayPaymentInfo,
+  WcPayPaymentOption,
+} from '../dappProtocols/adapters/walletConnect/types';
+import type { ApiParsedSignDataCellPreview } from '../dappProtocols/signDataCellPreview';
+import type { StoredDappConnection } from '../dappProtocols/storage';
+import type { UnifiedSignDataPayload } from '../dappProtocols/types';
+import type { ApiActivity } from './activities';
+import type {
+  ApiAccountConfig,
+  ApiBackendConfig,
+  ApiSwapAsset,
+  ApiSwapVersion,
+  ApiVestingInfo,
+} from './backend';
+import type { ApiEmulationResult } from './emulation';
+import type { ApiAnyDisplayError } from './errors';
+import type {
+  ApiBalanceBySlug,
+  ApiChain,
+  ApiCountryCode,
+  ApiCurrencyRates,
+  ApiDappConnectionType,
+  ApiDappTransfer,
+  ApiDerivation,
+  ApiNft,
+  ApiStakingState,
+  ApiTokenWithPrice,
+  ApiWalletWithVersionInfo,
+} from './misc';
+import type { ApiTonWallet } from './storage';
+import type { ApiCheckTransactionDraftResult } from './transfer';
+
+export type ApiUpdateBalances = {
+  type: 'updateBalances';
+  accountId: string;
+  chain: ApiChain;
+  balances: ApiBalanceBySlug;
+};
+
+export type ApiUpdateInitialActivities = {
+  type: 'initialActivities';
+  accountId: string;
+  chain: ApiChain;
+  mainActivities: ApiActivity[];
+  mainHistoryHasMore?: boolean;
+  /** The dictionary may contain not all tokens of the given chain */
+  bySlug: Record<string, ApiActivity[]>;
+};
+
+export type ApiUpdateNewActivities = {
+  type: 'newActivities';
+  accountId: string;
+  chain?: ApiChain;
+  activities: ApiActivity[];
+  /**
+   * The UI must replace all the pending activities in the given chain with the given activities. This is except to
+   * local activities, but if a pending activity matchers a local activity, it replaces that local activity.
+   *
+   * Omitted if the update does not change the list of pending actions (the UI should keep the old list).
+   *
+   * Doesn't contain activities with the hashes of the current or past confirmed activities.
+   *
+   * There is no separate update for pending activities, because confirmed activities replace pending activities, so the
+   * UI should handle both changes in one update.
+   */
+  pendingActivities?: readonly ApiActivity[];
+};
+
+export type ApiUpdateNewLocalActivities = {
+  type: 'newLocalActivities';
+  accountId: string;
+  activities: ApiActivity[];
+};
+
+export type ApiUpdateTokens = {
+  type: 'updateTokens';
+  arePricesFresh: boolean;
+  tokens: Record<string, ApiTokenWithPrice>;
+};
+
+export type ApiUpdateSwapTokens = {
+  type: 'updateSwapTokens';
+  tokens: Record<string, ApiSwapAsset>;
+};
+
+export type ApiUpdateCurrencyRates = {
+  type: 'updateCurrencyRates';
+  rates: ApiCurrencyRates;
+};
+
+export type ApiUpdateCreateTransaction = {
+  type: 'createTransaction';
+  promiseId: string;
+  toAddress: string;
+  amount: bigint;
+  comment?: string;
+  rawPayload?: string;
+  stateInit?: string;
+  checkResult: ApiCheckTransactionDraftResult;
+};
+
+export type ApiUpdateCompleteTransaction = {
+  type: 'completeTransaction';
+  activityId: string;
+};
+
+export type ApiUpdateCreateSignature = {
+  type: 'createSignature';
+  promiseId: string;
+  dataHex: string;
+};
+
+export type ApiUpdateShowError = {
+  type: 'showError';
+  error?: ApiAnyDisplayError | string;
+};
+
+export type ApiUpdateStaking = {
+  type: 'updateStaking';
+  accountId: string;
+  states: ApiStakingState[];
+  totalProfit: bigint;
+  shouldUseNominators?: boolean;
+};
+
+export type ApiUpdateDappSignData = {
+  type: 'dappSignData';
+  promiseId: string;
+  accountId: string;
+  dapp: StoredDappConnection;
+  operationChain: ApiChain;
+  payloadToSign: UnifiedSignDataPayload;
+  parsedPayloadToSign?: ApiParsedSignDataCellPreview;
+};
+
+export type ApiUpdateDappSendTransactions = {
+  type: 'dappSendTransactions';
+  promiseId: string;
+  accountId: string;
+  dapp: StoredDappConnection;
+  // Dapp may have many chains, so need to specify current operation chain
+  operationChain: ApiChain;
+  transactions: ApiDappTransfer[];
+  emulation?: Pick<ApiEmulationResult, 'activities' | 'realFee'>;
+  /** Unix seconds */
+  validUntil?: number;
+  vestingAddress?: string;
+  // No useful transfers in solana
+  shouldHideTransfers?: boolean;
+  // Deal with solana b58/b64 issues based on requested method
+  isLegacyOutput?: boolean;
+};
+
+export type ApiUpdateTonConnectOnline = {
+  type: 'tonConnectOnline';
+};
+
+export type ApiUpdateDappConnect = {
+  type: 'dappConnect';
+  identifier?: string;
+  promiseId: string;
+  accountId: string;
+  dapp: StoredDappConnection;
+  permissions: {
+    address: boolean;
+    proof: boolean;
+  };
+  proof?: TonConnectProof;
+  multichainResolution?: 'switched-account' | 'needs-new-wallet';
+};
+
+export type ApiUpdateDappConnectComplete = {
+  type: 'dappConnectComplete';
+};
+
+export type ApiUpdateDappAlreadyConnected = {
+  type: 'dappAlreadyConnected';
+  url?: string;
+};
+
+export type ApiUpdateDappDisconnected = {
+  type: 'dappDisconnected';
+  url?: string;
+};
+
+export type ApiUpdateDappDisconnect = {
+  type: 'dappDisconnect';
+  accountId: string;
+  url: string;
+};
+
+export type ApiUpdateDappLoading = {
+  type: 'dappLoading';
+  connectionType: ApiDappConnectionType;
+  isSse?: boolean;
+  accountId?: string;
+  // Set when a wake deeplink opens the placeholder request modal before the request event arrives
+  isWaitingForRequest?: boolean;
+  returnUrl?: string;
+};
+
+export type ApiUpdateDappCloseLoading = {
+  type: 'dappCloseLoading';
+  connectionType: ApiDappConnectionType;
+};
+
+export type ApiDappReturnStrategy = 'none' | 'back' | (string & {});
+
+export type ApiUpdateDappRequestSettled = {
+  type: 'dappRequestSettled';
+  promiseId: string;
+  returnStrategy: ApiDappReturnStrategy;
+  error?: ApiAnyDisplayError;
+};
+
+export type ApiUpdateDapps = {
+  type: 'updateDapps';
+};
+
+export type ApiUpdateDappTransferComplete = {
+  type: 'dappTransferComplete';
+  accountId: string;
+};
+
+export type ApiUpdateDappSignDataComplete = {
+  type: 'dappSignDataComplete';
+  accountId: string;
+};
+
+export type ApiUpdateWalletConnectPaySignTransaction = {
+  type: 'walletConnectPaySignTransaction';
+  promiseId: string;
+  accountId: string;
+  merchant: WcPayMerchant;
+  operationChain: ApiChain;
+  transactions: ApiDappTransfer[];
+  emulation?: Pick<ApiEmulationResult, 'activities' | 'realFee'>;
+  paymentInfo?: WcPayPaymentInfo;
+  paymentOption?: WcPayPaymentOption;
+  isSignOnly: boolean;
+  isLegacyOutput?: boolean;
+  shouldHideTransfers?: boolean;
+  validUntil?: number;
+};
+
+export type ApiUpdateWalletConnectPaySignData = {
+  type: 'walletConnectPaySignData';
+  promiseId: string;
+  accountId: string;
+  merchant: WcPayMerchant;
+  operationChain: ApiChain;
+  payloadToSign: UnifiedSignDataPayload;
+  paymentInfo?: WcPayPaymentInfo;
+  paymentOption?: WcPayPaymentOption;
+  containsApprove?: boolean;
+  approveOperationChain?: ApiChain;
+  approveTransactions?: ApiDappTransfer[];
+  approveValidUntil?: number;
+};
+
+export type ApiUpdateWalletConnectPayLoading = {
+  type: 'walletConnectPayLoading';
+  accountId: string;
+};
+
+export type ApiUpdateWalletConnectPayCloseLoading = {
+  type: 'walletConnectPayCloseLoading';
+};
+
+export type ApiUpdateWalletConnectPayDataCollection = {
+  type: 'walletConnectPayDataCollection';
+  promiseId: string;
+  url: string;
+};
+
+export type ApiUpdateWalletConnectPayDataCollectionComplete = {
+  type: 'walletConnectPayDataCollectionComplete';
+};
+
+export type ApiUpdateWalletConnectPayOptionSelection = {
+  type: 'walletConnectPayOptionSelection';
+  promiseId: string;
+  paymentLink: string;
+  accountId: string;
+  merchant: WcPayMerchant;
+  paymentInfo?: WcPayPaymentInfo;
+  options: WcPayPaymentOption[];
+  isLoading?: boolean;
+  shouldSwitchWallet?: boolean;
+};
+
+export type ApiUpdateWalletConnectPayOptionSelectionComplete = {
+  type: 'walletConnectPayOptionSelectionComplete';
+};
+
+export type ApiUpdateWalletConnectPayProcessing = {
+  type: 'walletConnectPayProcessing';
+  accountId: string;
+  merchant: WcPayMerchant;
+  operationChain: ApiChain;
+};
+
+export type ApiUpdateWalletConnectPayPaymentComplete = {
+  type: 'walletConnectPayPaymentComplete';
+  accountId: string;
+  merchant: WcPayMerchant;
+  operationChain: ApiChain;
+  txId?: string;
+  paymentAmount?: WcPayPaymentAmount;
+};
+
+export type ApiUpdatePrepareTransaction = {
+  type: 'prepareTransaction';
+  toAddress: string;
+  amount?: bigint;
+  comment?: string;
+  binPayload?: string;
+  stateInit?: string;
+};
+
+export type ApiUpdateProcessDeeplink = {
+  type: 'processDeeplink';
+  url: string;
+  isFromInAppBrowser?: boolean;
+};
+
+export type ApiUpdateNfts = {
+  type: 'updateNfts';
+  accountId: string;
+  nfts: ApiNft[];
+  chain: ApiChain;
+  collectionAddress?: string;
+  isFullLoading?: boolean;
+  /** Complete set of addresses seen during a streaming session. Sent with the final `isFullLoading: false` update. */
+  streamedAddresses?: string[];
+};
+
+export type ApiUpdateNftReceived = {
+  type: 'nftReceived';
+  accountId: string;
+  nftAddress: string;
+  nft: ApiNft;
+};
+
+export type ApiUpdateNftSent = {
+  type: 'nftSent';
+  accountId: string;
+  chain: ApiChain;
+  nftAddress: string;
+  newOwnerAddress: string;
+};
+
+export type ApiUpdateNftPutUpForSale = {
+  type: 'nftPutUpForSale';
+  accountId: string;
+  nftAddress: string;
+};
+
+export type ApiNftUpdate = ApiUpdateNftReceived | ApiUpdateNftSent | ApiUpdateNftPutUpForSale;
+
+export type ApiUpdateAccount = {
+  type: 'updateAccount';
+  accountId: string;
+  chain: ApiChain;
+  address?: string;
+  /** `false` means that the account has no domain; `undefined` means that the domain has not changed */
+  domain?: string | false;
+  isMultisig?: boolean;
+  derivation?: ApiDerivation;
+  mfa?: ApiTonWallet['mfa'] | false;
+};
+
+export type ApiUpdateConfig = {
+  type: 'updateConfig';
+  isLimited: boolean;
+  isCopyStorageEnabled: boolean;
+  supportAccountsCount?: number;
+  countryCode?: ApiCountryCode;
+  isAppUpdateRequired: boolean;
+  swapVersion?: ApiSwapVersion;
+  seasonalTheme: ApiBackendConfig['seasonalTheme'];
+  knowledgeBaseVersion?: string;
+  agentProtocolVersion?: ApiBackendConfig['agentProtocolVersion'];
+  preferredAgent?: ApiBackendConfig['preferredAgent'];
+  allowedOnOffRampCurrencies?: string[];
+};
+
+export type ApiUpdateWalletVersions = {
+  type: 'updateWalletVersions';
+  accountId: string;
+  currentVersion: ApiTonWalletVersion;
+  versions: ApiWalletWithVersionInfo[];
+};
+
+export type ApiOpenUrl = {
+  type: 'openUrl';
+  url: string;
+  isExternal?: boolean;
+  title?: string;
+  subtitle?: string;
+};
+
+export type ApiRequestReconnect = {
+  type: 'requestReconnectApi';
+};
+
+export type ApiUpdateIncorrectTime = {
+  type: 'incorrectTime';
+};
+
+export type ApiUpdateVesting = {
+  type: 'updateVesting';
+  accountId: string;
+  vestingInfo: ApiVestingInfo[];
+};
+
+export type ApiUpdatingStatus = {
+  type: 'updatingStatus';
+  kind: 'balance' | 'activities';
+  accountId: string;
+  isUpdating?: boolean;
+};
+
+export type ApiUpdateSettings = {
+  type: 'updateSettings';
+  settings: Partial<GlobalState['settings']>;
+};
+
+export type ApiUpdateRemoveAccounts = {
+  type: 'removeAccounts';
+  accountIds: string[];
+};
+
+export type ApiUpdateAccountConfig = {
+  type: 'updateAccountConfig';
+  accountId: string;
+  accountConfig: ApiAccountConfig;
+};
+
+export type ApiUpdateAccountDomainData = {
+  type: 'updateAccountDomainData';
+  accountId: string;
+  expirationByAddress: Record<string, number>;
+  linkedAddressByAddress: Record<string, string>;
+  nfts: Record<string, ApiNft>;
+};
+
+export type ApiUpdate =
+  | ApiUpdateAgentV2
+  | ApiUpdateAgentV2PortfolioHistory
+  | ApiUpdateBalances
+  | ApiUpdateInitialActivities
+  | ApiUpdateNewActivities
+  | ApiUpdateNewLocalActivities
+  | ApiUpdateTokens
+  | ApiUpdateSwapTokens
+  | ApiUpdateCurrencyRates
+  | ApiUpdateCreateTransaction
+  | ApiUpdateCompleteTransaction
+  | ApiUpdateCreateSignature
+  | ApiUpdateStaking
+  | ApiUpdateDappSendTransactions
+  | ApiUpdateTonConnectOnline
+  | ApiUpdateDappConnect
+  | ApiUpdateDappConnectComplete
+  | ApiUpdateDappAlreadyConnected
+  | ApiUpdateDappDisconnected
+  | ApiUpdateDappDisconnect
+  | ApiUpdateDappLoading
+  | ApiUpdateDappCloseLoading
+  | ApiUpdateDappRequestSettled
+  | ApiUpdateDappSignData
+  | ApiUpdateDapps
+  | ApiUpdateDappTransferComplete
+  | ApiUpdateDappSignDataComplete
+  | ApiUpdateWalletConnectPaySignTransaction
+  | ApiUpdateWalletConnectPaySignData
+  | ApiUpdateWalletConnectPayLoading
+  | ApiUpdateWalletConnectPayCloseLoading
+  | ApiUpdateWalletConnectPayDataCollection
+  | ApiUpdateWalletConnectPayDataCollectionComplete
+  | ApiUpdateWalletConnectPayOptionSelection
+  | ApiUpdateWalletConnectPayOptionSelectionComplete
+  | ApiUpdateWalletConnectPayProcessing
+  | ApiUpdateWalletConnectPayPaymentComplete
+  | ApiUpdatePrepareTransaction
+  | ApiUpdateProcessDeeplink
+  | ApiUpdateShowError
+  | ApiUpdateNfts
+  | ApiNftUpdate
+  | ApiUpdateAccount
+  | ApiUpdateConfig
+  | ApiUpdateWalletVersions
+  | ApiOpenUrl
+  | ApiRequestReconnect
+  | ApiUpdateIncorrectTime
+  | ApiUpdateVesting
+  | ApiUpdatingStatus
+  | ApiUpdateSettings
+  | ApiUpdateRemoveAccounts
+  | ApiUpdateAccountConfig
+  | ApiUpdateAccountDomainData;
+
+export type OnApiUpdate = (update: ApiUpdate) => void;

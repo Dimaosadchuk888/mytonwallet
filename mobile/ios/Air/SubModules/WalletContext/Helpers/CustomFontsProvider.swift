@@ -1,0 +1,50 @@
+//
+//  Created by Anton Spivak
+//
+
+#if DEBUG
+import Foundation
+import CoreText
+
+@MainActor
+final class CustomFontsProvider {
+    // MARK: Internal
+
+    static var isRegistered: Bool = false
+
+    @inlinable @inline(__always)
+    static func registerFonts() {
+        guard !isRegistered else { return }
+        isRegistered = true
+
+        registerFont(named: "CalSans-Regular", withExtension: "ttf")
+        registerFont(named: "SFCompactDisplayMedium", withExtension: "otf")
+        registerFont(named: "SFCompactRoundedBold", withExtension: "otf")
+        registerFont(named: "Vazirmatn-Regular", withExtension: "ttf")
+        registerFont(named: "Vazirmatn-Medium", withExtension: "ttf")
+        registerFont(named: "Vazirmatn-SemiBold", withExtension: "ttf")
+        registerFont(named: "Vazirmatn-Bold", withExtension: "ttf")
+    }
+
+    @usableFromInline
+    static func registerFont(named name: String, withExtension ext: String) {
+        guard let url = bundle.url(forResource: name, withExtension: ext)
+        else { fatalError("Couldn't locate \(name).\(ext) in bundle \(bundle)") }
+
+        var error: Unmanaged<CFError>?
+        guard !CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error)
+        else { return }
+
+        if let error {
+            fatalError("Couldn't register font named \(name).\(ext): \(error.takeRetainedValue())")
+        } else {
+            fatalError("Couldn't register font named \(name).\(ext): Unknown error")
+        }
+    }
+
+    // MARK: Private
+
+    private static let bundle = AirBundle
+}
+
+#endif

@@ -1,0 +1,462 @@
+package org.mytonwallet.app_air.walletcore.moshi
+
+import com.squareup.moshi.Json
+import com.squareup.moshi.JsonClass
+import java.math.BigDecimal
+import org.json.JSONObject
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletcore.models.MBridgeError
+import org.mytonwallet.app_air.walletcore.models.MToken
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapAsset(
+    override val name: String? = null,
+    override val localizedName: String? = null,
+    override val symbol: String? = null,
+    override val chain: String? = null,
+    override val slug: String,
+    override val decimals: Int,
+    override val isPopular: Boolean? = null,
+    val priceUsd: Double? = null,
+    override val image: String? = null,
+    override val tokenAddress: String? = null,
+    override val keywords: List<String>? = null,
+    override val label: String? = null,
+    val color: String? = null
+) : IApiToken {
+
+    companion object {
+        fun from(token: MToken): MApiSwapAsset = MApiSwapAsset(
+            name = token.name,
+            localizedName = token.localizedName,
+            symbol = token.symbol,
+            chain = token.chain,
+            slug = token.slug,
+            decimals = token.decimals,
+            isPopular = token.isPopular,
+            priceUsd = token.priceUsd,
+            image = token.image,
+            tokenAddress = token.tokenAddress,
+            keywords = token.keywords,
+            label = token.label
+        )
+    }
+}
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapDefaultsRequest(
+    val tokenIn: MApiSwapAsset?,
+    val tokenOut: MApiSwapAsset?,
+    val accountChains: List<String>,
+    val network: String,
+    val balancesUsdBySlug: Map<String, Double>
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapDefaults(val tokenIn: MApiSwapAsset? = null, val tokenOut: MApiSwapAsset? = null)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapPairAsset(
+    val symbol: String,
+    val slug: String,
+    val contract: String?,
+    val isReverseProhibited: Boolean?
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapEstimateRequest(
+    val from: String,
+    val to: String,
+    val slippage: Float?,
+    val fromAmount: BigDecimal?,
+    val toAmount: BigDecimal?,
+    val fromAddress: String?,
+    val toAddress: String? = null,
+    val cexLabel: String? = null,
+    val shouldTryDiesel: Boolean?,
+    val walletVersion: MApiTonWalletVersion?,
+    val isFromAmountMax: Boolean?,
+    val toncoinBalance: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapHint(
+    val type: String? = null,
+    val token: String? = null,
+    val providerName: String? = null,
+    val url: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapEstimateErrorResponse(val error: String? = null, val hint: MApiSwapHint? = null)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapEstimateResponse(
+    val route: String? = null,
+    val hint: MApiSwapHint? = null,
+    val toAmount: BigDecimal,
+    val fromAmount: BigDecimal,
+    val toMinAmount: BigDecimal,
+    val networkFee: Double,
+    val realNetworkFee: Double?,
+    val swapFee: BigDecimal,
+    val swapFeePercent: Double,
+    val ourFee: String?,
+    val ourFeePercent: Double?,
+    val impact: Double,
+    val dexLabel: MApiSwapDexLabel?,
+    val dexRouterLabel: String? = null,
+    val dieselStatus: MDieselStatus?,
+    val dieselFee: String?,
+    val from: String,
+    val to: String,
+    val slippage: Double?,
+
+    // only in v3
+    val routes: List<List<JSONObject>>?
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapBuildRequest(
+    val toAmount: BigDecimal,
+    val fromAmount: BigDecimal,
+    val toMinAmount: BigDecimal,
+    val networkFee: Double,
+    val swapFee: BigDecimal,
+    val dexLabel: String?,
+    val from: String,
+    val to: String,
+    val slippage: Float,
+    val fromAddress: String,
+    val swapVersion: Int?,
+    /** TON address that owns/authenticates the backend swap history row. */
+    val historyAddress: String? = null,
+    val ourFee: String?,
+    val dexRouterLabel: String? = null,
+    val dieselFee: String?,
+    val shouldTryDiesel: Boolean,
+    val routes: List<List<JSONObject>>?
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapBuildResponse(
+    val id: String? = null,
+    val transfers: List<MApiSwapTransfer>? = null,
+    val chain: MBlockchain? = null,
+    val transaction: String? = null,
+    val error: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapCexEstimateResponse(
+    val route: String? = null,
+    val hint: MApiSwapHint? = null,
+    val cexLabel: String? = null,
+    val providerName: String? = null,
+    val termsOfUseUrl: String? = null,
+    val privacyPolicyUrl: String? = null,
+    val amlKycPolicyUrl: String? = null,
+    val from: String? = null,
+    val fromAmount: BigDecimal? = null,
+    val to: String? = null,
+    val toAmount: BigDecimal? = null,
+    val swapFee: BigDecimal? = null,
+    val ourFee: String? = null,
+    val ourFeePercent: Double? = null,
+    val fromMin: BigDecimal? = null,
+    val fromMax: BigDecimal? = null,
+    val errors: List<SwapEstimateError>? = null
+) {
+    @JsonClass(generateAdapter = true)
+    data class SwapEstimateError(val msg: String)
+
+    enum class SwapErrorType {
+        InvalidPair,
+        NotEnoughLiquidity,
+        TooSmallAmount
+    }
+
+    val error: MBridgeError?
+        get() {
+            return errors?.firstOrNull()?.msg.let { msg ->
+                when (SERVER_ERRORS_MAP[msg]) {
+                    SwapErrorType.InvalidPair -> {
+                        MBridgeError.Type.PAIR_NOT_FOUND
+                    }
+
+                    SwapErrorType.NotEnoughLiquidity -> {
+                        MBridgeError.Type.INSUFFICIENT_LIQUIDITY
+                    }
+
+                    SwapErrorType.TooSmallAmount -> {
+                        MBridgeError.Type.TOO_SMALL_AMOUNT
+                    }
+
+                    null -> null
+                }
+            }
+        }
+
+    companion object {
+        val SERVER_ERRORS_MAP = mapOf(
+            "Insufficient liquidity" to SwapErrorType.NotEnoughLiquidity,
+            "Tokens must be different" to SwapErrorType.InvalidPair,
+            "Asset not found" to SwapErrorType.InvalidPair,
+            "Pair not found" to SwapErrorType.InvalidPair,
+            "Too small amount" to SwapErrorType.TooSmallAmount
+        )
+    }
+}
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapCexCreateTransactionRequest(
+    val from: String,
+    val fromAmount: BigDecimal,
+    /** Source-chain refund/sender address for Near Intents; TON history address for Changelly. */
+    val fromAddress: String,
+    /** TON address that owns/authenticates the backend swap history row. */
+    val historyAddress: String? = null,
+    val cexLabel: String? = null,
+    val to: String,
+    val toAmount: BigDecimal?,
+    // TON or other crypto address
+    val toAddress: String,
+    val payoutExtraId: String?,
+    // From estimate request
+    val swapFee: BigDecimal,
+    // Only for sent TON
+    val networkFee: Double?
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapCexCreateTransactionResponse(
+    // val request: ApiSwapCexCreateTransactionRequest,
+    val swap: MApiSwapHistoryItem
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapTransfer(val toAddress: String, val amount: String, val payload: String?)
+
+@JsonClass(generateAdapter = true)
+data class MApiFetchSwapsResult(
+    val nonExistentIds: List<String>,
+    val swaps: List<MApiTransaction.Swap>,
+    val patch: MApiActivitiesPatch? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiActivitiesPatch(
+    val accountId: String,
+    val upsert: List<MApiTransaction>,
+    val removeIds: List<String>,
+    val replacedIds: Map<String, String>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiReconcileActivityUpdateResult(
+    val confirmedActivities: List<MApiTransaction>,
+    val pendingActivities: List<MApiTransaction>? = null,
+    val patch: MApiActivitiesPatch
+)
+
+@JsonClass(generateAdapter = true)
+data class MApiFetchSwapItem(val id: String, val chain: MBlockchain? = null)
+
+@JsonClass(generateAdapter = true)
+data class MApiSwapHistoryItem(
+    val id: String,
+    val timestamp: Long,
+    val lt: Long? = null,
+    val from: String,
+    val fromAddress: String? = null,
+    val fromAmount: BigDecimal,
+    val to: String,
+    val toAmount: BigDecimal,
+    val networkFee: Double,
+    val swapFee: BigDecimal,
+    val cexLabel: String? = null,
+    val status: MApiSwapHistoryItemStatus,
+    val transactionIds: MApiSwapTransactionIds = MApiSwapTransactionIds(),
+    val isCanceled: Boolean?,
+    val cex: Cex? = null
+) {
+    @JsonClass(generateAdapter = true)
+    data class Cex(
+        val payinAddress: String,
+        val payoutAddress: String,
+        val payinExtraId: String? = null,
+        val status: MApiSwapCexTransactionStatus,
+        val transactionId: String,
+        val providerName: String? = null,
+        val supportUrl: String? = null,
+        val supportEmail: String? = null
+    )
+}
+
+@JsonClass(generateAdapter = true)
+data class MSwapCexValidateAddressParams(val slug: String, val address: String)
+
+@JsonClass(generateAdapter = true)
+data class MSwapCexValidateAddressResult(val result: Boolean, val message: String? = null)
+
+@JsonClass(generateAdapter = false)
+enum class MApiSwapHistoryItemStatus {
+    @Json(name = "pending")
+    PENDING,
+
+    @Json(name = "pendingTrusted")
+    PENDING_TRUSTED,
+
+    @Json(name = "completed")
+    COMPLETED,
+
+    @Json(name = "failed")
+    FAILED,
+
+    @Json(name = "expired")
+    EXPIRED
+}
+
+@JsonClass(generateAdapter = false)
+enum class MApiSwapDexLabel {
+    @Json(name = "dedust")
+    DEDUST,
+
+    @Json(name = "ston")
+    STON,
+
+    @Json(name = "jupiter")
+    JUPITER
+}
+
+@JsonClass(generateAdapter = false)
+enum class MApiTonWalletVersion {
+    @Json(name = "simpleR1")
+    SIMPLE_R1,
+
+    @Json(name = "simpleR2")
+    SIMPLE_R2,
+
+    @Json(name = "simpleR3")
+    SIMPLE_R3,
+
+    @Json(name = "v2R1")
+    V2_R1,
+
+    @Json(name = "v2R2")
+    V2_R2,
+
+    @Json(name = "v3R1")
+    V3_R1,
+
+    @Json(name = "v3R2")
+    V3_R2,
+
+    @Json(name = "v4R2")
+    V4_R2,
+
+    @Json(name = "W5")
+    W5
+}
+
+@JsonClass(generateAdapter = false)
+enum class MApiSwapCexTransactionStatus {
+    @Json(name = "new")
+    NEW,
+
+    @Json(name = "waiting")
+    WAITING,
+
+    @Json(name = "confirmed")
+    CONFIRMED,
+
+    @Json(name = "confirming")
+    CONFIRMING,
+
+    @Json(name = "exchanging")
+    EXCHANGING,
+
+    @Json(name = "sending")
+    SENDING,
+
+    @Json(name = "finished")
+    FINISHED,
+
+    @Json(name = "failed")
+    FAILED,
+
+    @Json(name = "refunded")
+    REFUNDED,
+
+    @Json(name = "hold")
+    HOLD,
+
+    @Json(name = "overdue")
+    OVERDUE,
+
+    @Json(name = "expired")
+    EXPIRED;
+
+    companion object {
+        private var inProgressStatuses =
+            listOf(
+                NEW,
+                WAITING,
+                CONFIRMING,
+                EXCHANGING,
+                SENDING,
+                HOLD
+            )
+        private var finishedStatuses =
+            listOf(
+                CONFIRMED,
+                FINISHED
+            )
+    }
+
+    val uiStatus: MApiTransaction.UIStatus
+        get() = when (this) {
+            NEW, WAITING, CONFIRMING, EXCHANGING, SENDING -> MApiTransaction.UIStatus.PENDING
+            EXPIRED, REFUNDED, OVERDUE -> MApiTransaction.UIStatus.EXPIRED
+            FAILED -> MApiTransaction.UIStatus.FAILED
+            CONFIRMED, FINISHED -> MApiTransaction.UIStatus.COMPLETED
+            HOLD -> MApiTransaction.UIStatus.HOLD
+        }
+
+    val localized: String
+        get() {
+            return LocaleController.getString(
+                when (this) {
+                    WAITING -> "Waiting for Payment"
+                    NEW, CONFIRMING, EXCHANGING, SENDING -> "In Progress"
+                    CONFIRMED, FINISHED -> ""
+                    FAILED -> "Failed"
+                    REFUNDED -> "Refunded"
+                    HOLD -> "On Hold"
+                    OVERDUE, EXPIRED -> "Expired"
+                }
+            )
+        }
+
+    val color: WColor
+        get() {
+            return when (this) {
+                WAITING, NEW, CONFIRMING, EXCHANGING, SENDING -> WColor.SecondaryText
+                CONFIRMED, FINISHED -> WColor.Green
+                FAILED, REFUNDED, OVERDUE, EXPIRED -> WColor.Red
+                HOLD -> WColor.Orange
+            }
+        }
+
+    val isInProgress: Boolean
+        get() {
+            return inProgressStatuses.contains(this)
+        }
+
+    val isFinished: Boolean
+        get() {
+            return finishedStatuses.contains(this)
+        }
+}

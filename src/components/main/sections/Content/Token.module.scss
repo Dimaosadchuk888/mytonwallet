@@ -1,0 +1,296 @@
+@use "sass:color";
+
+@use "../../../../styles/mixins";
+
+.container {
+  position: relative;
+  width: 100%;
+}
+
+.button {
+  --color-dot: var(--color-gray-2);
+
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+  padding-block: 0.75rem;
+  padding-inline: 0.75rem 0.875rem;
+
+  color: var(--color-black);
+
+  background: var(--color-background-first);
+
+  @media (hover: hover) {
+    &:focus-visible,
+    &:hover {
+      background-color: var(--color-interactive-item-hover);
+
+      .vestingIcon,
+      .percent {
+        background-color: var(--color-interactive-item-hover);
+      }
+
+      .readyToClaim {
+        color: var(--color-interactive-item-hover);
+      }
+    }
+  }
+
+  &.active {
+    background-color: var(--color-interactive-item-hover);
+
+    .vestingIcon,
+    .percent {
+      background-color: var(--color-interactive-item-hover);
+    }
+
+    .readyToClaim {
+      color: var(--color-interactive-item-hover);
+    }
+  }
+
+  @include mixins.active-transition-optimization();
+
+  :global(html.is-android) &,
+  :global(html.is-ios) & {
+    padding: 0.6875rem 0.75rem 0.6875rem 0.75rem;
+  }
+}
+
+.iconArrow {
+  margin-block: 0;
+  margin-inline: -0.0625rem 0.125rem;
+
+  font-size: 1rem;
+  line-height: 1rem;
+  vertical-align: -0.25rem;
+}
+
+.iconChevron {
+  position: absolute;
+  top: 0.8125rem;
+  inset-inline-end: 0.5rem;
+
+  font-size: 1rem;
+  color: var(--color-gray-4);
+}
+
+.primaryCell {
+  flex: 1;
+  min-width: 0;
+  margin-inline-end: 1rem;
+  text-align: start;
+}
+
+.secondaryCell {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: end;
+}
+
+.subtitle {
+  direction: ltr;
+  unicode-bidi: plaintext;
+
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-gray-2) !important;
+
+  @include mixins.is-mobile() {
+    font-size: 0.8125rem;
+  }
+}
+
+.subtitleRtl {
+  text-align: end;
+}
+
+.amountChange {
+  font-weight: 600;
+}
+
+.pinIcon {
+  overflow: hidden;
+
+  width: 1rem;
+  max-width: 1.25rem;
+
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--color-gray-2);
+
+  &_withTransition {
+    @include mixins.transition('transform 150ms, max-width 150ms, opacity 150ms', !important);
+  }
+
+  &:global(.not-open) {
+    transform: scale(0.5);
+    max-width: 0;
+    opacity: 0;
+  }
+}
+
+.name {
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+
+  &_text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.name,
+.secondaryValue {
+  unicode-bidi: plaintext;
+  padding-bottom: 0.125rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+
+  @include mixins.is-mobile {
+    font-size: 1rem;
+  }
+}
+
+.secondaryValue_staked {
+  color: var(--color-purple-1);
+}
+
+.change {
+  overflow: hidden;
+
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-gray-2);
+  text-overflow: ellipsis;
+
+  &_up {
+    --color-dot: var(--color-green);
+
+    color: var(--color-green);
+  }
+
+  &_down {
+    --color-dot: var(--color-red);
+
+    color: var(--color-red);
+  }
+}
+
+.dot {
+  position: relative;
+  top: -0.1875rem;
+
+  display: inline-block;
+
+  width: 0.125rem;
+  height: 0.125rem;
+  margin-block: 0;
+  margin-inline: 0.25rem 0.3125rem;
+  border-radius: 50%;
+
+  font-style: normal;
+  line-height: 1rem;
+
+  background-color: var(--color-dot);
+}
+
+.label {
+  display: inline-block;
+
+  height: 0.9375rem;
+  margin-inline-start: 0.25rem;
+  padding: 0.1875rem;
+  border-radius: 0.25rem;
+
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 0.625rem;
+}
+
+.apyLabel {
+  color: var(--color-apy-text);
+  background-color: var(--color-apy-background);
+
+  &_staked {
+    color: var(--color-apy-active-text);
+    background-color: var(--color-apy-active-background);
+  }
+}
+
+.tokenIcon {
+  margin-block: 0;
+  margin-inline: 0 0.625rem;
+}
+
+.vestingIcon,
+.readyToClaim,
+.percent {
+  position: absolute;
+  top: 1.625rem;
+  inset-inline-start: 1.5rem;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+
+  font-size: 1rem;
+  line-height: 1rem;
+  color: var(--color-purple-2);
+
+  background-color: var(--color-background-first);
+
+  @include mixins.is-mobile() {
+    top: 1.6875rem;
+    inset-inline-start: 1.75rem;
+  }
+
+  :global(html.is-android) &::before {
+    /* stylelint-disable-next-line plugin/whole-pixel */
+    padding-top: 0.5px;
+  }
+}
+
+.percent {
+  color: var(--color-purple-2);
+}
+
+.readyToClaim {
+  color: var(--color-background-first);
+  background-color: var(--color-activity-green-text);
+  box-shadow: 0 0 0 0.1rem currentColor;
+}
+
+.secondaryValue_vesting,
+.vestingIcon {
+  color: var(--color-vesting-blue);
+}
+
+.secondaryValue_vestingUnfreeze,
+.vestingIcon:global(.icon-fire)::before {
+  background: var(--color-gradient-main-blue2-green);
+  background-clip: text;
+
+  -webkit-text-fill-color: transparent;
+}
+
+.wrapperVisible {
+  border-radius: var(--border-radius-with-menu, 0rem);
+}
+
+.menu {
+  --offset-y-value: 0;
+  --offset-y-bottom-value: 0;
+
+  max-height: max(70vh, 20rem);
+}

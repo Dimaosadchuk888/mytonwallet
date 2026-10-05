@@ -1,0 +1,375 @@
+//
+//  ConnectedAppsVC.swift
+//  UISettings
+//
+//  Created by Sina on 8/30/24.
+//
+
+import Foundation
+import UIKit
+import UIComponents
+import WalletCore
+import WalletContext
+import SwiftUI
+
+public class ConnectedAppsVC: SettingsBaseVC, UICollectionViewDelegate {
+    private enum Section: Hashable {
+        case main
+    }
+    
+    private enum Item: Hashable {
+        case disconnectAll
+        case dapp(ApiDapp)
+    }
+    
+    private var dapps: [ApiDapp]?
+    private let isModal: Bool
+    private var collectionView: UICollectionView!
+    private var dataSource: UICollectionViewDiffableDataSource<Section, Item>!
+    private var loadTask: Task<Void, Never>?
+    
+    public init(isModal: Bool) {
+        self.isModal = isModal
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        loadTask?.cancel()
+    }
+    
+    public override func loadView() {
+        super.loadView()
+        setupViews()
+        configureDataSource()
+    }
+    
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        WalletCoreData.add(eventObserver: self)
+        loadDapps()
+    }
+    
+    private func setupViews() {
+        title = lang("Connected Sites")
+        addCloseNavigationItemIfNeeded()        
+        var configuration = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
+        configuration.headerMode = .supplementary
+        configuration.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
+            self?.trailingSwipeActions(for: indexPath)
+        }
+        configuration.backgroundColor = isModal ? .air.sheetBackground : .air.groupedBackground
+        let layout = UICollectionViewCompositionalLayout.list(using: configuration)
+        
+        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        collectionView.delegate = self
+        collectionView.delaysContentTouches = false
+        view.addSubview(collectionView)
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        
+        if let gestureRecognizer = collectionView.gestureRecognizers?.first(where: { $0.description.starts(with: "<_UISwipeActionPanGestureRecognizer") }) {
+            (navigationController as? WNavigationController)?.fullWidthBackGestureRecognizerRequireToFail(gestureRecognizer)
+        }
+
+        updateTheme()
+    }
+    
+    private func configureDataSource() {
+        let headerRegistration = UICollectionView.SupplementaryRegistration<UICollectionViewCell>(elementKind: UICollectionView.elementKindSectionHeader) { supplementaryView, _, _ in
+            var content = UIListContentConfiguration.groupedHeader()
+            content.text = L10n.loggedInWithAppName(appName: APP_NAME)
+            content.applyTextStyle(.sectionHeader, scaling: .dynamic)
+            supplementaryView.contentConfiguration = content
+        }
+        
+        let disconnectAllHeight: CGFloat = IOS_26_MODE_ENABLED ? 52 : 44
+        let disconnectAllRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, Void> { cell, _, _ in
+            cell.configurationUpdateHandler = { cell, state in
+                cell.contentConfiguration = UIHostingConfiguration {
+                    DisconnectAllCellContent()
+                }
+                .background {
+                    CellBackgroundHighlight(isHighlighted: state.isHighlighted)
+                }
+                .margins(.horizontal, 16)
+                .margins(.vertical, 0)
+                .minSize(height: disconnectAllHeight)
+            }
+        }
+        
+        let dappRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, ApiDapp> { cell, _, dapp in
+            cell.configurationUpdateHandler = { cell, state in
+                cell.contentConfiguration = UIHostingConfiguration {
+                    DappCellContent(dapp: dapp)
+                }
+                .background {
+                    CellBackgroundHighlight(isHighlighted: state.isHighlighted, isSwiped: state.isSwiped)
+                }
+                .margins(.horizontal, 16)
+                .margins(.vertical, 10)
+            }
+        }
+        
+        dataSource = UICollectionViewDiffableDataSource<Section, Item>(collectionView: collectionView) { collectionView, indexPath, item in
+            switch item {
+            case .disconnectAll:
+                return collectionView.dequeueConfiguredReusableCell(using: disconnectAllRegistration, for: indexPath, item: ())
+            case .dapp(let dapp):
+                return collectionView.dequeueConfiguredReusableCell(using: dappRegistration, for: indexPath, item: dapp)
+            }
+        }
+        
+        dataSource.supplementaryViewProvider = { collectionView, _, indexPath in
+            collectionView.dequeueConfiguredReusableSupplementary(using: headerRegistration, for: indexPath)
+        }
+    }
+    
+    private func trailingSwipeActions(for indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+        guard let item = dataSource.itemIdentifier(for: indexPath),
+              case .dapp(let dapp) = item else { return nil }
+        let deleteAction = UIContextualAction(style: .destructive, title: lang("Disconnect")) { [weak self] _, _, callback in
+            self?.disconnectDapp(dapp, completion: callback)
+        }
+        deleteAction.image = UIImage(systemName: "minus.circle.fill")
+        let configuration = UISwipeActionsConfiguration(actions: [deleteAction])
+        configuration.performsFirstActionWithFullSwipe = true
+        return configuration
+    }
+
+    private func showDappActions(_ dapp: ApiDapp) {
+        guard !(presentedViewController is UIAlertController), !(topViewController() is UIAlertController) else { return }
+
+        let alert = UIAlertController(title: dapp.name, message: dapp.displayUrl, preferredStyle: .alert)
+        let openAction = UIAlertAction(title: lang("Open"), style: .default) { [weak self] _ in
+            self?.openDapp(dapp)
+        }
+        alert.addAction(openAction)
+        alert.addAction(UIAlertAction(title: lang("Disconnect"), style: .destructive) { [weak self] _ in
+            self?.disconnectDapp(dapp)
+        })
+        alert.addAction(UIAlertAction(title: lang("Cancel"), style: .cancel))
+        alert.preferredAction = openAction
+        present(alert, animated: true)
+    }
+
+    private func openDapp(_ dapp: ApiDapp) {
+        guard let url = URL(string: dapp.url) else { return }
+        AppActions.openInBrowser(url, title: dapp.name, injectDappConnect: true)
+    }
+
+    private func disconnectDapp(_ dapp: ApiDapp, completion: ((Bool) -> Void)? = nil) {
+        guard let accountId = AccountStore.accountId else {
+            completion?(false)
+            return
+        }
+        loadTask?.cancel()
+        let uniqueId = getDappConnectionUniqueId(dapp)
+        Task { @MainActor [weak self] in
+            guard let self else {
+                completion?(false)
+                return
+            }
+            do {
+                let dapps = try await DappsStore.deleteDapp(accountId: accountId, dapp: dapp)
+                guard AccountStore.accountId == accountId else {
+                    completion?(true)
+                    return
+                }
+                self.dapps = dapps.filter { $0.url != dapp.url || getDappConnectionUniqueId($0) != uniqueId }
+                applySnapshot(animated: true)
+                completion?(true)
+            } catch {
+                completion?(false)
+                loadDapps(animated: true)
+                showAlert(error: error)
+            }
+        }
+    }
+    
+    private func applySnapshot(animated: Bool) {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
+        
+        if let dapps, !dapps.isEmpty {
+            snapshot.appendSections([.main])
+            snapshot.appendItems([.disconnectAll], toSection: .main)
+            snapshot.appendItems(dapps.map { .dapp($0) }, toSection: .main)
+        }
+        
+        dataSource.apply(snapshot, animatingDifferences: animated)
+        updateEmptyAssetsView()
+    }
+    
+    private func updateTheme() {
+        view.backgroundColor = isModal ? .air.sheetBackground : .air.groupedBackground
+        collectionView?.backgroundColor = isModal ? .air.sheetBackground : .air.groupedBackground
+    }
+
+    public override func scrollToTop(animated: Bool) {
+        collectionView?.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: animated)
+    }
+    
+    private var emptyDappsView: HeaderView?
+    
+    private func updateEmptyAssetsView() {
+        guard let dapps else {
+            emptyDappsView?.removeFromSuperview()
+            emptyDappsView = nil
+            return
+        }
+        if dapps.isEmpty {
+            if emptyDappsView == nil {
+                emptyDappsView = HeaderView(
+                    animationName: "NoResults",
+                    animationPlaybackMode: .loop,
+                    title: lang("You have no apps connected to this wallet."),
+                    description: nil,
+                    compactMode: true
+                )
+                emptyDappsView!.lblTitle.applyTextStyle(.bodyEmphasized)
+                emptyDappsView?.alpha = 0
+                view.addSubview(emptyDappsView!)
+                NSLayoutConstraint.activate([
+                    emptyDappsView!.widthAnchor.constraint(equalToConstant: 200),
+                    emptyDappsView!.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                    emptyDappsView!.centerYAnchor.constraint(equalTo: view.centerYAnchor)
+                ])
+            }
+            UIView.animate(withDuration: 0.3) {
+                self.emptyDappsView?.alpha = 1
+            }
+        } else {
+            UIView.animate(withDuration: 0.3) {
+                self.emptyDappsView?.alpha = 0
+            } completion: { _ in
+                self.emptyDappsView?.removeFromSuperview()
+                self.emptyDappsView = nil
+            }
+        }
+    }
+    
+    private func loadDapps(animated: Bool = false) {
+        loadTask?.cancel()
+        guard let accountId = AccountStore.accountId else { return }
+        loadTask = Task { @MainActor [weak self] in
+            do {
+                let dapps = try await Api.getDapps(accountId: accountId)
+                guard !Task.isCancelled, AccountStore.accountId == accountId else { return }
+                self?.dapps = dapps
+                self?.applySnapshot(animated: animated)
+            } catch {
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(3))
+                guard !Task.isCancelled else { return }
+                self?.loadDapps()
+            }
+        }
+    }
+    
+    private func disconnectAllPressed() {
+        showAlert(
+            title: lang("Disconnect Dapps"),
+            text: lang("Are you sure you want to disconnect all websites?"),
+            button: lang("Disconnect"),
+            buttonStyle: .destructive,
+            buttonPressed: { [weak self] in
+                self?.deleteAllDapps()
+            },
+            secondaryButton: lang("Cancel")
+        )
+    }
+    
+    private func deleteAllDapps() {
+        guard let accountId = AccountStore.accountId else { return }
+        loadTask?.cancel()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let dapps = try await DappsStore.deleteAllDapps(accountId: accountId)
+                guard AccountStore.accountId == accountId else { return }
+                self.dapps = dapps
+                applySnapshot(animated: true)
+            } catch {
+                loadDapps(animated: true)
+                self.showAlert(error: error)
+            }
+        }
+    }
+    
+    public func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: true)
+        guard let item = dataSource.itemIdentifier(for: indexPath) else { return }
+        switch item {
+        case .disconnectAll:
+            disconnectAllPressed()
+        case .dapp(let dapp):
+            showDappActions(dapp)
+        }
+    }
+}
+
+extension ConnectedAppsVC: WalletCoreData.EventsObserver {
+    public func walletCore(event: WalletCore.WalletCoreData.Event) {
+        switch event {
+        case .accountChanged:
+            loadDapps(animated: false)
+        case .dappsCountUpdated(let accountId):
+            if AccountStore.accountId == accountId {
+                loadDapps(animated: false)
+            }
+        default:
+            break
+        }
+    }
+}
+
+private struct DisconnectAllCellContent: View {
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "hand.raised")
+                .textStyle(.title2, content: .technical)
+                .frame(width: 40)
+            Text(lang("Disconnect All Apps"))
+                .textStyle(.body)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .foregroundStyle(Color.air.error)
+    }
+}
+
+private struct DappCellContent: View {
+    let dapp: ApiDapp
+    
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            DappIcon(iconUrl: dapp.iconUrl)
+            .frame(width: 40, height: 40)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(dapp.name)
+                    .textStyle(.calloutEmphasized)
+                    .foregroundStyle(Color.air.primaryLabel)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    if dapp.shouldShowUrlTrustStatusWarning {
+                        DappOriginWarning(urlTrustStatus: dapp.resolvedUrlTrustStatus)
+                    }
+                    Text(dapp.displayUrl)
+                        .textStyle(.supporting, content: .technical)
+                        .foregroundStyle(Color.air.secondaryLabel)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}

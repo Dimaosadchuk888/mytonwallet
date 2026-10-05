@@ -1,0 +1,757 @@
+import type { TeactNode } from '../../lib/teact/teact';
+import React, { memo, useEffect, useMemo, useRef, useState } from '../../lib/teact/teact';
+import { getActions, getGlobal, withGlobal } from '../../global';
+
+import type { ApiSwapCexLabel, ApiToken } from '../../api/types';
+import type { ActionPayloads, AppTheme, AssetPairs, GlobalState, Theme, UserSwapToken } from '../../global/types';
+import type { LangFn } from '../../hooks/useLang';
+import type { ExplainedSwapFee } from '../../util/fee/swapFee';
+import type { FeePrecision, FeeTerms } from '../../util/fee/types';
+import { SwapInputSource, SwapState, SwapType } from '../../global/types';
+
+import {
+  ANIMATED_STICKER_TINY_SIZE_PX,
+  ANIMATION_LEVEL_MAX,
+  INIT_SWAP_ASSETS,
+} from '../../config';
+import { getSwapEstimateInputKey } from '../../global/helpers/swap';
+import { selectCurrentAccountId, selectSwapTokens, selectSwapType } from '../../global/selectors';
+import buildClassName from '../../util/buildClassName';
+import { getChainConfig } from '../../util/chain';
+import { fromDecimal, toDecimal } from '../../util/decimals';
+import { stopEvent } from '../../util/domEvents';
+import { explainSwapFee, getMaxSwapAmount, isBalanceSufficientForSwap } from '../../util/fee/swapFee';
+import { vibrate } from '../../util/haptics';
+import { openUrl } from '../../util/openUrl';
+import { findNativeToken, getChainBySlug } from '../../util/tokens';
+import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
+
+import useAppTheme from '../../hooks/useAppTheme';
+import { isBackgroundModeActive } from '../../hooks/useBackgroundMode';
+import useDebouncedCallback from '../../hooks/useDebouncedCallback';
+import useFlag from '../../hooks/useFlag';
+import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
+
+import FeeDetailsModal from '../common/FeeDetailsModal';
+import SelectTokenButton from '../common/SelectTokenButton';
+import AmountInputMaxButton from '../ui/AmountInputMaxButton';
+import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
+import FeeLine from '../ui/FeeLine';
+import RichNumberInput from '../ui/RichNumberInput';
+import SwapSubmitButton from './components/SwapSubmitButton';
+import SwapSettingsModal, { MAX_PRICE_IMPACT_VALUE } from './SwapSettingsModal';
+
+import modalStyles from '../ui/Modal.module.scss';
+import styles from './Swap.module.scss';
+
+import changellyLogoDark from '../../assets/swap_provider_changelly_dark.svg';
+import changellyLogoLight from '../../assets/swap_provider_changelly_light.svg';
+import nearIntentsLogoDark from '../../assets/swap_provider_near_dark.svg';
+import nearIntentsLogoLight from '../../assets/swap_provider_near_light.svg';
+
+interface OwnProps {
+  isStatic?: boolean;
+  isActive?: boolean;
+}
+
+interface StateProps {
+  currentSwap: GlobalState['currentSwap'];
+  tokens?: UserSwapToken[];
+  swapType: SwapType;
+  isSensitiveDataHidden?: true;
+  pairsBySlug?: Record<string, AssetPairs>;
+  isComplete?: boolean;
+  theme: Theme;
+}
+
+const ESTIMATE_REQUEST_INTERVAL = 1_000;
+/** The longest gap a run of failing estimates can stretch the refresh to, in intervals. */
+const MAX_ESTIMATE_BACKOFF_TICKS = 32;
+const SET_AMOUNT_DEBOUNCE_TIME = 500;
+
+const CEX_PROVIDER_LOGOS: Record<ApiSwapCexLabel, Record<AppTheme, string> & { width: number; height: number }> = {
+  changelly: {
+    light: changellyLogoLight, dark: changellyLogoDark, width: 87, height: 18,
+  },
+  'near-intents': {
+    light: nearIntentsLogoLight, dark: nearIntentsLogoDark, width: 81, height: 11,
+  },
+};
+
+function SwapInitial({
+  currentSwap,
+  currentSwap: {
+    tokenInSlug,
+    tokenOutSlug,
+    amountIn,
+    amountOut,
+    errorType,
+    isEstimating,
+    networkFee,
+    realNetworkFee,
+    priceImpact = 0,
+    inputSource,
+    limits,
+    isLoading,
+    dieselStatus,
+    currentCexLabel,
+    currentCexProviderName,
+    currentCexTermsOfUseUrl,
+    currentCexPrivacyPolicyUrl,
+    currentCexAmlKycPolicyUrl,
+    dieselFee,
+    maxAmountFromBackend,
+    swapHint,
+  },
+  tokens,
+  isActive,
+  isStatic,
+  isComplete,
+  swapType,
+  isSensitiveDataHidden,
+  pairsBySlug,
+  theme,
+}: OwnProps & StateProps) {
+  const {
+    setDefaultSwapParams,
+    setSwapAmountIn,
+    setSwapAmountOut,
+    switchSwapTokens,
+    estimateSwap,
+    setSwapScreen,
+    setSwapCexAddress,
+    setSwapTokenOut,
+    authorizeDiesel,
+    showToast,
+  } = getActions();
+  const lang = useLang();
+  const appTheme = useAppTheme(theme);
+
+  const inputInRef = useRef<HTMLDivElement>();
+  const inputOutRef = useRef<HTMLDivElement>();
+
+  const currentTokenInSlug = tokenInSlug ?? INIT_SWAP_ASSETS.in.slug;
+  const currentTokenOutSlug = tokenOutSlug ?? INIT_SWAP_ASSETS.out.slug;
+
+  const tokenIn = useMemo(
+    () => tokens?.find((token) => token.slug === currentTokenInSlug),
+    [currentTokenInSlug, tokens],
+  );
+  const tokenOut = useMemo(
+    () => tokens?.find((token) => token.slug === currentTokenOutSlug),
+    [currentTokenOutSlug, tokens],
+  );
+
+  const nativeUserTokenIn = useMemo(
+    () => {
+      const nativeTokenInSlug = findNativeToken(tokenIn?.chain)?.slug;
+      if (!nativeTokenInSlug) return undefined;
+      return tokens?.find((token) => token.slug === nativeTokenInSlug);
+    },
+    [tokenIn?.chain, tokens],
+  );
+  const nativeTokenInBalance = nativeUserTokenIn?.amount ?? 0n;
+
+  const amountInBigint = amountIn && tokenIn ? fromDecimal(amountIn, tokenIn.decimals) : undefined;
+  const amountOutBigint = amountOut && tokenOut ? fromDecimal(amountOut, tokenOut.decimals) : undefined;
+  const balanceIn = tokenIn?.amount ?? 0n;
+
+  const explainedFee = useMemo(
+    () => explainSwapFee({
+      swapType,
+      tokenInSlug,
+      networkFee,
+      realNetworkFee,
+      dieselStatus,
+      dieselFee,
+      nativeTokenInBalance,
+    }),
+    [swapType, tokenInSlug, networkFee, realNetworkFee, dieselStatus, dieselFee, nativeTokenInBalance],
+  );
+
+  const maxAmountFromBackendBigint = maxAmountFromBackend && tokenIn
+    ? fromDecimal(maxAmountFromBackend, tokenIn.decimals)
+    : undefined;
+
+  const maxAmount = getMaxSwapAmount({
+    swapType,
+    tokenInBalance: balanceIn,
+    tokenIn,
+    fullNetworkFee: explainedFee.fullFee?.networkTerms,
+    maxAmountFromBackend: maxAmountFromBackendBigint,
+  });
+
+  // Note: this constant has 3 distinct meaningful values
+  const isEnoughBalance = isBalanceSufficientForSwap({
+    swapType,
+    tokenInBalance: balanceIn,
+    tokenIn,
+    fullNetworkFee: explainedFee.fullFee?.networkTerms,
+    amountIn,
+    nativeTokenInBalance,
+    maxAmountFromBackend: maxAmountFromBackendBigint,
+  });
+
+  const networkFeeBigint = networkFee !== undefined && nativeUserTokenIn
+    ? fromDecimal(networkFee, nativeUserTokenIn.decimals)
+    : 0n;
+  const isEnoughNative = nativeTokenInBalance >= networkFeeBigint;
+
+  const isDieselNotAuthorized = explainedFee.isGasless && dieselStatus === 'not-authorized';
+
+  const canSubmit = isDieselNotAuthorized || (
+    (amountInBigint ?? 0n) > 0n
+    && (amountOutBigint ?? 0n) > 0n
+    && isEnoughBalance
+    && (!explainedFee.isGasless || dieselStatus === 'available' || dieselStatus === 'stars-fee')
+    && !isEstimating
+    && errorType === undefined
+  );
+
+  const hasAmountInError = amountInBigint !== undefined && maxAmount !== undefined && amountInBigint > maxAmount;
+  const amountOutValue = (amountInBigint ?? 0n) <= 0n && inputSource === SwapInputSource.In
+    ? ''
+    : amountOut?.toString();
+  const isAmountGreaterThanBalance = balanceIn !== undefined && amountInBigint !== undefined
+    && amountInBigint > balanceIn;
+  const hasInsufficientFeeError = isEnoughBalance === false && !isAmountGreaterThanBalance
+    && dieselStatus !== 'not-authorized' && dieselStatus !== 'pending-previous';
+
+  const isPriceImpactError = priceImpact >= MAX_PRICE_IMPACT_VALUE;
+  const isCrosschain = swapType !== SwapType.OnChain;
+
+  const intermediateHintToken = useMemo(() => {
+    if (swapHint?.type !== 'intermediate') return undefined;
+
+    return tokens?.find((token) => token.slug === swapHint.token);
+  }, [swapHint, tokens]);
+
+  const handleSwapHintClick = useLastCallback(() => {
+    if (swapHint?.type === 'intermediate' && intermediateHintToken) {
+      setSwapTokenOut({ tokenSlug: intermediateHintToken.slug });
+    } else if (swapHint?.type === 'external') {
+      void openUrl(swapHint.url, { isExternal: true, title: swapHint.providerName });
+    }
+  });
+
+  const [isBuyAmountInputDisabled, handleBuyAmountInputClick] = useReverseProhibited(
+    isCrosschain,
+    pairsBySlug,
+    currentTokenInSlug,
+    currentTokenOutSlug,
+    showToast,
+    lang,
+  );
+
+  // A form nobody is looking at has no quote to keep fresh, and an estimate already in flight is a
+  // reason to hold rather than to start another one.
+  const canRequestEstimate = useLastCallback(() => isActive && !isBackgroundModeActive());
+
+  const handleEstimateSwap = useLastCallback(() => {
+    if (!canRequestEstimate()) return;
+
+    estimateSwap();
+  });
+
+  // The refresh exists to follow a moving market, which a failing estimate is not doing: a pair with
+  // no route or an amount the network fee already exceeds answers the same way however often it is
+  // asked. Repeated failures therefore stretch the gap between attempts instead of holding at one a
+  // second, while a success returns to the full rate. Backing off rather than stopping is what keeps
+  // the form alive - the estimate always resumes on its own, even if nothing here notices why it
+  // started failing.
+  const failedAttemptsRef = useRef(0);
+  const ticksSinceAttemptRef = useRef(0);
+
+  // The backoff belongs to one question. The moment the form starts asking a different one - a token,
+  // an amount, the slippage, the maximum toggle - the failures that earned it say nothing about the
+  // answer, so the rate returns to full.
+  const estimateInputKey = getSwapEstimateInputKey(currentSwap);
+
+  useEffect(() => {
+    failedAttemptsRef.current = 0;
+    ticksSinceAttemptRef.current = 0;
+  }, [estimateInputKey]);
+
+  const handleEstimateSwapTick = useLastCallback(() => {
+    // A tick that cannot send anything must not count either, or a form left in the background would
+    // come back owing the whole backoff for attempts it never made.
+    if (!canRequestEstimate()) return;
+
+    // An attempt still unsettled a whole tick later did not produce a quote either. That covers the
+    // case the form cannot show: a rate-limited estimate returns no error and leaves the request
+    // loading, so counting only `errorType` would let exactly the rate we are being asked to lower
+    // continue at full speed.
+    const hasLastAttemptFailed = errorType !== undefined || isEstimating;
+
+    if (!hasLastAttemptFailed) {
+      failedAttemptsRef.current = 0;
+    }
+
+    ticksSinceAttemptRef.current += 1;
+    const ticksToWait = Math.min(2 ** failedAttemptsRef.current, MAX_ESTIMATE_BACKOFF_TICKS);
+    if (ticksSinceAttemptRef.current < ticksToWait) return;
+
+    ticksSinceAttemptRef.current = 0;
+    if (hasLastAttemptFailed) {
+      failedAttemptsRef.current += 1;
+    }
+
+    handleEstimateSwap();
+  });
+
+  const debounceSetAmountIn = useDebouncedCallback(
+    setSwapAmountIn, [setSwapAmountIn], SET_AMOUNT_DEBOUNCE_TIME, true,
+  );
+  const debounceSetAmountOut = useDebouncedCallback(
+    setSwapAmountOut, [setSwapAmountOut], SET_AMOUNT_DEBOUNCE_TIME, true,
+  );
+
+  const [currentSubModal, openSettingsModal, openFeeModal, closeSubModal] = useSubModals(explainedFee);
+
+  useEffect(() => {
+    if (!tokenInSlug && !tokenOutSlug) {
+      setDefaultSwapParams();
+    }
+  }, [tokenInSlug, tokenOutSlug]);
+
+  useEffect(() => {
+    if (isEstimating) {
+      handleEstimateSwap();
+    }
+
+    const intervalId = setInterval(handleEstimateSwapTick, ESTIMATE_REQUEST_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [isEstimating]);
+
+  useEffect(() => {
+    if (isComplete) clearForm();
+  }, [isComplete]);
+
+  function clearForm() {
+    setSwapAmountIn({ amount: undefined, isMaxAmount: false });
+    setSwapAmountOut({ amount: undefined });
+  }
+
+  const handleAmountInChange = useLastCallback(
+    (amount: string | undefined) => {
+      debounceSetAmountIn({ amount: amount || undefined });
+    },
+  );
+
+  const handleSelectTokenInModalOpen = useLastCallback(() => {
+    setSwapScreen({ state: SwapState.SelectTokenFrom });
+  });
+
+  const handleSelectTokenOutModalOpen = useLastCallback(() => {
+    setSwapScreen({ state: SwapState.SelectTokenTo });
+  });
+
+  const handleAmountOutChange = useLastCallback(
+    (amount: string | undefined) => {
+      debounceSetAmountOut({ amount: amount || undefined });
+    },
+  );
+
+  const handleMaxAmountClick = useLastCallback(() => {
+    if (maxAmount === undefined) {
+      return;
+    }
+
+    vibrate();
+
+    const amount = toDecimal(maxAmount, tokenIn!.decimals);
+    setSwapAmountIn({ amount, isMaxAmount: true });
+  });
+
+  const handleSubmit = useLastCallback((e: React.FormEvent | React.UIEvent) => {
+    stopEvent(e);
+
+    if (!canSubmit) {
+      return;
+    }
+
+    if (isDieselNotAuthorized) {
+      authorizeDiesel();
+      return;
+    }
+
+    vibrate();
+
+    if (swapType === SwapType.CrosschainFromWallet) {
+      setSwapCexAddress({ toAddress: '' });
+      setSwapScreen({ state: SwapState.Blockchain });
+    } else {
+      setSwapScreen({ state: SwapState.Password });
+    }
+  });
+
+  const handleSwitchTokens = useLastCallback(() => {
+    vibrate();
+    switchSwapTokens();
+  });
+
+  function renderBalance() {
+    return (
+      <AmountInputMaxButton
+        maxAmount={maxAmount ?? balanceIn}
+        token={tokenIn}
+        isSensitiveDataHidden={isSensitiveDataHidden}
+        onAmountClick={handleMaxAmountClick}
+      />
+    );
+  }
+
+  function renderFee() {
+    const shouldShow = (amountIn && amountOut)
+      || ((amountIn || amountOut) && errorType); // Without this sub-condition the fee wouldn't be shown when the amount is outside the CEX limits
+
+    let terms: FeeTerms | undefined;
+    let precision: FeePrecision = 'exact';
+
+    if (shouldShow) {
+      const actualFee = hasInsufficientFeeError ? explainedFee.fullFee : undefined;
+      if (actualFee) {
+        ({ terms, precision } = actualFee);
+      }
+    }
+
+    return (
+      <FeeLine
+        isStatic={isStatic}
+        terms={terms}
+        token={tokenIn}
+        precision={precision}
+        keepDetailsButtonWithoutFee
+        onDetailsClick={openSettingsModal}
+        className={styles.feeLine}
+      />
+    );
+  }
+
+  function renderPriceImpactWarning() {
+    if (!priceImpact || !isPriceImpactError || isCrosschain) {
+      return undefined;
+    }
+
+    return (
+      <div
+        className={buildClassName(styles.priceImpact, isStatic && styles.priceImpactStatic)}
+        onClick={openSettingsModal}
+      >
+        <AnimatedIconWithPreview
+          play={isActive}
+          tgsUrl={ANIMATED_STICKERS_PATHS.run}
+          previewUrl={ANIMATED_STICKERS_PATHS.runPreview}
+          noLoop={false}
+          nonInteractive
+          size={ANIMATED_STICKER_TINY_SIZE_PX}
+          className={styles.priceImpactSticker}
+        />
+        <div className={styles.priceImpactContent}>
+          <span className={styles.priceImpactTitle}>
+            {lang('The exchange rate is below market value!', { value: `${priceImpact}%` })}
+            <i className={buildClassName(styles.priceImpactArrow, 'icon-chevron-right')} aria-hidden />
+          </span>
+          <span className={styles.priceImpactDescription}>
+            {lang('We do not recommend to perform an exchange, try to specify a lower amount.')}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  function renderSwapHint() {
+    if (!errorType || !swapHint) {
+      return undefined;
+    }
+
+    let title: TeactNode;
+    let message: TeactNode;
+    let actionTitle: TeactNode;
+
+    if (swapHint.type === 'intermediate') {
+      if (!intermediateHintToken || !tokenOut) return undefined;
+
+      title = lang('Direct swap unavailable');
+      message = lang('To buy %buy_token%, first buy %token%, then swap it for %buy_token%.', {
+        buy_token: tokenOut.symbol,
+        token: intermediateHintToken.symbol,
+      });
+      actionTitle = lang('Buy %token%', { token: intermediateHintToken.symbol });
+    } else {
+      title = lang('Swap on an external service');
+      message = lang('Open %provider% to swap this pair in the browser.', {
+        provider: swapHint.providerName,
+      });
+      actionTitle = lang('Open %provider%', { provider: swapHint.providerName });
+    }
+
+    return (
+      <div className={styles.swapHint}>
+        <div className={styles.swapHintText}>
+          <span className={styles.swapHintTitle}>{title}</span>
+          <span className={styles.swapHintDescription}>{message}</span>
+        </div>
+        <button type="button" className={styles.swapHintAction} onClick={handleSwapHintClick}>
+          {actionTitle}
+        </button>
+      </div>
+    );
+  }
+
+  function renderCexProviderInfo() {
+    if (!isCrosschain || !currentCexLabel) {
+      return undefined;
+    }
+
+    const providerName = currentCexProviderName;
+    if (!providerName) {
+      return undefined;
+    }
+
+    const legalDescription = renderCexProviderLegalDescription(providerName);
+    // `cexLabel` comes from the backend, so it can name a provider this app version has no logo for
+    const logo = CEX_PROVIDER_LOGOS[currentCexLabel];
+    const provider = logo ? (
+      <img
+        src={logo[appTheme]}
+        alt={providerName}
+        width={logo.width}
+        height={logo.height}
+        className={styles.providerLogo}
+      />
+    ) : providerName;
+
+    return (
+      <div className={buildClassName(styles.providerInfo, isStatic && styles.providerInfoStatic)}>
+        <span className={styles.providerInfoTitle}>
+          {lang('Cross-chain exchange provided by %provider%', { provider })}
+        </span>
+        {legalDescription}
+      </div>
+    );
+  }
+
+  function renderCexProviderLegalDescription(providerName: string) {
+    if (!currentCexTermsOfUseUrl || !currentCexPrivacyPolicyUrl) {
+      return undefined;
+    }
+
+    const terms = (
+      <a href={currentCexTermsOfUseUrl} target="_blank" rel="noreferrer">
+        {lang('$swap_cex_terms_of_use')}
+      </a>
+    );
+    const policy = (
+      <a href={currentCexPrivacyPolicyUrl} target="_blank" rel="noreferrer">
+        {lang('$swap_cex_privacy_policy')}
+      </a>
+    );
+    const aml = currentCexAmlKycPolicyUrl ? (
+      <a href={currentCexAmlKycPolicyUrl} target="_blank" rel="noreferrer">
+        {lang('$swap_cex_aml_kyc_policy_with_provider', { provider: providerName })}
+      </a>
+    ) : undefined;
+
+    return (
+      <span className={styles.providerInfoDescription}>
+        {aml
+          ? lang('$swap_cex_legal_message_with_aml', { terms, policy, aml })
+          : lang('$swap_cex_legal_message', { terms, policy })}
+      </span>
+    );
+  }
+
+  return (
+    <>
+      <form className={isStatic ? undefined : modalStyles.transitionContent} onSubmit={handleSubmit}>
+        <div className={styles.content}>
+          <div ref={inputInRef} className={styles.inputContainer}>
+            {renderBalance()}
+            <RichNumberInput
+              id="swap-sell"
+              labelText={lang('You Sell')}
+              className={styles.amountInput}
+              hasError={hasAmountInError}
+              value={amountIn?.toString()}
+              isLoading={isEstimating && inputSource === SwapInputSource.Out}
+              onChange={handleAmountInChange}
+              onPressEnter={handleSubmit}
+              decimals={tokenIn?.decimals}
+              labelClassName={styles.inputLabel}
+              cornerClassName={buildClassName(styles.swapCornerTop, isStatic && styles.swapCornerStaticTop)}
+              isStatic={isStatic}
+            >
+              <SelectTokenButton token={tokenIn as ApiToken} onClick={handleSelectTokenInModalOpen} />
+            </RichNumberInput>
+          </div>
+
+          <div className={buildClassName(styles.swapButtonWrapper, isStatic && styles.swapButtonWrapperStatic)}>
+            <AnimatedArrows onClick={handleSwitchTokens} />
+          </div>
+
+          <div ref={inputOutRef} className={styles.inputContainer}>
+            <RichNumberInput
+              id="swap-buy"
+              labelText={lang('You Buy')}
+              className={styles.amountInputBuy}
+              value={amountOutValue}
+              isLoading={isEstimating && inputSource === SwapInputSource.In}
+              disabled={isBuyAmountInputDisabled}
+              onChange={handleAmountOutChange}
+              onPressEnter={handleSubmit}
+              onInputClick={handleBuyAmountInputClick}
+              decimals={tokenOut?.decimals}
+              labelClassName={styles.inputLabel}
+              cornerClassName={buildClassName(styles.swapCornerBottom, isStatic && styles.swapCornerStaticBottom)}
+              isStatic={isStatic}
+            >
+              <SelectTokenButton token={tokenOut as ApiToken} onClick={handleSelectTokenOutModalOpen} />
+            </RichNumberInput>
+          </div>
+        </div>
+        <div className={buildClassName(styles.footerBlock, isStatic && styles.footerBlockStatic)}>
+          {renderFee()}
+          {renderPriceImpactWarning()}
+          {renderSwapHint()}
+          {renderCexProviderInfo()}
+
+          <SwapSubmitButton
+            tokenIn={tokenIn}
+            tokenOut={tokenOut}
+            amountIn={amountIn}
+            amountOut={amountOut}
+            swapType={swapType}
+            isEstimating={isEstimating}
+            isNotEnoughNative={!isEnoughNative}
+            nativeToken={nativeUserTokenIn}
+            dieselStatus={dieselStatus}
+            isSending={isLoading}
+            isPriceImpactError={isPriceImpactError}
+            canSubmit={canSubmit}
+            errorType={errorType}
+            limits={limits}
+          />
+        </div>
+      </form>
+      <SwapSettingsModal
+        isOpen={currentSubModal === 'settings'}
+        onClose={closeSubModal}
+        onNetworkFeeClick={openFeeModal}
+        showFullNetworkFee={hasInsufficientFeeError}
+      />
+      <FeeDetailsModal
+        isOpen={currentSubModal === 'feeDetails'}
+        onClose={closeSubModal}
+        fullFee={explainedFee.fullFee?.networkTerms}
+        realFee={explainedFee.realFee?.networkTerms}
+        realFeePrecision={explainedFee.realFee?.precision}
+        excessFee={explainedFee.excessFee}
+        excessFeePrecision="approximate"
+        token={tokenIn}
+      />
+    </>
+  );
+}
+
+export default memo(
+  withGlobal<OwnProps>(
+    (global): StateProps => {
+      return {
+        currentSwap: global.currentSwap,
+        tokens: selectSwapTokens(global),
+        swapType: selectSwapType(global),
+        isSensitiveDataHidden: global.settings.isSensitiveDataHidden,
+        pairsBySlug: global.swapPairs?.bySlug,
+        isComplete: global.currentSwap.state === SwapState.Complete,
+        theme: global.settings.theme,
+      };
+    },
+    (global, _, stickToFirst) => stickToFirst(selectCurrentAccountId(global)),
+  )(SwapInitial),
+);
+
+function useReverseProhibited(
+  isCrosschain: boolean,
+  pairsBySlug: Record<string, AssetPairs> | undefined,
+  currentTokenInSlug: string,
+  currentTokenOutSlug: string,
+  showToast: (arg: ActionPayloads['showToast']) => void,
+  lang: LangFn,
+) {
+  const tokenInChain = getChainBySlug(currentTokenInSlug);
+  const tokenOutChain = getChainBySlug(currentTokenOutSlug);
+  const isOnchainBuyAmountUnsupported = Boolean(tokenInChain
+    && tokenInChain === tokenOutChain
+    && !getChainConfig(tokenInChain).canSwapByBuyAmount);
+  const isReverseProhibited = isCrosschain
+    || isOnchainBuyAmountUnsupported
+    || pairsBySlug?.[currentTokenInSlug]?.[currentTokenOutSlug]?.isReverseProhibited;
+  const isBuyAmountInputDisabled = isReverseProhibited;
+
+  const handleBuyAmountInputClick = useMemo(() => {
+    return isReverseProhibited
+      ? () => {
+        vibrate();
+        showToast({ message: lang('$swap_reverse_prohibited') });
+      }
+      : undefined;
+  }, [isReverseProhibited, lang, showToast]);
+
+  return [isBuyAmountInputDisabled, handleBuyAmountInputClick] as const;
+}
+
+function AnimatedArrows({ onClick }: { onClick?: NoneToVoidFunction }) {
+  const animationLevel = getGlobal().settings.animationLevel;
+  const shouldAnimate = (animationLevel === ANIMATION_LEVEL_MAX);
+  const [hasAnimation, startAnimation, stopAnimation] = useFlag(false);
+
+  const handleClick = useLastCallback(() => {
+    if (shouldAnimate) {
+      startAnimation();
+      window.setTimeout(() => {
+        stopAnimation();
+      }, 350);
+    }
+
+    onClick?.();
+  });
+
+  function renderArrow(isInverted?: boolean) {
+    return (
+      <div className={buildClassName(styles.arrowContainer, isInverted && styles.arrowContainerInverted)}>
+        <div className={styles.arrow}>
+          <i className="icon-arrow-up-swap" aria-hidden />
+        </div>
+        <div className={buildClassName(styles.arrowOld, hasAnimation && styles.animateDisappear)}>
+          <i className="icon-arrow-up-swap" aria-hidden />
+        </div>
+        <div className={buildClassName(styles.arrowNew, hasAnimation && styles.animateAppear)}>
+          <i className="icon-arrow-up-swap" aria-hidden />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.swapButton} onClick={handleClick}>
+      {renderArrow()}
+      {renderArrow(true)}
+    </div>
+  );
+}
+
+function useSubModals(explainedFee: ExplainedSwapFee) {
+  const isFeeModalAvailable = explainedFee.realFee?.precision !== 'exact';
+  const [currentModal, setCurrentModal] = useState<'settings' | 'feeDetails'>();
+
+  const openSettings = useLastCallback(() => setCurrentModal('settings'));
+  const openFeeDetailsIfAvailable = useMemo(
+    () => (isFeeModalAvailable ? () => setCurrentModal('feeDetails') : undefined),
+    [isFeeModalAvailable],
+  );
+  const close = useLastCallback(() => setCurrentModal(undefined));
+
+  return [currentModal, openSettings, openFeeDetailsIfAvailable, close] as const;
+}

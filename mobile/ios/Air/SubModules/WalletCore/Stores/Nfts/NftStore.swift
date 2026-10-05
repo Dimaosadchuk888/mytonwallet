@@ -1,0 +1,941 @@
+//
+//  NftStore.swift
+//  MyTonWalletAir
+//
+//  Created by Sina on 10/30/24.
+//
+
+import Foundation
+import GRDB
+import WalletContext
+import OrderedCollections
+import Dependencies
+import Perception
+import WalletCoreTypes
+
+private let log = Log("NftStore")
+
+public var NftStore: _NftStore { .shared }
+
+private struct HiddenNftKey: Hashable, Sendable {
+    let chain: ApiChain
+    let address: String
+
+    init(nft: ApiNft) {
+        self.init(chain: nft.chain, address: nft.address)
+    }
+
+    init(chain: ApiChain, address: String) {
+        self.chain = chain
+        self.address = address
+    }
+}
+
+@Perceptible
+public final class _NftStore: Sendable {
+
+    public static let shared = _NftStore()
+
+    @PerceptionIgnored
+    private let updatesQueue = DispatchQueue(label: "org.mytonwallet.app.nft-store-updates", qos: .userInitiated)
+
+    private let cacheUrl: URL
+
+    init(cacheUrl: URL = URL.cachesDirectory.appending(components: "air", "nfts", "nfts.json")) {
+        self.cacheUrl = cacheUrl
+    }
+
+    private let _nfts: UnfairLock<[String: OrderedDictionary<String, DisplayNft>]> = .init(initialState: [:])
+    private var nfts: [String: OrderedDictionary<String, DisplayNft>] {
+        _nfts.withLock { $0 }
+    }
+    @PerceptionIgnored
+    private let _database: UnfairLock<(any DatabaseWriter)?> = .init(initialState: nil)
+    @PerceptionIgnored
+    private let _hiddenNftKeysByAccount: UnfairLock<[String: Set<HiddenNftKey>]> = .init(initialState: [:])
+    
+    public func getAccountNfts(accountId: String) -> OrderedDictionary<String, DisplayNft>? {
+        _nfts.withLock { $0[accountId] }
+    }
+    public func getAccountShownNfts(accountId: String) -> OrderedDictionary<String, DisplayNft>? {
+        guard let nfts = getAccountNfts(accountId: accountId) else { return nil }
+        return nfts.filter { (_, displayNft) in
+            displayNft.shouldHide == false
+        }
+    }
+    public func getAccountHasHiddenNfts(accountId: String) -> Bool {
+        guard let nfts = getAccountNfts(accountId: accountId) else { return false }
+        return nfts.contains { _, displayNft in
+            displayNft.isUnhiddenByUser == true || displayNft.shouldHide == true
+        }
+    }
+    public func getAccountHiddenNftsCount(accountId: String) -> Int {
+        guard let nfts = getAccountNfts(accountId: accountId) else { return 0 }
+        return nfts.count { _, displayNft in
+            displayNft.isUnhiddenByUser == true || displayNft.shouldHide == true
+        }
+    }
+    public func getNft(accountId: String, nftId: String) -> DisplayNft? {
+        _nfts.withLock { $0[accountId]?[nftId] }
+    }
+    public func shouldHideTransaction(accountId: String, transaction: ApiTransactionActivity) -> Bool {
+        shouldHideTransaction(
+            accountId: accountId,
+            transaction: transaction,
+            areUnverifiedNftsHidden: AppStorageHelper.hideUnverifiedNfts
+        )
+    }
+
+    func shouldHideTransaction(
+        accountId: String,
+        transaction: ApiTransactionActivity,
+        areUnverifiedNftsHidden: Bool
+    ) -> Bool {
+        guard let nft = transaction.nft else { return false }
+        if isHiddenByUser(accountId: accountId, nft: nft) {
+            return true
+        }
+        let displayNft = _nfts.withLock { nfts in
+            nfts[accountId]?[nft.id] ?? nfts[accountId]?.first {
+                $0.value.nft.chain == nft.chain && $0.value.nft.address == nft.address
+            }?.value
+        }
+        if displayNft?.isHiddenByUser == true {
+            return true
+        }
+        if displayNft?.isUnhiddenByUser == true {
+            return false
+        }
+        if nft.isHidden == true || displayNft?.nft.isHidden == true {
+            return true
+        }
+        let isUnverified = nft.isUnverified == true || displayNft?.nft.isUnverified == true
+        let isReceivedFromOthers = transaction.isIncoming && transaction.type != .nftTrade
+        return areUnverifiedNftsHidden && isUnverified && isReceivedFromOthers
+    }
+    public func nftWithStoredTelegramGiftLottie(accountId: String, nft: ApiNft) -> ApiNft {
+        guard nft.metadata?.lottie?.nilIfEmpty == nil else {
+            return nft
+        }
+        guard let storedNft = getNft(accountId: accountId, nftId: nft.id)?.nft else {
+            return nft
+        }
+        guard nft.isTelegramGift == true || storedNft.isTelegramGift == true else {
+            return nft
+        }
+        guard storedNft.metadata?.lottie?.nilIfEmpty != nil else {
+            return nft
+        }
+        return storedNft
+    }
+    
+    // MARK: - Load
+
+    private enum NftsMergeMode: Equatable {
+        case prepend
+        case append
+    }
+
+    private struct StreamPruneContext {
+        let chain: ApiChain
+        let addresses: Set<String>
+    }
+
+    private typealias ValidationContext = AccountNftAvailabilityValidationContext
+
+    @PerceptionIgnored
+    private let _pendingNewMtwCardsByAccount: UnfairLock<[String: [ApiNft]]> = .init(initialState: [:])
+    
+    private func received(
+        accountId: String,
+        newNfts: [ApiNft],
+        removedNftIds: [String],
+        mergeMode: NftsMergeMode = .prepend,
+        streamPruneContext: StreamPruneContext? = nil,
+        shouldValidateAccountNftAvailability: Bool = false,
+        validationContext: ValidationContext? = nil
+    ) {
+        var nfts = self.nfts[accountId, default: [:]]
+        for removedNftId in removedNftIds {
+            nfts.removeValue(forKey: removedNftId)
+            nfts.removeAll { _, displayNft in
+                displayNft.nft.address == removedNftId
+            }
+        }
+        let orderedIncomingNfts = mergeMode == .prepend ? Array(newNfts.reversed()) : newNfts
+        for nft in orderedIncomingNfts {
+            if var displayNft = nfts[nft.id] {
+                let oldIsHidden = displayNft.shouldHide
+                displayNft.nft = nft
+                displayNft.isHiddenByUser = isHiddenByUser(accountId: accountId, nft: nft)
+                if oldIsHidden == false && displayNft.shouldHide == true {
+                    nfts.removeValue(forKey: nft.id)
+                }
+                nfts[nft.id] = displayNft
+            } else {
+                let displayNft = DisplayNft(
+                    nft: nft,
+                    isHiddenByUser: isHiddenByUser(accountId: accountId, nft: nft)
+                )
+                if displayNft.shouldHide || mergeMode == .append {
+                    nfts[nft.id] = displayNft
+                } else {
+                    nfts.updateValue(displayNft, forKey: nft.id, insertingAt: 0)
+                }
+            }
+        }
+
+        if let streamPruneContext {
+            nfts.removeAll { _, displayNft in
+                displayNft.nft.chain == streamPruneContext.chain
+                    && !streamPruneContext.addresses.contains(displayNft.nft.address)
+            }
+        }
+
+        self._nfts.withLock { [nfts] in
+            $0[accountId] = nfts
+        }
+        _moveHiddenToEnd(accountId: accountId)
+        _checkNftsOrder(accountId: accountId)
+        saveToCache()
+        if shouldValidateAccountNftAvailability {
+            _removeAccountNftIfNoLongerAvailable(accountId: accountId, context: validationContext)
+        }
+        WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+    }
+
+    private func markNftAsOnSale(accountId: String, nftId: String) {
+        let didChange = _nfts.withLock {
+            let key = $0[accountId]?[nftId] != nil
+                ? nftId
+                : $0[accountId]?.first(where: { _, displayNft in displayNft.nft.address == nftId })?.key
+            guard let key, var displayNft = $0[accountId]?[key], displayNft.nft.isOnSale == false else {
+                return false
+            }
+            displayNft.nft.isOnSale = true
+            $0[accountId]?[key] = displayNft
+            return true
+        }
+        guard didChange else { return }
+        saveToCache()
+        WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+    }
+    
+    // MARK: - Storage
+    
+    public func use(db: any DatabaseWriter, accountIds: Set<String>) async {
+        _database.withLock { $0 = db }
+
+        var cachedNfts: [String: OrderedDictionary<String, DisplayNft>] = [:]
+        do {
+            let data = try Data(contentsOf: cacheUrl)
+            cachedNfts = try JSONDecoder()
+                .decode([String: OrderedDictionary<String, DisplayNft>].self, from: data)
+                .filter { accountIds.contains($0.key) }
+                .mapValues(Self.normalizeNftKeys)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            // A missing cache is expected on first launch.
+        } catch {
+            log.error("failed to load cache: \(error, .public)")
+        }
+
+        let legacyRows = cachedNfts.flatMap { accountId, nfts in
+            nfts.values.compactMap { displayNft -> MAccountHiddenNft? in
+                guard displayNft.isHiddenByUser else { return nil }
+                return MAccountHiddenNft(
+                    accountId: accountId,
+                    chain: displayNft.nft.chain.rawValue,
+                    nftAddress: displayNft.nft.address
+                )
+            }
+        }
+
+        var storedRows: [MAccountHiddenNft] = []
+        do {
+            storedRows = try await db.read { db in
+                try MAccountHiddenNft.fetchAll(db)
+            }
+            if !legacyRows.isEmpty {
+                try await db.write { db in
+                    for row in legacyRows {
+                        try row.upsert(db)
+                    }
+                }
+            }
+        } catch {
+            log.error("failed to load or migrate hidden NFTs: \(error, .public)")
+        }
+
+        var hiddenNftKeysByAccount: [String: Set<HiddenNftKey>] = [:]
+        for row in storedRows + legacyRows {
+            guard accountIds.contains(row.accountId), let chain = ApiChain(rawValue: row.chain) else { continue }
+            hiddenNftKeysByAccount[row.accountId, default: []].insert(
+                HiddenNftKey(chain: chain, address: row.nftAddress)
+            )
+        }
+        _hiddenNftKeysByAccount.withLock { [hiddenNftKeysByAccount] in
+            $0 = hiddenNftKeysByAccount
+        }
+
+        for accountId in Array(cachedNfts.keys) {
+            let nftIds = cachedNfts[accountId].map { Array($0.keys) } ?? []
+            for nftId in nftIds {
+                guard var displayNft = cachedNfts[accountId]?[nftId] else { continue }
+                displayNft.isHiddenByUser = hiddenNftKeysByAccount[accountId]?.contains(
+                    HiddenNftKey(nft: displayNft.nft)
+                ) == true
+                cachedNfts[accountId]?[nftId] = displayNft
+            }
+        }
+        _nfts.withLock { [cachedNfts] in
+            $0 = cachedNfts
+        }
+        for accountId in cachedNfts.keys {
+            _moveHiddenToEnd(accountId: accountId)
+            _checkNftsOrder(accountId: accountId)
+            WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+        }
+        if !legacyRows.isEmpty {
+            saveToCache()
+        }
+        WalletCoreData.add(eventObserver: self)
+    }
+    
+    private func saveToCache() {
+        Task(priority: .background) {
+            do {
+                try FileManager.default.createDirectory(at: cacheUrl.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let data = try JSONEncoder().encode(nfts)
+                try data.write(to: cacheUrl)
+            } catch {
+                log.error("failed to save to cache: \(error, .public)")
+            }
+        }
+    }
+
+    private static func normalizeNftKeys(_ nfts: OrderedDictionary<String, DisplayNft>) -> OrderedDictionary<String, DisplayNft> {
+        var result: OrderedDictionary<String, DisplayNft> = [:]
+        for displayNft in nfts.values {
+            result[displayNft.nft.id] = displayNft
+        }
+        return result
+    }
+    
+    public func clean() {
+        _nfts.withLock { $0 = [:] }
+        _hiddenNftKeysByAccount.withLock { $0 = [:] }
+        _database.withLock { $0 = nil }
+        _pendingNewMtwCardsByAccount.withLock { $0 = [:] }
+        saveToCache()
+    }
+    
+    // MARK: - Hidden
+
+    public func setHiddenByUser(accountId: String, nftId: String, isHidden: Bool) {
+        setHiddenByUser(accountId: accountId, nftIds: [nftId], isHidden: isHidden)
+    }
+
+    public func setHiddenByUser(accountId: String, nftIds: [String], isHidden newValue: Bool) {
+        let nfts = _nfts.withLock { storedNfts in
+            nftIds.compactMap { nftId in
+                storedNfts[accountId]?[nftId]?.nft
+            }
+        }
+        setHiddenByUser(accountId: accountId, nfts: nfts, isHidden: newValue)
+    }
+
+    public func setHiddenByUser(accountId: String, nft: ApiNft, isHidden: Bool) {
+        setHiddenByUser(accountId: accountId, nfts: [nft], isHidden: isHidden)
+    }
+
+    public func setHiddenByUser(accountId: String, nfts: [ApiNft], isHidden newValue: Bool) {
+        guard !nfts.isEmpty else { return }
+        let keys = Set(nfts.map(HiddenNftKey.init(nft:)))
+        _hiddenNftKeysByAccount.withLock {
+            if newValue {
+                $0[accountId, default: []].formUnion(keys)
+            } else {
+                $0[accountId, default: []].subtract(keys)
+            }
+        }
+        persistHiddenNfts(accountId: accountId, keys: keys, isHidden: newValue)
+
+        _nfts.withLock {
+            for nft in nfts {
+                let nftId = nft.id
+                let storedNftId = $0[accountId]?[nftId] != nil
+                    ? nftId
+                    : $0[accountId]?.first(where: {
+                        $0.value.nft.chain == nft.chain && $0.value.nft.address == nft.address
+                    })?.key
+                if let storedNftId, var displayNft = $0[accountId]?[storedNftId] {
+                    let oldShouldHide = displayNft.shouldHide
+                    
+                    if newValue == true {
+                        displayNft.isUnhiddenByUser = false
+                        displayNft.isHiddenByUser = true
+                    } else { // newValue == false
+                        displayNft.isHiddenByUser = false
+                        if displayNft.nft.isHidden == true
+                            || displayNft.nft.isScam == true
+                            || displayNft.nft.isUnverified == true
+                        {
+                            displayNft.isUnhiddenByUser = true
+                        }
+                    }
+                    
+                    if displayNft.shouldHide != oldShouldHide {
+                        _ = $0[accountId]?.removeValue(forKey: storedNftId)
+                        if displayNft.shouldHide {
+                            $0[accountId]?[storedNftId] = displayNft
+                        } else {
+                            $0[accountId]?.updateValue(displayNft, forKey: storedNftId, insertingAt: 0)
+                        }
+                    } else {
+                        $0[accountId]?[storedNftId] = displayNft
+                    }
+                }
+            }
+        }
+        _checkNftsOrder(accountId: accountId)
+        saveToCache()
+        WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+    }
+
+    public func isHiddenByUser(accountId: String, nft: ApiNft) -> Bool {
+        _hiddenNftKeysByAccount.withLock {
+            $0[accountId]?.contains(HiddenNftKey(nft: nft)) == true
+        }
+    }
+
+    private func persistHiddenNfts(accountId: String, keys: Set<HiddenNftKey>, isHidden: Bool) {
+        guard let database = _database.withLock({ $0 }) else {
+            assertionFailure("database not ready")
+            return
+        }
+        do {
+            try database.write { db in
+                for key in keys {
+                    if isHidden {
+                        try MAccountHiddenNft(
+                            accountId: accountId,
+                            chain: key.chain.rawValue,
+                            nftAddress: key.address
+                        ).upsert(db)
+                    } else {
+                        try db.execute(
+                            sql: """
+                            DELETE FROM account_hidden_nfts
+                            WHERE accountId = ? AND chain = ? AND nftAddress = ?
+                            """,
+                            arguments: [accountId, key.chain.rawValue, key.address]
+                        )
+                    }
+                }
+            }
+        } catch {
+            log.error("failed to persist hidden NFTs for account \(accountId, .public): \(error, .public)")
+        }
+    }
+    
+    /// Get current ordering snapshot for further possible rollback with `restoreOrderingWithSnapshot`
+    public func getOrderingSnapshot(accountId: String) -> NtfsOrderingSnapshot {
+        let originalValues = nfts[accountId, default: [:]]
+        let visibleNfts = originalValues.filter { !$0.value.shouldHide }
+        return NtfsOrderingSnapshot(orderHints: .init(visibleNfts.keys))
+    }
+    
+    public func restoreOrderingWithSnapshot(_ snapshot: NtfsOrderingSnapshot, accountId: String) {
+        reorderNfts(accountId: accountId, orderedIdsHint: snapshot.orderHints)
+    }
+    
+    /// Reorders visible NFTs for an account using an ordered list of NFT IDs as a hint.
+    /// - Only affects visible NFTs (`shouldHide == false`); 
+    /// - Treats `orderedIdsHint` as a local reordering hint:
+    ///   - It ignores IDs that are not currently visible.
+    ///   - It preserves the original positions of all non-hinted visible NFTs.
+    ///   - It only reorders the hinted NFTs within the set of positions they originally occupied.
+    ///     For example, if the original visible order is `[A, B, C, D, E, F]`
+    ///     and `orderedIdsHint` is `[X, F, D]`, the resulting visible order is `[A, B, C, F, E, D]`.
+    ///     So, it can be called safely for any NFT keys subset, which is necessary if a filter has been applied
+    /// - Appends hidden NFTs after the reordered visible NFTs, preserving their original relative order.
+    public func reorderNfts(accountId: String, orderedIdsHint: OrderedSet<String>) {
+        let originalValues = nfts[accountId, default: [:]]
+
+        let visibleNfts = originalValues.filter { !$0.value.shouldHide }
+        let originalVisibleKeys = Array(visibleNfts.keys)        
+        let hintKeys = orderedIdsHint.filter { visibleNfts[$0] != nil }
+        
+        let originalPositionsOfHintItems = originalVisibleKeys.enumerated()
+            .filter { hintKeys.contains($0.element) }
+            .map { (key: $0.element, position: $0.offset) }
+        
+        var positionToKeyMap: [Int: String] = [:]
+        for (hintIndex, hintKey) in hintKeys.enumerated() {
+            let originalPosition = originalPositionsOfHintItems[hintIndex].position
+            positionToKeyMap[originalPosition] = hintKey
+        }
+        
+        var reorderedValues = OrderedDictionary<String, DisplayNft>()
+        for (index, originalKey) in originalVisibleKeys.enumerated() {
+            let keyToUse = positionToKeyMap[index] ?? originalKey
+            if let value = visibleNfts[keyToUse] {
+                reorderedValues[keyToUse] = value
+            }
+        }
+        
+        for (key, value) in originalValues.filter({ $0.value.shouldHide }) {
+            reorderedValues[key] = value
+        }
+        
+        self._nfts.withLock { [reorderedValues] in
+            $0[accountId] = reorderedValues
+        }
+        _checkNftsOrder(accountId: accountId)
+        saveToCache()
+        DispatchQueue.main.async {
+            WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+        }
+    }
+    
+    public func showAllHiddenNfts(accountId: String) {
+        let keys = _hiddenNftKeysByAccount.withLock {
+            $0.removeValue(forKey: accountId) ?? []
+        }
+        persistHiddenNfts(accountId: accountId, keys: keys, isHidden: false)
+        _nfts.withLock {
+            for nftId in $0[accountId, default: [:]].keys {
+                $0[accountId]?[nftId]?.isHiddenByUser = false
+            }
+        }
+        _moveHiddenToEnd(accountId: accountId)
+        _checkNftsOrder(accountId: accountId)
+        saveToCache()
+        WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+    }
+    
+    // MARK: - Collections
+    
+    public func getCollections(accountId: String) -> UserCollectionsInfo {
+        let uniqueCollections = Array(OrderedSet(
+            self.nfts[accountId, default: [:]]
+                .filter { (_, displayNft) in
+                    !displayNft.shouldHide
+                }
+                .compactMap { (_, dislayNft) in
+                    dislayNft.nft.collection
+                }
+        )).sorted()
+        let telegramGiftsCollections = Array(OrderedSet(
+            self.nfts[accountId, default: [:]]
+                .filter { (_, displayNft) in
+                    !displayNft.shouldHide && displayNft.nft.isTelegramGift == true
+                }
+                .compactMap { (_, dislayNft) in
+                    dislayNft.nft.collection
+                }
+        )).sorted()
+        let notTelegramGiftsCollections = Array(OrderedSet(
+            self.nfts[accountId, default: [:]]
+                .filter { (_, displayNft) in
+                    !displayNft.shouldHide && displayNft.nft.isTelegramGift != true
+                }
+                .compactMap { (_, dislayNft) in
+                    dislayNft.nft.collection
+                }
+        )).sorted()
+        return UserCollectionsInfo(
+            accountId: accountId,
+            collections: uniqueCollections,
+            telegramGiftsCollections: telegramGiftsCollections,
+            notTelegramGiftsCollections: notTelegramGiftsCollections
+        )
+    }
+    
+    public func accountOwnsCollection(accountId: String, address: String?, chain: ApiChain? = nil) -> Bool {
+        if let address {
+            for collection in getCollections(accountId: accountId).collections {
+                if collection.address == address && (chain == nil || collection.chain == chain) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+    
+    public func hasTelegramGifts(accountId: String) -> Bool {
+        let nfts = nfts[accountId, default: [:]]
+        for (_, nft) in nfts {
+            if nft.nft.isTelegramGift == true {
+                return true
+            }
+        }
+        return false
+    }
+    
+    public func getAccountCollection(accountId: String, address: String) -> NftCollection? {
+        let (chain, normalizedAddress) = parseCollectionReference(address)
+        if let nft = nfts[accountId, default: [:]]
+            .values
+            .first(where: {
+                $0.nft.collectionAddress == normalizedAddress
+                    && (chain == nil || $0.nft.chain == chain)
+            })?
+            .nft {
+            return NftCollection(chain: nft.chain, address: normalizedAddress, name: nft.collectionName ?? "Collection")
+        }
+        return nil
+    }
+    
+    public func getCollectionItems(accountId: String, collectionAddress: String, chain: ApiChain? = nil) -> OrderedDictionary<String, DisplayNft> {
+        let accountNfts = nfts[accountId, default: [:]]
+        let collectionNfts = accountNfts.filter {
+            $0.value.nft.collectionAddress == collectionAddress && (chain == nil || $0.value.nft.chain == chain)
+        }
+        return collectionNfts
+    }
+    
+    public func getAccountMtwCards(accountId: String) -> OrderedDictionary<String, ApiNft> {
+        getCollectionItems(accountId: accountId, collectionAddress: MTW_CARDS_COLLECTION, chain: .ton).mapValues(\.nft)
+    }
+
+    public func applyIncomingMtwCard(accountId: String, nft: ApiNft) {
+        guard nft.collectionAddress == MTW_CARDS_COLLECTION else {
+            return
+        }
+        Task {
+            let isNewCard = await AssetsAndActivityDataStore.addOwnedMtwCardAddressIfNeeded(
+                accountId: accountId,
+                address: nft.address
+            )
+            guard isNewCard else {
+                return
+            }
+            await installMtwCardIfNeeded(accountId: accountId, nft: nft)
+        }
+    }
+
+    /// Buying an NFT is an explicit intent to own it, so it enters the gallery visible even if its collection
+    /// is untrusted. Applied from the activity, so it does not wait for the `nftReceived` update.
+    public func applyPurchasedNft(accountId: String, nft: ApiNft) {
+        updatesQueue.async { [weak self] in
+            guard let self else { return }
+            received(accountId: accountId, newNfts: [nft], removedNftIds: [])
+            if nft.isHidden == true
+                || nft.isUnverified == true
+                || isHiddenByUser(accountId: accountId, nft: nft)
+            {
+                setHiddenByUser(accountId: accountId, nft: nft, isHidden: false)
+            }
+        }
+    }
+
+    public func pruneOwnedMtwCardAddress(accountId: String, nftAddress: String) {
+        Task {
+            await AssetsAndActivityDataStore.pruneOwnedMtwCardAddress(accountId: accountId, address: nftAddress)
+        }
+    }
+
+    private func appendPendingNewMtwCards(accountId: String, cards: [ApiNft]) {
+        guard !cards.isEmpty else {
+            return
+        }
+        _pendingNewMtwCardsByAccount.withLock {
+            $0[accountId, default: []].append(contentsOf: cards)
+        }
+    }
+
+    private func drainPendingNewMtwCards(accountId: String, currentNfts: some Collection<DisplayNft>) {
+        let candidates = _pendingNewMtwCardsByAccount.withLock {
+            $0.removeValue(forKey: accountId) ?? []
+        }
+        let ownedAddresses = currentNfts
+            .map(\.nft)
+            .filter { $0.collectionAddress == MTW_CARDS_COLLECTION }
+            .map(\.address)
+        let ownedAddressSet = Set(ownedAddresses)
+        Task {
+            await AssetsAndActivityDataStore.setOwnedMtwCardAddresses(
+                accountId: accountId,
+                addresses: ownedAddresses
+            )
+            guard let rarest = candidates
+                .filter({ ownedAddressSet.contains($0.address) })
+                .min(by: { mtwCardRank($0) < mtwCardRank($1) })
+            else {
+                return
+            }
+            await installMtwCardIfNeeded(accountId: accountId, nft: rarest)
+        }
+    }
+
+    private func mtwCardRank(_ nft: ApiNft) -> Int {
+        nft.metadata?.mtwCardId ?? nft.index ?? Int.max
+    }
+
+    @MainActor
+    private func installMtwCardIfNeeded(accountId: String, nft: ApiNft) {
+        @Dependency(\.accountSettings) var accountSettingsStore
+        let accountSettings = accountSettingsStore.for(accountId: accountId)
+        guard accountSettings.backgroundNft == nil else {
+            return
+        }
+        log.info("cardBackground.autoInstall accountId=\(accountId, .public) nftAddress=\(nft.address, .public) nftChain=\(nft.chain.rawValue, .public) nftMtwId=\(nft.metadata?.mtwCardId as Any, .public)")
+        accountSettings.setBackgroundNft(nft)
+        accountSettings.setAccentColorNft(nft)
+    }
+    
+    // MARK: - Private
+    
+    private func _moveHiddenToEnd(accountId: String) {
+        _nfts.withLock {
+            if var nfts = $0[accountId], let lastShown = nfts.elements.lastIndex(where: { $1.shouldHide == false }) {
+                let tooEarly = nfts.elements[..<lastShown].filter { _, nft in
+                    nft.shouldHide
+                }
+                for (nftId, nft) in tooEarly {
+                    nfts.removeValue(forKey: nftId)
+                    nfts[nftId] = nft
+                }
+                $0[accountId] = nfts
+            }
+        }
+    }
+    
+    private func _checkNftsOrder(accountId: String) {
+        _nfts.withLock {
+            let nfts = $0[accountId, default: [:]]
+            let shownNfts = nfts.filter { (_, nft) in !nft.shouldHide }
+            let hiddenNfts = nfts.filter { (_, nft) in nft.shouldHide }
+            assert(Array(nfts.values) == Array(shownNfts.values) + Array(hiddenNfts.values), "nfts are out of order; reordering won't work")
+            if Array(nfts.values) != Array(shownNfts.values) + Array(hiddenNfts.values) {
+                log.fault("logic error: nfts are out of order; reordering won't work")
+                _moveHiddenToEnd(accountId: accountId)
+            }
+        }
+    }
+    
+    private func _removeAccountNftIfNoLongerAvailable(accountId: String, context: ValidationContext?) {
+        guard let context else {
+            log.info("accountNft.validationSkipped accountId=\(accountId, .public) reason=unknown skipReason=missingValidationContext")
+            return
+        }
+
+        if let nfts = self.nfts[accountId] {
+            let nftIds = Set(nfts.values.filter { $0.nft.chain == context.chain }.map(\.nft.id))
+            let nftAddresses = Set(nfts.values.filter { $0.nft.chain == context.chain }.map(\.nft.address))
+            let cachedCount = nfts.values.count { $0.nft.chain == context.chain }
+            Task { @MainActor in
+                @Dependency(\.accountSettings) var _accountSettings
+                let accountSettings = _accountSettings.for(accountId: accountId)
+                if let nft = accountSettings.backgroundNft,
+                   nft.chain == context.chain {
+                    if AccountNftAvailabilityValidator.shouldClearAccountNft(
+                        nft: nft,
+                        context: context,
+                        nftIds: nftIds,
+                        nftAddresses: nftAddresses
+                    ) {
+                        log.info("cardBackground.validationCleared accountId=\(accountId, .public) reason=\(context.reason, .public) validatedChain=\(context.chain.rawValue, .public) cardId=\(nft.id, .public) cardAddress=\(nft.address, .public) cardChain=\(nft.chain.rawValue, .public) cardMtwId=\(nft.metadata?.mtwCardId as Any, .public) cachedCount=\(cachedCount) streamedCount=\(context.authoritativeAddresses?.count as Any, .public) streamHasAddress=\((context.authoritativeAddresses?.contains(nft.address)) as Any, .public) cachedHasAddress=\(nftAddresses.contains(nft.address))")
+                        accountSettings.setBackgroundNft(nil)
+                    }
+                }
+                if let nft = accountSettings.accentColorNft,
+                   nft.chain == context.chain {
+                    if AccountNftAvailabilityValidator.shouldClearAccountNft(
+                        nft: nft,
+                        context: context,
+                        nftIds: nftIds,
+                        nftAddresses: nftAddresses
+                    ) {
+                        log.info("accentColorNft.validationCleared accountId=\(accountId, .public) reason=\(context.reason, .public) validatedChain=\(context.chain.rawValue, .public) nftId=\(nft.id, .public) nftAddress=\(nft.address, .public) nftChain=\(nft.chain.rawValue, .public) nftMtwId=\(nft.metadata?.mtwCardId as Any, .public) cachedCount=\(cachedCount) streamedCount=\(context.authoritativeAddresses?.count as Any, .public) streamHasAddress=\((context.authoritativeAddresses?.contains(nft.address)) as Any, .public) cachedHasAddress=\(nftAddresses.contains(nft.address))")
+                        accountSettings.setAccentColorNft(nil)
+                    }
+                }
+            }
+        }
+    }
+
+    private func parseCollectionReference(_ value: String) -> (chain: ApiChain?, address: String) {
+        let items = value.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+        if items.count == 2, !items[1].isEmpty {
+            guard let chain = ApiChain(rawValue: String(items[0])), chain.isSupported else { return (nil, value) }
+            return (chain, String(items[1]))
+        }
+        return (nil, value)
+    }
+    
+}
+
+
+extension _NftStore: WalletCoreData.EventsObserver {
+    nonisolated public func walletCore(event: WalletCoreData.Event) {
+        updatesQueue.async { [weak self] in
+            self?.handleEvent(event)
+        }
+    }
+
+    private func handleEvent(_ event: WalletCoreData.Event) {
+        switch event {
+        case .accountDeleted(let accountId):
+            _nfts.withLock { $0[accountId] = nil }
+            _hiddenNftKeysByAccount.withLock { $0[accountId] = nil }
+            _pendingNewMtwCardsByAccount.withLock { $0[accountId] = nil }
+
+        case .hideUnverifiedNftsChanged:
+            let accountIds = _nfts.withLock { Array($0.keys) }
+            for accountId in accountIds {
+                _moveHiddenToEnd(accountId: accountId)
+                _checkNftsOrder(accountId: accountId)
+                WalletCoreData.notify(event: .nftsChanged(accountId: accountId))
+            }
+            saveToCache()
+
+        case .updateNfts(let update):
+            let shouldAppend = update.collectionAddress != nil || update.isFullLoading == true
+            let streamPruneContext = update.streamedAddresses.map {
+                StreamPruneContext(chain: update.chain, addresses: Set($0))
+            }
+            if update.chain == .ton {
+                let ownedMtwCardAddresses = Set(
+                    AssetsAndActivityDataStore.ownedMtwCardAddresses(accountId: update.accountId)
+                )
+                let newMtwCards = update.nfts.filter {
+                    $0.collectionAddress == MTW_CARDS_COLLECTION
+                        && !ownedMtwCardAddresses.contains($0.address)
+                }
+                appendPendingNewMtwCards(accountId: update.accountId, cards: newMtwCards)
+            }
+            if let streamedAddresses = update.streamedAddresses {
+                log.info("nftStore.streamFinal accountId=\(update.accountId, .public) chain=\(update.chain.rawValue, .public) streamedCount=\(streamedAddresses.count) incomingCount=\(update.nfts.count) shouldAppend=\(shouldAppend)")
+            }
+            let incomingNfts = streamPruneContext == nil ? update.nfts : []
+            self.received(
+                accountId: update.accountId,
+                newNfts: incomingNfts,
+                removedNftIds: [],
+                mergeMode: shouldAppend ? .append : .prepend,
+                streamPruneContext: streamPruneContext,
+                shouldValidateAccountNftAvailability: streamPruneContext != nil,
+                validationContext: streamPruneContext.map {
+                    ValidationContext(
+                        reason: "streamFinal:\($0.chain.rawValue):count=\($0.addresses.count)",
+                        chain: $0.chain,
+                        authoritativeAddresses: $0.addresses,
+                        removedAddress: nil
+                    )
+                }
+            )
+            if streamPruneContext != nil {
+                let currentNfts = nfts[update.accountId].map { Array($0.values) } ?? []
+                drainPendingNewMtwCards(accountId: update.accountId, currentNfts: currentNfts)
+            }
+
+        case .nftReceived(let update):
+            self.received(accountId: update.accountId, newNfts: [update.nft], removedNftIds: [])
+            applyIncomingMtwCard(accountId: update.accountId, nft: update.nft)
+
+        case .nftSent(let update):
+            self.received(
+                accountId: update.accountId,
+                newNfts: [],
+                removedNftIds: [ApiNft.id(chain: update.chain, address: update.nftAddress)],
+                shouldValidateAccountNftAvailability: true,
+                validationContext: ValidationContext(
+                    reason: "nftSent:\(update.chain.rawValue):\(update.nftAddress)",
+                    chain: update.chain,
+                    authoritativeAddresses: nil,
+                    removedAddress: update.nftAddress
+                )
+            )
+            pruneOwnedMtwCardAddress(accountId: update.accountId, nftAddress: update.nftAddress)
+
+        case .nftPutUpForSale(let update):
+            markNftAsOnSale(accountId: update.accountId, nftId: update.nftAddress)
+
+        default:
+            break
+        }
+    }
+}
+
+extension _NftStore: DependencyKey {
+    public static let liveValue: _NftStore = .shared
+}
+
+extension DependencyValues {
+    public var nftStore: _NftStore {
+        get { self[_NftStore.self] }
+        set { self[_NftStore.self] = newValue }
+    }
+}
+
+
+// MARK: - Custom types
+
+public struct DisplayNft: Equatable, Hashable, Codable, Identifiable, Sendable {
+    
+    public var nft: ApiNft
+    public var isHiddenByUser: Bool
+    public var isUnhiddenByUser: Bool = false
+    
+    public var id: String { nft.id }
+    
+    public var shouldHide: Bool {
+        shouldHide(areUnverifiedNftsHidden: AppStorageHelper.hideUnverifiedNfts)
+    }
+
+    public func shouldHide(areUnverifiedNftsHidden: Bool) -> Bool {
+        if isHiddenByUser { return true }
+        if isUnhiddenByUser { return false }
+        return nft.isHidden == true || (areUnverifiedNftsHidden && nft.isUnverified == true)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case nft
+        case isHiddenByUser
+        case isUnhiddenByUser
+    }
+
+    public init(nft: ApiNft, isHiddenByUser: Bool, isUnhiddenByUser: Bool = false) {
+        self.nft = nft
+        self.isHiddenByUser = isHiddenByUser
+        self.isUnhiddenByUser = isUnhiddenByUser
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        nft = try container.decode(ApiNft.self, forKey: .nft)
+        isHiddenByUser = try container.decodeIfPresent(Bool.self, forKey: .isHiddenByUser) ?? false
+        isUnhiddenByUser = try container.decodeIfPresent(Bool.self, forKey: .isUnhiddenByUser) ?? false
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(nft, forKey: .nft)
+        try container.encode(isUnhiddenByUser, forKey: .isUnhiddenByUser)
+    }
+}
+
+/// Opaque entity to hold all necessary info for full order restoration if a reordering is canceled
+public struct NtfsOrderingSnapshot {
+    fileprivate var orderHints: OrderedSet<String>
+}
+
+public struct UserCollectionsInfo {
+    public var accountId: String
+    public var collections: [NftCollection]
+    public var telegramGiftsCollections: [NftCollection]
+    public var notTelegramGiftsCollections: [NftCollection]
+}
+
+#if DEBUG
+public extension _NftStore {
+    @MainActor func configureForPreview() {
+        _nfts.withLock {
+            $0[""] = [ApiNft.sample, ApiNft.sampleMtwCard]
+                .map { DisplayNft(nft: $0, isHiddenByUser: false) } .orderedDictionaryByKey(\.id)
+        }
+    }
+}
+#endif

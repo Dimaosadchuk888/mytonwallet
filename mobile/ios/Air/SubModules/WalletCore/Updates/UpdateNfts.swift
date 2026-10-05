@@ -1,0 +1,37 @@
+
+import WalletContext
+import WalletCoreTypes
+
+extension ApiUpdate {
+    public struct UpdateNfts: Equatable, Hashable, Codable, Sendable {
+        public var type = "updateNfts"
+        public var accountId: String
+        public var nfts: [ApiNft]
+        public var chain: ApiChain
+        public var collectionAddress: String?
+        public var isFullLoading: Bool?
+        /** Complete set of addresses seen during a successfully completed streaming session. */
+        public var streamedAddresses: [String]?
+    }
+    
+    public struct NftReceived: Equatable, Hashable, Codable, Sendable {
+        public var type = "nftReceived"
+        public var accountId: String
+        public var nftAddress: String
+        public var nft: ApiNft
+    }
+    
+    public struct NftSent: Equatable, Hashable, Codable, Sendable {
+        public var type = "nftSent"
+        public var accountId: String
+        public var chain: ApiChain
+        public var nftAddress: String
+        public var newOwnerAddress: String
+    }
+    
+    public struct NftPutUpForSale: Equatable, Hashable, Codable, Sendable {
+        public var type = "nftPutUpForSale"
+        public var accountId: String
+        public var nftAddress: String
+    }
+}

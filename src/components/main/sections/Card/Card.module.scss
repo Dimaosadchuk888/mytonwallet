@@ -1,0 +1,998 @@
+@use "sass:math";
+
+@use "../../../../styles/mixins";
+
+@use "../../../../styles/scssVariables" as v;
+
+$color-transition: color 300ms;
+$signSizeDiff: 0.375rem;
+
+.containerWrapper {
+  --z-card-decoration: 2;
+  --z-card-promo: 3;
+  --z-card-promo-overlay: 5;
+  --z-card-mascot: 4;
+  --z-card-content: 6;
+
+  position: relative;
+  z-index: var(--z-card);
+
+  overflow: visible;
+
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 16rem;
+  height: 0;
+  margin: 0 auto;
+  padding-top: v.$cardAspectRatioPortrait;
+
+  :global(html.is-electron) &,
+  :global(html.is-mobile-telegram-app.with-safe-area-top) & {
+    margin-top: 0;
+  }
+
+  @include mixins.respond-above(xs) {
+    margin-top: 0;
+    padding-top: v.$cardAspectRatioLandscape;
+  }
+}
+
+.isLoading {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
+.center {
+  top: 33%;
+  transform: translate(0, -50%);
+  margin-inline-start: auto;
+  margin-inline-end: auto
+}
+
+.promoLayer {
+  pointer-events: none;
+
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+
+  overflow: visible;
+}
+
+.promoBg,
+.promoOverlay {
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+
+  &_img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.promoBg {
+  z-index: var(--z-card-promo);
+}
+
+.promoOverlay {
+  z-index: var(--z-card-promo-overlay);
+}
+
+.promoMascot {
+  pointer-events: auto;
+  cursor: var(--custom-cursor, pointer);
+
+  position: absolute;
+  z-index: var(--z-card-mascot);
+  top: 0;
+  right: 0;
+  transform: translate(
+    var(--promo-mascot-right, 0px),
+    calc(var(--promo-mascot-top, 0px) * -1)
+  ) rotate(var(--promo-mascot-rotation, 0deg));
+
+  overflow: visible;
+
+  width: var(--promo-mascot-width, 4rem);
+  height: var(--promo-mascot-height, 4rem);
+}
+
+.promoMascot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.seasonalGarland {
+  pointer-events: auto;
+
+  position: absolute;
+  z-index: var(--z-card-decoration);
+  top: 0;
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+
+  overflow: visible;
+
+  width: 100%;
+}
+
+.seasonalValentine {
+  pointer-events: auto;
+
+  position: absolute;
+  z-index: var(--z-card-decoration);
+  top: 0.3125rem;
+  left: 0.125rem;
+
+  overflow: visible;
+
+  width: 4.375rem;
+  height: 3rem;
+}
+
+.container {
+  --main-text: var(--color-card-text);
+  --second-text: var(--color-card-second-text);
+
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+
+  width: 100%;
+  height: 100%;
+  border-radius: var(--border-radius-card);
+
+  background-clip: border-box, padding-box, padding-box;
+  background-origin: border-box;
+  background-size: cover, cover;
+
+  @include mixins.card-image("../../../../assets/cards/", "card", v.$defaultCardGradient);
+
+  @include mixins.transition('transform var(--slide-transition), filter var(--slide-transition) !important');
+
+  &:global(.gram) {
+    @include mixins.card-image("../../../../assets/cards/", "card_gram", v.$gramCardGradient);
+  }
+
+  &:global(.tegro) {
+    @include mixins.card-image("../../../../assets/cards/", "card_tegro", v.$tegroCardGradient);
+  }
+
+  &:global(.red) {
+    @include mixins.card-image("../../../../assets/cards/", "card_red", v.$redCardGradient);
+  }
+
+  &:global(.orange) {
+    @include mixins.card-image("../../../../assets/cards/", "card_orange", v.$orangeCardGradient);
+  }
+
+  &:global(.green) {
+    @include mixins.card-image("../../../../assets/cards/", "card_green", v.$greenCardGradient);
+  }
+
+  &:global(.sea) {
+    @include mixins.card-image("../../../../assets/cards/", "card_sea", v.$seaCardGradient);
+  }
+
+  &:global(.purple) {
+    @include mixins.card-image("../../../../assets/cards/", "card_purple", v.$purpleCardGradient);
+  }
+
+  &:global(.pink) {
+    @include mixins.card-image("../../../../assets/cards/", "card_pink", v.$pinkCardGradient);
+  }
+
+}
+
+.containerInner {
+  pointer-events: none;
+
+  position: absolute;
+  z-index: var(--z-card-content);
+  top: 0;
+  inset-inline-start: 0;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+
+  width: 100%;
+  height: 100%;
+  padding: max(3.75rem, 17.4927%) 1rem 0.25rem;
+
+  > * {
+    pointer-events: auto;
+  }
+
+  @media (max-width: 360px) {
+    padding: max(2rem, 14%) 1rem 0.25rem;
+  }
+}
+
+.balanceSlide {
+  text-align: center;
+}
+
+.balanceTransition {
+  --border-radius-value: var(--border-radius-default);
+
+  max-height: 3.5rem;
+
+  @include mixins.respond-below(xs) {
+    margin-bottom: 0.375rem;
+  }
+}
+
+.currencySymbol {
+  margin-bottom: 0.5rem;
+  font-size: calc((#{v.$cardPortraitBaseBalanceSize} - $signSizeDiff) * var(--font-size-scale, 1));
+  color: var(--second-text);
+
+  :global(.glare-text) & {
+    color: transparent;
+  }
+
+  @include mixins.transition($color-transition);
+
+  @include mixins.respond-above(xs) {
+    font-size: calc((#{v.$cardLandscapeBaseBalanceSize} - $signSizeDiff) * var(--font-size-scale, 1));
+  }
+}
+
+.primaryValue {
+  font-size: calc(#{v.$cardPortraitBaseBalanceSize} * var(--font-size-scale, 1));
+  font-weight: 850;
+  line-height: 1;
+  color: var(--main-text);
+  letter-spacing: -0.04375rem;
+
+  @include mixins.transition($color-transition);
+
+  @include mixins.respond-above(xs) {
+    font-size: calc(#{v.$cardLandscapeBaseBalanceSize} * var(--font-size-scale, 1));
+  }
+}
+
+.primaryFractionPart {
+  font-size: calc(2.375rem * var(--font-size-scale, 1));
+  font-weight: 800;
+  color: var(--second-text);
+
+  :global(.glare-text) & {
+    color: transparent;
+  }
+
+  @include mixins.transition($color-transition);
+}
+
+.iconCaret {
+  position: relative;
+  top: -0.1875rem;
+  inset-inline-start: -0.0625rem;
+  font-size: calc(1.25rem * var(--font-size-scale, 1));
+}
+
+.iconCaretFraction {
+  position: relative;
+  top: -0.125rem;
+
+  margin-left: 0.125rem; // Language-agnostic value - correct as-is
+
+  font-size: calc(1rem * var(--font-size-scale, 1));
+  color: var(--second-text);
+
+  @include mixins.transition($color-transition);
+}
+
+.currencySwitcher {
+  cursor: var(--custom-cursor, pointer);
+
+  position: relative;
+
+  direction: ltr;
+  unicode-bidi: plaintext;
+
+  white-space: nowrap;
+
+  @include mixins.transition(opacity 200ms);
+
+  &:hover,
+  &:focus-visible {
+    opacity: 0.85;
+  }
+
+  @include mixins.active-transition-optimization();
+}
+
+.currencySwitcherMenu {
+  --offset-y-value: -0.75rem;
+}
+
+.currencySwitcherMenuBubble {
+  right: auto !important;
+  left: var(--offset-x-value, var(--offset-x));
+}
+
+.cardAddressContainer {
+  height: 1.125rem;
+  margin: auto auto 0.75rem;
+}
+
+.cardAddressSlide {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.addressContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.minimized {
+  margin: auto auto 0;
+}
+
+.saveTemporaryButton {
+  cursor: var(--custom-cursor, pointer);
+
+  display: inline-flex;
+  gap: 0.125rem;
+  align-items: center;
+
+  height: 1.75rem;
+  margin-top: -0.375rem;
+  margin-bottom: -0.375rem;
+  margin-inline-end: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  border: 0.0625rem solid var(--color-card-button-border);
+  border-radius: var(--border-radius-buttons);
+
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-card-text);
+
+  background: rgba(255, 255, 255, 0.001);
+  backdrop-filter: blur(16px);
+
+  @include mixins.transition(background-color 200ms);
+
+  @media (hover: hover) {
+    &:hover,
+    &:focus-visible {
+      background-color: var(--color-card-button);
+    }
+  }
+
+  &:active {
+    background-color: var(--color-card-button);
+  }
+
+  @include mixins.active-transition-optimization();
+}
+
+.addIcon {
+  font-size: 1.25rem !important;
+}
+
+.addressLabel {
+  display: inline-flex;
+  align-items: center;
+
+  height: 1.25rem;
+  margin-block: -0.125rem;
+  margin-inline: 0 0.5rem;
+  padding: 0 0.25rem;
+  border-radius: 1.5rem;
+
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1rem;
+  color: var(--second-text);
+  vertical-align: 0.125rem;
+
+  background-color: var(--color-card-button);
+  backdrop-filter: blur(12px);
+
+  @include mixins.transition('#{$color-transition}, background-color 300ms');
+
+  > .icon {
+    margin-block: 0;
+    margin-inline: 0.125rem 0.25rem;
+    font-size: 0.75rem;
+  }
+}
+
+.address {
+  cursor: var(--custom-cursor, pointer);
+
+  direction: ltr;
+  display: inline-flex;
+  align-items: center;
+
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--second-text);
+
+  outline: none;
+
+  -webkit-touch-callout: none;
+
+  @include mixins.transition($color-transition);
+
+  @include mixins.active-transition-optimization(!important);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--main-text);
+  }
+
+  &:not(:global(.gradientText)) {
+    background: transparent;
+  }
+
+  &:global(.gradientText) {
+    transition: opacity 150ms;
+
+    &:hover,
+    &:focus-visible {
+      color: var(--second-text);
+      opacity: 0.65;
+    }
+  }
+
+  @include mixins.respond-below(xs) {
+    font-size: 1rem;
+  }
+
+  .icon {
+    margin-inline-start: 0.125rem;
+  }
+}
+
+.icon {
+  font-size: 1rem;
+  vertical-align: -0.1875rem;
+
+  &:global(.icon-ledger) {
+    margin-inline-end: 0.25rem;
+    color: var(--second-text);
+
+    @include mixins.transition($color-transition);
+  }
+}
+
+.menuItem {
+  position: relative;
+
+  display: flex;
+
+  width: 100%;
+  padding-block: 0.6875rem !important;
+  padding-inline: 0.75rem 0.9375rem !important;
+
+  @media (pointer: coarse) {
+    padding-block: 0.5625rem !important;
+    padding-inline: 0.625rem 0.9375rem !important;
+  }
+}
+
+.chainItem {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.625rem !important;
+
+  @media (pointer: coarse) {
+    padding: 0.5625rem 0.625rem !important;
+  }
+}
+
+// Hovering this zone opens a domain sub-menu. It covers the row except the strip around the explorer icon,
+// so the sub-menu, which may open over that strip, never takes the icon away from a pointer heading to it
+.chainItemHoverZone {
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  align-items: center;
+
+  min-width: 0;
+  margin-block: -0.5rem;
+  margin-inline-start: -0.625rem;
+  padding-block: 0.5rem;
+  padding-inline-start: 0.625rem;
+
+  @media (pointer: coarse) {
+    margin-block: -0.5625rem;
+    padding-block: 0.5625rem;
+  }
+}
+
+.chainItemLogo {
+  width: 1.625rem;
+  height: 1.625rem;
+
+  @media (pointer: coarse) {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+}
+
+.chainItemContent {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.125rem;
+
+  min-width: 0;
+}
+
+.chainItemTitle {
+  overflow: hidden;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--color-black);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  @media (pointer: coarse) {
+    font-size: 1rem;
+  }
+}
+
+.chainItemSubtitle {
+  overflow: hidden;
+
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  color: var(--color-gray-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  @media (pointer: coarse) {
+    font-size: 0.8125rem;
+  }
+}
+
+.itemActionIcon {
+  flex: none;
+  font-size: 1.375rem;
+  line-height: 1.375rem;
+  color: var(--color-gray-3);
+
+  @media (pointer: coarse) {
+    font-size: 1.5rem;
+    line-height: 1.5rem;
+  }
+}
+
+.itemChevronIcon {
+  @include mixins.rtl-mirror();
+}
+
+.itemExplorerIcon {
+  cursor: var(--custom-cursor, pointer);
+
+  flex: none;
+
+  // The hit area takes the row gap and paddings around the icon, which keeps the row size intact
+  margin-block: -0.5rem;
+  margin-inline: -0.5rem -0.625rem;
+  padding-block: 0.5rem;
+  padding-inline: 0.5rem 0.625rem;
+
+  font-size: 1.375rem;
+  line-height: 1.375rem;
+  color: var(--color-accent);
+
+  @media (pointer: coarse) {
+    margin-block: -0.4375rem;
+    padding-block: 0.4375rem;
+    font-size: 1.5rem;
+    line-height: 1.5rem;
+  }
+
+  @include mixins.transition(color 150ms);
+
+  @include mixins.active-transition-optimization();
+
+  &:active {
+    color: var(--color-accent-button-background-hover);
+  }
+
+  @media (hover: hover) {
+    &:hover,
+    &:focus-visible {
+      color: var(--color-accent-button-background-hover);
+    }
+  }
+}
+
+.shareItem {
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+  padding: 0.6875rem 0.75rem !important;
+
+  @media (pointer: coarse) {
+    padding: 0.75rem !important;
+  }
+}
+
+.shareItemIcon {
+  font-size: 1.375rem;
+  line-height: 1.375rem;
+  color: var(--color-gray-3);
+
+  @media (pointer: coarse) {
+    font-size: 1.5rem;
+    line-height: 1.5rem;
+  }
+}
+
+.shareItemName {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--color-black);
+
+  @media (pointer: coarse) {
+    font-size: 1rem;
+  }
+}
+
+.allChainsItem {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.6875rem 0.625rem !important;
+
+  @media (pointer: coarse) {
+    padding: 0.75rem 0.625rem !important;
+  }
+}
+
+// Matches the chain logo column width so the label aligns with the chain titles
+.allChainsLogos {
+  display: flex;
+  flex: none;
+  align-items: center;
+  width: 1.625rem;
+
+  @media (pointer: coarse) {
+    width: 1.75rem;
+  }
+}
+
+.allChainsLogo {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.0625rem var(--color-background-drop-down);
+
+  // The overlap packs three logos exactly into the `.allChainsLogos` column width
+  &:not(:first-child) {
+    margin-inline-start: -0.5rem;
+
+    @media (pointer: coarse) {
+      margin-inline-start: -0.4375rem;
+    }
+  }
+}
+
+.allChainsName {
+  flex: 1;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  color: var(--color-black);
+
+  @media (pointer: coarse) {
+    font-size: 1rem;
+  }
+}
+
+.addressMenuBubble {
+  --offset-x-value: calc(var(--menu-width) / -2);
+
+  width: 16rem;
+
+  @include mixins.respond-below(xs) {
+    right: auto !important;
+    // Physical - JS positions the bubble by physical left; static position flips in RTL
+    left: 0 !important;
+  }
+
+  @include mixins.respond-above(xs) {
+    max-height: min(60vh, 35rem);
+  }
+
+  &.notActive {
+    pointer-events: none;
+  }
+}
+
+.subMenuBubble {
+  --offset-x-value: 0;
+  --offset-y-value: 0;
+
+  &.notActive {
+    pointer-events: none;
+  }
+}
+
+// Sized, positioned and clipped to a triangle inline by `SafeTriangle`
+.safeTriangle {
+  position: fixed;
+  z-index: var(--z-portal-menu);
+}
+
+// Covers the app under the whole address menu system, right below the portaled menu wrappers
+.menuBackdrop {
+  position: fixed;
+  z-index: calc(var(--z-portal-menu) - 1);
+  inset: 0;
+}
+
+// The width and max-height match `CHAINS_MENU_WIDTH_PX` and `ALL_CHAINS_MENU_MAX_HEIGHT_PX` in `AddressMenu`
+.allChainsMenuBubble {
+  width: 16rem;
+  max-height: min(60vh, 26.25rem);
+}
+
+// The width grows to fit wide addresses; the max-width matches `DOMAIN_MENU_MAX_WIDTH_PX` in `AddressMenu`
+.domainMenuBubble {
+  width: max-content;
+  min-width: 11.75rem;
+  max-width: 16rem;
+}
+
+.domainItem {
+  padding-inline: 1rem 0.625rem !important;
+}
+
+.changeSpoiler {
+  --border-radius-value: var(--border-radius-default);
+
+  width: 100% !important;
+}
+
+.blurred {
+  backdrop-filter: blur(10px);
+}
+
+.sensitiveData,
+.sensitiveDataContent {
+  width: 100% !important;
+}
+
+.change {
+  cursor: var(--custom-cursor, pointer);
+
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+  justify-items: center;
+
+  height: 1.75rem;
+  padding: 0 0.5rem;
+  border-radius: var(--border-radius-default);
+
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-card-change-text);
+  white-space: nowrap;
+
+  background: var(--color-card-button);
+  backdrop-filter: blur(12px);
+
+  @include mixins.transition('#{$color-transition}, background-color 200ms ease');
+
+  &:hover,
+  &:focus-visible {
+    background: var(--color-card-button-hover);
+  }
+
+  &.positive {
+    color: var(--color-card-change-text-green);
+    background: var(--color-card-change-background-green);
+
+    &:hover,
+    &:focus-visible {
+      background: var(--color-card-change-background-green-hover);
+    }
+  }
+}
+
+.changeValue {
+  unicode-bidi: plaintext;
+  display: inline-flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.changeChevron {
+  margin-inline-start: -0.125rem;
+  font-size: 0.875rem;
+
+  :global(.glare-text) & {
+    color: transparent;
+  }
+
+  @include mixins.rtl-mirror();
+}
+
+.changePrefix {
+  margin-inline-end: -0.125rem;
+  font-size: 1.25rem;
+  line-height: 1rem;
+
+  :global(.glare-text) & {
+    color: transparent;
+  }
+}
+
+.chainIcon,
+.multichainIcon {
+  height: 1.125rem;
+  margin-inline-end: 0.25rem;
+  vertical-align: -0.25rem;
+}
+
+.iconExpand {
+  margin-left: 0.25rem; // Language-agnostic value - correct as-is
+  font-size: 0.5rem;
+}
+
+.chainIcon {
+  width: 1.125rem;
+}
+
+.multichainIcon {
+  width: 1.875rem;
+}
+
+.multichainList {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.multichainItem {
+  display: inline-flex;
+  align-items: center;
+}
+
+.multichainAddress {
+  display: inline-flex;
+}
+
+.loadingDotsContainer {
+  position: absolute;
+  z-index: 1;
+  top: 0.5625rem;
+  left: 50%;
+  transform: translateX(-50%) scale(0.6);
+
+  height: 0.375rem !important;
+
+  opacity: 0.75 !important;
+}
+
+// Custom Card
+.cardCustomBackground {
+  pointer-events: none;
+
+  position: absolute;
+  // For gradient border positioning
+  z-index: 1;
+  top: 0;
+  inset-inline-start: 0;
+
+  width: 100%;
+  height: 100%;
+  border-radius: var(--border-radius-card);
+
+  opacity: 0;
+  background-image: var(--bg);
+  background-clip: border-box;
+  background-origin: border-box;
+  background-size: cover;
+
+  transition: opacity 300ms;
+
+  &.visible {
+    opacity: 1;
+  }
+
+  &::before {
+    content: "";
+
+    position: absolute;
+    z-index: -1;
+    top: 0;
+    bottom: 0;
+    inset-inline-start: 0;
+    inset-inline-end: 0;
+
+    padding: 0.125rem;
+    border-radius: var(--border-radius-card);
+
+    background: radial-gradient(24.09% 50.19% at 74.09% 0%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+    linear-gradient(258.65deg, rgba(140, 148, 176, 0.5) 33.29%, rgba(186, 188, 194, 0.85) 48.38%);
+
+    /* Trim so that the gradient appears only on the borders */
+    mask:
+      linear-gradient(to right, #FFF 0%, #FFF 100%) content-box,
+      linear-gradient(to right, #FFF 0%, #FFF 100%);
+
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  &:global(.MwCard__standard) {
+    background-clip: border-box, content-box;
+    background-origin: border-box, content-box;
+    background-size: cover, cover;
+  }
+}
+
+// Card's border with shine
+.black::before {
+  background-image: radial-gradient(30.47% 83.28% at 79.45% 3.2%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+                    linear-gradient(258.65deg, #141518 33.29%, #292929 48.38%);
+}
+
+.platinum::before,
+.gold::before,
+.silver::before {
+  background-image: radial-gradient(24.09% 50.19% at 74.09% 0%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+                    linear-gradient(258.65deg, rgba(140, 148, 176, 0.5) 33.29%, rgba(186, 188, 194, 0.85) 48.38%);
+}
+
+.borderShine_down::before {
+  background-image: radial-gradient(10.43% 49.81% at 50% 100%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+                    linear-gradient(258.65deg, rgba(140, 148, 176, 0.5) 33.29%, rgba(186, 188, 194, 0.85) 48.38%);
+}
+
+.borderShine_left::before {
+  background-image: radial-gradient(50% 28.86% at 0% 50.19%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+                    linear-gradient(258.65deg, rgba(140, 148, 176, 0.5) 33.29%, rgba(186, 188, 194, 0.85) 48.38%);
+}
+
+.borderShine_up::before {
+  background-image: radial-gradient(10.51% 50.19% at 50% 0%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+                    linear-gradient(258.65deg, rgba(140, 148, 176, 0.5) 33.29%, rgba(186, 188, 194, 0.85) 48.38%);
+
+}
+
+.borderShine_right::before {
+  background-image: radial-gradient(50% 28.86% at 100% 50.19%, #FFFFFF 0%, rgba(255, 255, 255, 0) 100%),
+                    linear-gradient(258.65deg, rgba(140, 148, 176, 0.5) 33.29%, rgba(186, 188, 194, 0.85) 48.38%);
+}

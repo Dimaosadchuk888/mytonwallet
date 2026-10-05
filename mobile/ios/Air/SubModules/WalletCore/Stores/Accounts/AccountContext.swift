@@ -1,0 +1,164 @@
+import UIKit
+import SwiftUI
+import WalletContext
+import Perception
+import Dependencies
+import SwiftNavigation
+import WalletCoreTypes
+
+@Perceptible @propertyWrapper @MainActor
+public final class AccountContext: Sendable {
+    
+    private(set) public var account: MAccount = DUMMY_ACCOUNT
+
+    public var wrappedValue: MAccount { account }
+    public var projectedValue: AccountContext { self }
+
+    @PerceptionIgnored
+    public var onAccountDeleted: () -> () = { }
+    
+    @PerceptionIgnored
+    @Dependency(\.accountStore) private var accountStore
+    @PerceptionIgnored
+    @Dependency(\.accountSettings) private var accountSettings
+    @PerceptionIgnored
+    @Dependency(\.nftStore) private var nftStore
+    @PerceptionIgnored
+    @Dependency(\.balanceDataStore) private var balanceDataStore
+    @PerceptionIgnored
+    @Dependency(\.balancesStore) private var balancesStore
+    @PerceptionIgnored
+    @Dependency(\.stakingStore) private var stakingStore
+    @PerceptionIgnored
+    @Dependency(\.savedAddresses) private var savedAddressesStore
+    @PerceptionIgnored
+    @Dependency(\.domains) private var domainsStore
+    @PerceptionIgnored
+    @Dependency(\.accountConfig) private var accountConfigStore
+    
+    private let accountIdProvider: AccountIdProvider
+    @PerceptionIgnored
+    private var observeAccount: ObserveToken?
+    
+    public convenience init(accountId: String?) {
+        self.init(source: AccountSource(accountId))
+    }
+    
+    public init(source: AccountSource) {
+        self.accountIdProvider = AccountIdProvider(source: source)
+        observeAccount = observe { [weak self] in
+            guard let self else { return }
+            updateAccount()
+        }
+    }
+    
+    private func updateAccount() {
+        if case .constant(let account) = source {
+            self.account = account
+        } else if let account = accountStore.accountsById[self.accountId] {
+            self.account = account
+        } else {
+            // `account` property is not changed to keep UI stable during account deletion. Views can continue displaying the last valid account data while animation plays.
+            onAccountDeleted()
+        }
+    }
+    
+    public var accountId: String {
+        get { accountIdProvider.accountId }
+        set {
+            accountIdProvider.accountId = newValue
+            updateAccount()
+        }
+    }
+    public var source: AccountSource {
+        accountIdProvider.source
+    }
+
+    public var isCurrent: Bool {
+        account.id == accountStore.currentAccountId
+    }
+    public var walletTokensData: MAccountWalletTokensData? {
+        balanceDataStore.walletTokensData(accountId: accountId)
+    }
+    public var walletTokens: [MTokenBalance]? {
+        walletTokensData?.walletTokens
+    }
+    public var walletStaked: [MTokenBalance]? {
+        walletTokensData?.walletStaked
+    }
+    public var balanceTotals: MAccountBalanceTotals? {
+        balanceDataStore.balanceTotals(accountId: accountId)
+    }
+    public var balance: BaseCurrencyAmount? {
+        balanceTotals?.totalBalance
+    }
+    public var balance24h: BaseCurrencyAmount? {
+        balanceTotals?.totalBalanceYesterday
+    }
+    public var balanceChange: Double? {
+        balanceTotals?.totalBalanceChange
+    }
+    public var balanceUsd: Double? {
+        balanceTotals?.totalBalanceUsd
+    }
+    public var balanceUsdByChain: [ApiChain: Double]? {
+        balanceTotals?.totalBalanceUsdByChain
+    }
+    public var balances: [String: BigInt] {
+        balancesStore.getAccountBalances(accountId: accountId)
+    }
+    public var hasLoadedBalances: Bool {
+        let loadedChains = balancesStore.for(accountId: accountId).byChain
+        return !account.supportedChains.isEmpty && account.supportedChains.allSatisfy { loadedChains[$0] != nil }
+    }
+    public var nft: ApiNft? {
+        accountSettings.for(accountId: accountId).backgroundNft
+    }
+    public var accentColor: UIColor {
+        let index = accountSettings.for(accountId: accountId).accentColorIndex
+        let color = getAccentColorByIndex(index)
+        return color
+    }
+    public var stakingData: MStakingData? {
+        stakingStore.stakingData(accountId: accountId)
+    }
+    public func getStakingTokenPresentation(tokenSlug: String, isStaking: Bool) -> StakingTokenPresentation? {
+        stakingData?.stakingTokenPresentation(tokenSlug: tokenSlug, isStaking: isStaking)
+    }
+    public func isEarnAvailable(forTokenSlug tokenSlug: String) -> Bool {
+        account.supportsEarn && stakingData?.isEarnAvailable(forTokenSlug: tokenSlug) == true
+    }
+    public var savedAddresses: SavedAddresses {
+        savedAddressesStore.for(accountId: accountId)
+    }
+    public var settings: AccountSettings {
+        accountSettings.for(accountId: accountId)
+    }
+    public var domains: Domains {
+        domainsStore.for(accountId: accountId)
+    }
+    public var config: AccountConfig {
+        accountConfigStore.for(accountId: accountId)
+    }
+    public var activePromotion: ApiPromotion? {
+        config.activePromotion
+    }
+    public var isMfaEnabled: Bool {
+        config.isMfaEnabled
+    }
+    public func getLocalName(chain: ApiChain, address: String) -> String? {
+        getMyAccountName(chain: chain, address: address) ?? getSavedAddressName(chain: chain, saveKey: address)
+    }
+    public func getMyAccountName(chain: ApiChain, address: String) -> String? {
+        let matchingAccount = accountStore.orderedAccounts.first { account in
+            if let info = account.getChainInfo(chain: chain), info.address == address || info.domain == address {
+                return true
+            }
+            return false
+        }
+        return matchingAccount?.displayName
+    }
+    public func getSavedAddressName(chain: ApiChain, saveKey: String) -> String? {
+        savedAddresses.get(chain: chain, address: saveKey)?.name
+    }
+}

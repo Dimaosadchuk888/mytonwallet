@@ -1,0 +1,1518 @@
+//
+//  AccountStore.swift
+//  MyTonWalletAir
+//
+//  Created by Sina on 10/30/24.
+//
+
+import Foundation
+import NativeEnclave
+import WalletContext
+import UIKit
+import Kingfisher
+import OrderedCollections
+import GRDB
+import Dependencies
+import Perception
+import WalletCoreTypes
+
+private let log = Log("AccountStore")
+private let _popularWalletVersionTitles: Set<String> = ["v3R1", "v3R2", "v4R2", "W5"]
+
+/// Sends account activation to the SDK: redirects polling and updates the SDK-side current account
+private func sendSdkActivation(accountId: String) async throws {
+    let timestamps = await ActivityStore.getNewestActivityTimestamps(accountId: accountId)
+    if timestamps?.nilIfEmpty == nil {
+        Log.api.info("No newestTransactionsBySlug for \(accountId, .public), loading will be slow")
+    }
+    try await Api.activateAccount(accountId: accountId, newestActivityTimestamps: timestamps)
+}
+
+public var AccountStore: _AccountStore { _AccountStore.shared }
+
+@Perceptible
+public final class _AccountStore: @unchecked Sendable, WalletCoreData.EventsObserver {
+
+    public static let shared = _AccountStore()
+
+    private init() {}
+
+    private var _accountsById: UnfairLock<[String: MAccount]> = .init(initialState: [:])
+    private let _accountId: UnfairLock<String?> = .init(initialState: nil)
+    private let _walletVersionsData: UnfairLock<MWalletVersionsData?> = .init(initialState: nil)
+    private let _updatingActivitiesAccountIds: UnfairLock<Set<String>> = .init(initialState: [])
+    private let _updatingBalanceAccountIds: UnfairLock<Set<String>> = .init(initialState: [])
+    private let _orderedAccountIds: UnfairLock<OrderedSet<String>> = .init(initialState: [])
+    private let sdkActivationRelay = SdkActivationRelay { accountId in
+        try await sendSdkActivation(accountId: accountId)
+    }
+    private let interactiveCommitDebouncer = Debouncer(delay: .seconds(0.45))
+    
+    public var activeNetwork: ApiNetwork {
+        if let account {
+            return account.id.contains("mainnet") ? .mainnet  : .testnet
+        }
+        return .mainnet
+    }
+
+    public private(set) var accountsById: [String: MAccount] {
+        get {
+            access(keyPath: \._accountsById)
+            return _accountsById.withLock { $0 }
+        }
+        set {
+            withMutation(keyPath: \._accountsById) {
+                _accountsById.withLock { $0 = newValue }
+            }
+        }
+    }
+
+    public var account: MAccount? {
+        if let accountId {
+            return accountsById[accountId]
+        }
+        return nil
+    }
+
+    public private(set) var accountId: String? {
+        get { _accountId.withLock { $0 } }
+        set {
+            withMutation(keyPath: \._accountId) {
+                _accountId.withLock { $0 = newValue }
+            }
+        }
+    }
+
+    public internal(set) var walletVersionsData: MWalletVersionsData? {
+        get { _walletVersionsData.withLock { $0 } }
+        set { _walletVersionsData.withLock { $0 = newValue } }
+    }
+    
+    // MARK: Observable
+    
+    public var currentAccountId: String {
+        access(keyPath: \._accountId)
+        return accountId ?? DUMMY_ACCOUNT.id
+    }
+    
+    /// Excludes temporary view accounts
+    public private(set) var orderedAccountIds: OrderedSet<String> {
+        get {
+            access(keyPath: \._orderedAccountIds)
+            return _orderedAccountIds.withLock { $0 }
+        }
+        set {
+            withMutation(keyPath: \._orderedAccountIds) {
+                _orderedAccountIds.withLock { $0 = newValue }
+            }
+        }
+    }
+    
+    public var orderedAccountIdsWithTemporary: OrderedSet<String> {
+        orderedAccountIds.union(accountsById.keys)
+    }
+        
+    /// Excludes temporary view accounts
+    public var orderedAccounts: [MAccount] {
+        access(keyPath: \._accountsById)
+        let accountsById = accountsById
+        return orderedAccountIds.compactMap { accountsById[$0] }
+    }
+    
+    public func get(accountId: String) -> MAccount {
+        access(keyPath: \._accountsById)
+        return accountsById[accountId] ?? DUMMY_ACCOUNT
+    }
+    
+    public func get(accountIdOrCurrent: String?) -> MAccount {
+        get(accountId: accountIdOrCurrent ?? currentAccountId)
+    }
+
+    // MARK: - Database
+
+    private var _db: (any DatabaseWriter)?
+    private var db: any DatabaseWriter {
+        get throws {
+            try _db.orThrow("database not ready")
+        }
+    }
+
+    private var currentAccountIdObservation: Task<Void, Never>?
+    private var accountsObservation: Task<Void, Never>?
+
+    func use(db: any DatabaseWriter) throws {
+        self._db = db
+        loadOrderedAccountIds()
+
+        let accounts = try db.read { db in
+            try MAccount.fetchAll(db)
+        }
+        let currentAccountId: String?
+        do {
+            currentAccountId = try db.read { db in
+                try String.fetchOne(db, sql: "SELECT current_account_id FROM common")
+            }
+        } catch {
+            log.fault("failed to load current_account_id during startup: \(error, .public). will continue with account fallback if possible")
+            currentAccountId = nil
+        }
+        updateFromDb(accounts: accounts)
+        updateFromDb(currentAccountId: currentAccountId)
+        persistFallbackCurrentAccountIdIfNeeded(preferredAccountId: currentAccountId, db: db)
+
+        let currentAccountObservation = ValueObservation.tracking { db in
+            try String.fetchOne(db, sql: "SELECT current_account_id FROM common")
+        }
+        currentAccountIdObservation = Task { [weak self] in
+            do {
+                for try await accountId in currentAccountObservation.values(in: db) {
+                    try Task.checkCancellation()
+                    self?.updateFromDb(currentAccountId: accountId)
+                }
+            } catch {
+                log.error("\(error)")
+            }
+        }
+
+        let accountsValueObservation = ValueObservation.tracking { db in
+            try MAccount.fetchAll(db)
+        }
+        accountsObservation = Task { [weak self] in
+            do {
+                for try await accounts in accountsValueObservation.values(in: db) {
+                    try Task.checkCancellation()
+                    self?.updateFromDb(accounts: accounts)
+                }
+            } catch {
+                log.error("\(error)")
+            }
+        }
+        
+        WalletCoreData.add(eventObserver: self)
+    }
+
+    private func updateFromDb(currentAccountId: String?) {
+        let resolvedAccountId = resolveCurrentAccountId(preferredAccountId: currentAccountId)
+        if currentAccountId == nil, let resolvedAccountId {
+            log.fault("current_account_id missing, using fallback account \(resolvedAccountId, .public)")
+        } else if let currentAccountId, let resolvedAccountId, currentAccountId != resolvedAccountId {
+            log.fault("current_account_id is invalid, using fallback account \(resolvedAccountId, .public) instead of \(currentAccountId, .public)")
+        }
+        // The observation also echoes values `activateAccount` just wrote; skipping same-value sets keeps observers from re-firing
+        if self.accountId != resolvedAccountId {
+            self.accountId = resolvedAccountId
+        }
+    }
+
+    private func updateFromDb(accounts: [MAccount]) {
+        var accountsById: [String: MAccount] = [:]
+        for account in accounts {
+            accountsById[account.id] = account
+        }
+        let accountIds = accountsById.compactMap { $1.isTemporaryView ? nil : $0 }
+        // The observation also echoes values this store just wrote; skipping same-value sets keeps observers from re-firing
+        if accountsById != self.accountsById {
+            self.accountsById = accountsById
+        }
+
+        let orderedAccountIds = orderedAccountIds.intersection(accountIds).union(accountIds)
+        if orderedAccountIds != self.orderedAccountIds {
+            self.orderedAccountIds = orderedAccountIds
+            saveOrderedAccountIds()
+        }
+        if accountId == nil || accountId.flatMap({ accountsById[$0] }) == nil {
+            accountId = resolveCurrentAccountId(preferredAccountId: nil)
+        }
+    }
+
+    private func resolveCurrentAccountId(preferredAccountId: String?) -> String? {
+        if let preferredAccountId,
+           let preferredAccount = accountsById[preferredAccountId],
+           !preferredAccount.isTemporaryView
+        {
+            return preferredAccountId
+        }
+        for accountId in orderedAccountIds where accountsById[accountId]?.isTemporaryView != true {
+            return accountId
+        }
+        return accountsById.values
+            .filter { !$0.isTemporaryView }
+            .map(\.id)
+            .sorted()
+            .first
+    }
+
+    private func persistFallbackCurrentAccountIdIfNeeded(preferredAccountId: String?, db: any DatabaseWriter) {
+        guard let fallbackAccountId = resolveCurrentAccountId(preferredAccountId: preferredAccountId),
+              shouldPersistFallbackCurrentAccountId(preferredAccountId: preferredAccountId, fallbackAccountId: fallbackAccountId)
+        else {
+            return
+        }
+        Task {
+            do {
+                try await db.write { db in
+                    try db.execute(
+                        sql: "UPDATE common SET current_account_id = ?",
+                        arguments: [fallbackAccountId]
+                    )
+                }
+            } catch {
+                log.error("failed to persist fallback current_account_id: \(error, .public)")
+            }
+        }
+    }
+
+    private func shouldPersistFallbackCurrentAccountId(preferredAccountId: String?, fallbackAccountId: String) -> Bool {
+        guard let preferredAccountId else {
+            return true
+        }
+        guard preferredAccountId != fallbackAccountId else {
+            return false
+        }
+        guard let preferredAccount = accountsById[preferredAccountId] else {
+            return true
+        }
+        return preferredAccount.isTemporaryView
+    }
+    
+    // MARK: - Current account
+
+    /// Makes the account current, persists the choice, and notifies observers without waiting for
+    /// the SDK. The SDK-side activation — which redirects polling and the SDK's own current account —
+    /// is forwarded through `sdkActivationRelay` in the background and retried on failure, so the
+    /// switch itself never waits on the bridge and can only fail locally.
+    @discardableResult
+    public func activateAccount(accountId: String, isNew: Bool = false) async throws -> MAccount {
+        displayLog("activateAccount \(accountId)")
+        guard let account = accountsById[accountId] else {
+            throw SdkError.unexpected(message: "Account to activate is missing from account store", context: ["accountId": accountId])
+        }
+
+        interactiveCommitDebouncer.cancel()
+        let previousAccountId = self.accountId
+        self.accountId = accountId
+        sdkActivationRelay.requestActivation(accountId: accountId)
+        do {
+            try await db.write { db in
+                try db.execute(sql: "UPDATE common SET current_account_id = ?", arguments: [accountId])
+            }
+        } catch {
+            // Roll back the unpersisted switch so observers, the SDK, and persistence agree on the
+            // previous account again — unless a newer switch already took over
+            if self.accountId == accountId {
+                self.accountId = previousAccountId
+                if let previousAccountId {
+                    sdkActivationRelay.requestActivation(accountId: previousAccountId)
+                }
+            }
+            throw error
+        }
+        Task.detached {
+            WalletCoreData.notifyAccountChanged(to: account, isNew: isNew)
+        }
+        return account
+    }
+
+    /// Immediately makes the account current in memory — Perception observers of `currentAccountId`
+    /// update right away — and commits the switch (persistence, `.accountChanged`, SDK activation)
+    /// after a short debounce, so a swipe passing several accounts commits only the one it settles
+    /// on. A direct `activateAccount` call supersedes a pending commit.
+    public func activateAccountInteractively(accountId: String) {
+        displayLog("activateAccountInteractively \(accountId)")
+        guard accountsById[accountId] != nil else {
+            log.error("cannot interactively activate missing account \(accountId, .public)")
+            return
+        }
+        self.accountId = accountId
+        interactiveCommitDebouncer.schedule { [weak self] in
+            await self?.commitInteractiveActivation(accountId: accountId)
+        }
+    }
+
+    private func commitInteractiveActivation(accountId: String) async {
+        guard self.accountId == accountId, let account = accountsById[accountId] else { return }
+        sdkActivationRelay.requestActivation(accountId: accountId)
+        do {
+            try await db.write { db in
+                try db.execute(sql: "UPDATE common SET current_account_id = ?", arguments: [accountId])
+            }
+        } catch {
+            log.error("failed to persist current_account_id: \(error, .public)")
+        }
+        Task.detached {
+            WalletCoreData.notifyAccountChanged(to: account, isNew: false)
+        }
+    }
+
+    public func reactivateCurrentAccount() async throws {
+        if let accountId = self.accountId {
+            log.info("reactivateCurrentAccount: \(accountId, .public)")
+            sdkActivationRelay.requestActivation(accountId: accountId)
+        }
+    }
+    
+    public func resolveAccountId(source: AccountSource) -> String {
+        switch source {
+        case .accountId(let accountId):
+            accountId
+        case .current:
+            self.currentAccountId
+        case .constant(let account):
+            account.id
+        }
+    }
+
+    // MARK: - Account management
+
+    public func importMnemonic(network: ApiNetwork, words: [String], enclaveToken: EnclaveToken) async throws -> [MAccount] {
+        let results = try await Api.importMnemonic(networks: [network], mnemonic: words)
+        let secret = words.joined(separator: " ")
+        try await _importEnclaveSecret(
+            secret,
+            accountIds: results.map(\.accountId),
+            token: enclaveToken
+        )
+        var accountsById = self.accountsById
+        let accounts = try results.map { result in
+            let account = MAccount(
+                id: result.accountId,
+                title: _defaultTitle(accountsById: accountsById),
+                type: .mnemonic,
+                byChain: result.byChain,
+            )
+            accountsById[account.id] = account
+            return account
+        }.nilIfEmpty.orThrow()
+
+        let nextOrderedAccountIds = _orderedAccountIds(appending: accounts.map(\.id))
+        try await _storeAccounts(accounts: accounts, orderedAccountIds: nextOrderedAccountIds)
+        self.accountsById = accountsById
+        self.orderedAccountIds = nextOrderedAccountIds
+
+        let primaryAccount = accounts[0]
+        _ = try await self.activateAccount(accountId: primaryAccount.id, isNew: true)
+        await subscribeNotificationsIfAvailable(account: primaryAccount)
+        return accounts.map { self.accountsById[$0.id] ?? $0 }
+    }
+    
+    public func importPrivateKey(network: ApiNetwork, privateKey: String, enclaveToken: EnclaveToken) async throws -> MAccount {
+        let result = try await Api.importPrivateKey(chain: .ton, networks: [network], privateKey: privateKey).first.orThrow()
+        try await EnclaveManager.shared.importSecret(
+            id: result.accountId,
+            secret: privateKey,
+            token: enclaveToken
+        )
+        let account = MAccount(
+            id: result.accountId,
+            title: _defaultTitle(),
+            type: .mnemonic,
+            byChain: result.byChain,
+        )
+        try await _storeAccount(account: account)
+        _ = try await self.activateAccount(accountId: result.accountId, isNew: true)
+        await subscribeNotificationsIfAvailable(account: account)
+        return self.accountsById[account.id] ?? account
+    }
+
+    public func importLedgerAccount(accountInfo: ApiLedgerAccountInfo) async throws -> String {
+        let result = try await Api.importLedgerAccount(network: .mainnet, accountInfo: accountInfo)
+        let index = accountInfo.byChain[TON_CHAIN]?.index ?? 0
+        let title = "Ledger \(index + 1)"
+        let account = MAccount(
+            id: result.accountId,
+            title: title,
+            type: .hardware,
+            byChain: result.byChain,
+        )
+        try await _storeAccount(account: account)
+        await subscribeNotificationsIfAvailable(account: account)
+        return result.accountId
+    }
+
+    public func importNewWalletVersion(accountId: String, version: ApiTonWalletVersion) async throws -> MAccount {
+
+        let originalAccount = try accountsById[accountId].orThrow("Can't find the original account")
+
+        let result = try await Api.importNewWalletVersion(accountId: accountId, version: version)
+
+        if result.isNew {
+            let byChain = try result.byChain.orThrow("Missing chain data for new wallet version")
+            try await _duplicateEnclaveSecretIfNeeded(
+                from: originalAccount,
+                to: [result.accountId]
+            )
+            let account = MAccount(
+                id: result.accountId,
+                title: walletVersionTitle(originalTitle: originalAccount.title, version: version),
+                type: originalAccount.type,
+                byChain: byChain,
+            )
+            try await _storeAccount(account: account)
+            await refreshStoredMfaIfPossible(accountIds: [account.id], enclaveToken: nil)
+            _ = try await self.activateAccount(accountId: result.accountId, isNew: true)
+            await subscribeNotificationsIfAvailable(account: account)
+            return self.accountsById[account.id] ?? account
+            
+        } else {
+            if accountsById[result.accountId] == nil {
+                try await _duplicateEnclaveSecretIfNeeded(
+                    from: originalAccount,
+                    to: [result.accountId]
+                )
+                let summary = try await Api.fetchStoredAccountSummary(accountId: result.accountId)
+                let recoveredAccount = MAccount(
+                    id: result.accountId,
+                    title: walletVersionTitle(originalTitle: originalAccount.title, version: version),
+                    type: originalAccount.type,
+                    byChain: summary.byChain
+                )
+                try await _storeAccount(account: recoveredAccount)
+                await refreshStoredMfaIfPossible(accountIds: [recoveredAccount.id], enclaveToken: nil)
+                await subscribeNotificationsIfAvailable(account: recoveredAccount)
+            }
+            let account = try await self.activateAccount(accountId: result.accountId)
+            return account
+        }
+    }
+
+    public struct SubWalletActivationResult: Sendable {
+        public let account: MAccount
+        public let isNew: Bool
+
+        public init(account: MAccount, isNew: Bool) {
+            self.account = account
+            self.isNew = isNew
+        }
+    }
+
+    @discardableResult
+    public func createSubWallet(enclaveToken: EnclaveToken) async throws -> MAccount {
+        let currentAccountId = try self.accountId.orThrow("Can't find current account id")
+        let originalAccount = try accountsById[currentAccountId].orThrow("Can't find the original account")
+        let result = try await Api.createSubWallet(
+            accountId: currentAccountId,
+            enclaveToken: enclaveToken
+        )
+
+        if result.isNew {
+            let byChain = try result.byChain.orThrow("Missing subwallet account data")
+            try await _duplicateEnclaveSecretIfNeeded(
+                from: originalAccount,
+                to: [result.accountId]
+            )
+            return try await _storeAndActivateSubwalletAccount(
+                accountId: result.accountId,
+                originalAccount: originalAccount,
+                byChain: byChain,
+                shouldNumberTitle: true
+            )
+        }
+
+        return try await activateAccount(accountId: result.accountId)
+    }
+
+    @discardableResult
+    public func addSubWallet(group: ApiGroupedWalletVariant) async throws -> SubWalletActivationResult {
+        let currentAccountId = try self.accountId.orThrow("Can't find current account id")
+        let originalAccount = try accountsById[currentAccountId].orThrow("Can't find the original account")
+        let byChain = group.byChain.mapValues(\.wallet)
+        let result = try await Api.addSubWallet(accountId: currentAccountId, byChain: byChain)
+
+        if result.isNew {
+            let byChain = try result.byChain.orThrow("Missing subwallet account data")
+            try await _duplicateEnclaveSecretIfNeeded(
+                from: originalAccount,
+                to: [result.accountId]
+            )
+            let account = try await _storeAndActivateSubwalletAccount(
+                accountId: result.accountId,
+                originalAccount: originalAccount,
+                byChain: byChain,
+                shouldNumberTitle: true
+            )
+            return SubWalletActivationResult(account: account, isNew: true)
+        }
+
+        if result.accountId != currentAccountId {
+            let account = try await activateAccount(accountId: result.accountId)
+            return SubWalletActivationResult(account: account, isNew: false)
+        }
+
+        let account = try accountsById[currentAccountId].orThrow("Can't find current account")
+        return SubWalletActivationResult(account: account, isNew: false)
+    }
+
+    @discardableResult
+    public func addAllFoundSubwallets(groups: [ApiGroupedWalletVariant]) async throws -> SubWalletActivationResult {
+        let currentAccountId = try self.accountId.orThrow("Can't find current account id")
+        let originalAccount = try accountsById[currentAccountId].orThrow("Can't find the original account")
+        let foundWallets = groups
+            .map { $0.byChain.mapValues(\.wallet) }
+            .filter { !$0.isEmpty }
+
+        guard !foundWallets.isEmpty else {
+            throw DisplayError(text: "Unexpected error")
+        }
+
+        let result = try await Api.addAllFoundSubwallets(accountId: currentAccountId, foundWallets: foundWallets)
+        guard !result.results.isEmpty else {
+            throw DisplayError(text: "Unexpected error")
+        }
+        for item in result.results where item.isNew {
+            _ = try item.byChain.orThrow("Missing subwallet account data")
+        }
+        try await _duplicateEnclaveSecretIfNeeded(
+            from: originalAccount,
+            to: result.results.compactMap { $0.isNew ? $0.accountId : nil }
+        )
+
+        var addedNewAccount = false
+        var lastAccount: MAccount?
+
+        for (offset, item) in result.results.enumerated() {
+            let isLast = offset == result.results.count - 1
+
+            if item.isNew {
+                let byChain = try item.byChain.orThrow("Missing subwallet account data")
+                let account = try await _storeSubwalletAccount(
+                    accountId: item.accountId,
+                    originalAccount: originalAccount,
+                    byChain: byChain,
+                    shouldNumberTitle: true,
+                    shouldActivate: isLast
+                )
+                addedNewAccount = true
+                lastAccount = account
+            } else if isLast {
+                if item.accountId != currentAccountId {
+                    lastAccount = try await activateAccount(accountId: item.accountId)
+                } else {
+                    lastAccount = try accountsById[currentAccountId].orThrow("Can't find current account")
+                }
+            }
+        }
+
+        let account = try lastAccount.orThrow("Can't find current account")
+        return SubWalletActivationResult(account: account, isNew: addedNewAccount)
+    }
+
+    public func importViewWallet(network: ApiNetwork, addressByChain: [String: String]) async throws -> MAccount {
+        if addressByChain.isEmpty { throw DisplayError(text: lang("No matching chains")) }
+
+        let result = try await Api.importViewAccount(network: network, addressByChain: addressByChain, isTemporary: nil)
+        let viewCount = AccountStore.accountsById.values.filter { $0.type == .view }.count
+        let account = MAccount(
+            id: result.accountId,
+            title: result.title ?? "\(lang("Wallet")) \(viewCount + 1)",
+            type: .view,
+            byChain: result.byChain,
+        )
+
+        try await _storeAccount(account: account)
+        _ = try await self.activateAccount(accountId: result.accountId, isNew: true)
+        await subscribeNotificationsIfAvailable(account: account)
+        return account
+    }
+
+    private func walletVersionTitle(originalTitle: String?, version: ApiTonWalletVersion) -> String {
+        let title = originalTitle?.nilIfEmpty ?? _defaultTitle()
+        let parts = title.split(whereSeparator: \.isWhitespace)
+        let filteredTitle = parts
+            .filter { !_popularWalletVersionTitles.contains(String($0)) }
+            .map(String.init)
+            .joined(separator: " ")
+
+        return "\(filteredTitle.nilIfEmpty ?? title) \(version.rawValue)"
+    }
+
+    private func _defaultTitle() -> String {
+        _defaultTitle(accountsById: accountsById)
+    }
+
+    private func _importEnclaveSecret(
+        _ secret: String,
+        accountIds: [String],
+        token: EnclaveToken
+    ) async throws {
+        let manager = EnclaveManager.shared
+        try await EnclaveSecretReplication.importSecret(
+            accountIds: accountIds,
+            importPrimary: { accountId in
+                try await manager.importSecret(
+                    id: accountId,
+                    secret: secret,
+                    token: token
+                )
+            },
+            duplicate: { sourceId, targetId in
+                try await manager.duplicateSecret(fromId: sourceId, toId: targetId)
+            },
+            existingIds: { accountIds in
+                try await manager.existingSecretIds(in: accountIds)
+            }
+        )
+    }
+
+    private func _duplicateEnclaveSecretIfNeeded(
+        from sourceAccount: MAccount,
+        to targetIds: [String]
+    ) async throws {
+        guard sourceAccount.type.isStoredEncrypted, !targetIds.isEmpty else {
+            return
+        }
+
+        let manager = EnclaveManager.shared
+        try await EnclaveSecretReplication.duplicateSecret(
+            from: sourceAccount.id,
+            to: targetIds,
+            duplicate: { sourceId, targetId in
+                try await manager.duplicateSecret(fromId: sourceId, toId: targetId)
+            },
+            existingIds: { accountIds in
+                try await manager.existingSecretIds(in: accountIds)
+            }
+        )
+    }
+
+    private func _defaultTitle(accountsById: [String: MAccount]) -> String {
+        let totalCount = accountsById.count
+        if totalCount == 0 {
+            return APP_NAME
+        }
+        let mnemonicCount = accountsById.values.filter { $0.type == .mnemonic }.count
+        let title = IS_GRAM_WALLET ? "Wallet" : "My Wallet"
+        return "\(title) \(mnemonicCount + 1)"
+    }
+
+    private func _baseSubwalletTitle(from title: String) -> String {
+        SubwalletTitleNaming.baseTitle(from: title)
+    }
+
+    private func _nextSubwalletTitle(baseTitle: String, network: ApiNetwork) -> String {
+        let existingTitles = accountsById.values
+            .filter { $0.network == network }
+            .compactMap { $0.title?.nilIfEmpty }
+        return SubwalletTitleNaming.nextTitle(baseTitle: baseTitle, existingTitles: existingTitles)
+    }
+
+    private func _subwalletAccountTitle(originalAccount: MAccount, shouldNumberTitle: Bool) -> String? {
+        guard shouldNumberTitle else {
+            return originalAccount.title
+        }
+
+        return _nextSubwalletTitle(
+            baseTitle: _baseSubwalletTitle(from: originalAccount.title?.nilIfEmpty ?? APP_NAME),
+            network: originalAccount.network
+        )
+    }
+
+    @discardableResult
+    private func _storeAndActivateSubwalletAccount(
+        accountId: String,
+        originalAccount: MAccount,
+        byChain: [String: AccountChain],
+        shouldNumberTitle: Bool
+    ) async throws -> MAccount {
+        try await _storeSubwalletAccount(
+            accountId: accountId,
+            originalAccount: originalAccount,
+            byChain: byChain,
+            shouldNumberTitle: shouldNumberTitle,
+            shouldActivate: true
+        )
+    }
+
+    @discardableResult
+    private func _storeSubwalletAccount(
+        accountId: String,
+        originalAccount: MAccount,
+        byChain: [String: AccountChain],
+        shouldNumberTitle: Bool,
+        shouldActivate: Bool
+    ) async throws -> MAccount {
+        let account = MAccount(
+            id: accountId,
+            title: _subwalletAccountTitle(originalAccount: originalAccount, shouldNumberTitle: shouldNumberTitle),
+            type: originalAccount.type,
+            byChain: byChain
+        )
+
+        accountsById[account.id] = account
+        try await _storeAccount(account: account)
+        _appendOrderedAccountIdIfNeeded(account.id)
+        if shouldActivate {
+            try await _activateStoredAccountLocally(account: account, isNew: true)
+        }
+        await subscribeNotificationsIfAvailable(account: account)
+        return account
+    }
+
+    private func _appendOrderedAccountIdIfNeeded(_ accountId: String) {
+        _appendOrderedAccountIdsIfNeeded([accountId])
+    }
+
+    private func _appendOrderedAccountIdsIfNeeded(_ accountIds: [String]) {
+        let orderedAccountIds = _orderedAccountIds(appending: accountIds)
+        guard orderedAccountIds != self.orderedAccountIds else {
+            return
+        }
+        self.orderedAccountIds = orderedAccountIds
+        saveOrderedAccountIds()
+    }
+
+    private func _orderedAccountIds(appending accountIds: [String]) -> OrderedSet<String> {
+        var orderedAccountIds = self.orderedAccountIds
+        for accountId in accountIds where !orderedAccountIds.contains(accountId) {
+            orderedAccountIds.append(accountId)
+        }
+        return orderedAccountIds
+    }
+
+    private func _activateStoredAccountLocally(account: MAccount, isNew: Bool) async throws {
+        self.accountId = account.id
+        try await db.write { db in
+            try db.execute(sql: "UPDATE common SET current_account_id = ?", arguments: [account.id])
+        }
+        Task.detached {
+            WalletCoreData.notifyAccountChanged(to: account, isNew: isNew)
+        }
+    }
+
+    private func _storeAccount(account: MAccount) async throws {
+        try await db.write { db in
+            try account.upsert(db)
+        }
+    }
+
+    private func _storeAccounts(accounts: [MAccount], orderedAccountIds: OrderedSet<String>) async throws {
+        try await db.write { db in
+            for account in accounts {
+                try account.upsert(db)
+            }
+            try MOrderedAccountIds(orderedAccountIds: Array(orderedAccountIds)).upsert(db)
+        }
+    }
+
+    func reconcileSecretStates(
+        availableAccountIds: Set<String>,
+        recoveryRequiredAccountIds: Set<String>
+    ) async throws -> Set<String> {
+        let overlappingAccountIds = availableAccountIds.intersection(recoveryRequiredAccountIds)
+        if !overlappingAccountIds.isEmpty {
+            log.fault(
+                "skipping conflicting secret state reconciliation ids=\(overlappingAccountIds.sorted(), .public)"
+            )
+        }
+
+        let targetStates: [(accountId: String, state: AccountSecretState?)] =
+            availableAccountIds.subtracting(overlappingAccountIds).map { ($0, nil) }
+            + recoveryRequiredAccountIds.subtracting(overlappingAccountIds).map { ($0, .recoveryRequired) }
+        guard !targetStates.isEmpty else {
+            return []
+        }
+
+        let persistedUpdates = try await db.write { db in
+            var updates: [(accountId: String, state: AccountSecretState?, didChange: Bool)] = []
+            for (accountId, state) in targetStates {
+                guard var account = try MAccount.fetchOne(db, key: accountId),
+                      account.type.isStoredEncrypted else {
+                    continue
+                }
+                let didChange = try account.updateChanges(db) {
+                    $0.secretState = state
+                }
+                updates.append((accountId, state, didChange))
+            }
+            return updates
+        }
+        guard !persistedUpdates.isEmpty else {
+            return []
+        }
+
+        let accountsById = self.accountsById
+        let memoryUpdates = persistedUpdates.filter { accountId, state, _ in
+            guard let account = accountsById[accountId],
+                  account.type.isStoredEncrypted else {
+                return false
+            }
+            return account.secretState != state
+        }
+        let changedAccountIds = Set(
+            persistedUpdates.compactMap { $0.didChange ? $0.accountId : nil }
+        ).union(memoryUpdates.map(\.accountId))
+        guard !memoryUpdates.isEmpty else {
+            return changedAccountIds
+        }
+
+        withMutation(keyPath: \._accountsById) {
+            _accountsById.withLock { accountsById in
+                for (accountId, state, _) in memoryUpdates {
+                    guard var account = accountsById[accountId],
+                          account.type.isStoredEncrypted,
+                          account.secretState != state else {
+                        continue
+                    }
+                    account.secretState = state
+                    accountsById[accountId] = account
+                }
+            }
+        }
+        return changedAccountIds
+    }
+
+    public func updateAccountTitle(accountId: String, newTitle: String?) async throws {
+        if var account = accountsById[accountId] {
+            account.title = AccountTitle.normalized(newTitle)
+            accountsById[accountId] = account
+            try await _storeAccount(account: account)
+            WalletCoreData.notify(event: .accountNameChanged)
+            if notificationsEnabledAccountIds.contains(accountId) {
+                await _subscribeNotifications(account: account, force: true)
+            }
+        }
+    }
+
+    public func updateMfa(accountId: String, mfa: AccountMfa?) async throws {
+        guard var account = accountsById[accountId] else {
+            return
+        }
+        guard var tonChain = account.byChain[ApiChain.ton.rawValue] else {
+            return
+        }
+        if tonChain.mfa == mfa {
+            return
+        }
+        log.info("[mfa] change due to updateMfa: \(mfa != nil ? "set" : "delete", .public)")
+        tonChain.mfa = mfa
+        account.byChain[ApiChain.ton.rawValue] = tonChain
+        accountsById[accountId] = account
+        try await _storeAccount(account: account)
+    }
+
+    public func refreshStoredMfa(accountId: String, enclaveToken: EnclaveToken? = nil) async throws {
+        let result = try await Api.refreshMfaState(accountId: accountId, enclaveToken: enclaveToken)
+        if result.changed || result.mfa != nil {
+            try await updateMfa(accountId: accountId, mfa: result.mfa)
+        }
+    }
+
+    private func refreshStoredMfaIfPossible(accountIds: [String], enclaveToken: EnclaveToken?) async {
+        for accountId in accountIds {
+            do {
+                try await refreshStoredMfa(accountId: accountId, enclaveToken: enclaveToken)
+            } catch {
+                log.error("refreshStoredMfa failed for imported account \(accountId, .public): \(error, .public)")
+            }
+        }
+    }
+    
+    // MARK: - Temporary wallets
+    
+    public func importTemporaryViewAccountOrActivateFirstMatching(network: ApiNetwork, addressOrDomainByChain: [String: String]) async throws -> MAccount {
+        if let account = firstAccountContainingChainAddresses(addressOrDomainByChain, network: network) {
+            // Points SDK polling at the account without making it current in the app; going through
+            // the relay keeps it serialized with pending switch activations and their retries
+            sdkActivationRelay.requestActivation(accountId: account.id)
+            return account
+        } else {
+            return try await importTemporaryViewAccount(network: network, addressOrDomainByChain: addressOrDomainByChain)
+        }
+    }
+    
+    private func importTemporaryViewAccount(network: ApiNetwork, addressOrDomainByChain: [String: String]) async throws -> MAccount {
+        let result = try await Api.importViewAccount(network: network, addressByChain: addressOrDomainByChain, isTemporary: true)
+        let account = MAccount(
+            id: result.accountId,
+            title: result.title ?? lang("Wallet"),
+            type: .view,
+            byChain: result.byChain,
+            isTemporary: true,
+        )
+        accountsById[account.id] = account
+        try await _storeAccount(account: account)
+        return account
+    }
+
+    public func saveTemporaryViewAccount(accountId: String) async throws {
+        if var account = accountsById[accountId] {
+            account.isTemporary = nil
+            var nameChanged = false
+            if account.title == lang("Wallet") {
+                let viewCount = AccountStore.accountsById.values.filter { $0.type == .view }.count
+                account.title = "\(lang("Wallet")) \(viewCount + 1)"
+                nameChanged = true
+            }
+            try await _storeAccount(account: account)
+            accountsById[accountId] = account
+            _ = try await self.activateAccount(accountId: accountId, isNew: false)
+            await subscribeNotificationsIfAvailable(account: account)
+            if nameChanged {
+                WalletCoreData.notify(event: .accountNameChanged)
+            }
+        }
+    }
+    
+    private func firstAccountContainingChainAddresses(_ addressOrDomainByChain: [String: String], network: ApiNetwork) -> MAccount? {
+        accountLoop: for account in orderedAccounts {
+            guard account.network == network else {
+                continue
+            }
+            for (chain, addressOrDomain) in addressOrDomainByChain {
+                if account.byChain[chain]?.address != addressOrDomain && account.byChain[chain]?.domain != addressOrDomain {
+                    continue accountLoop
+                }
+            }
+            return account
+        }
+        return nil
+    }
+    
+    public func removeAccountIfTemporary(accountId: String) async throws {
+        let account = get(accountId: accountId)
+        if account.isTemporaryView {
+            try await AccountStore.removeAccount(accountId: accountId, nextAccountId: self.currentAccountId)
+        }
+    }
+    
+    public func removeAllTemporaryAccounts() async throws {
+        for account in accountsById.values {
+            if account.isTemporaryView {
+                try await AccountStore.removeAccount(accountId: account.id, nextAccountId: self.currentAccountId)
+            }
+        }
+    }
+
+    // MARK: - Remove methods
+
+    @MainActor
+    public func resetAccounts() async throws {
+        log.info("resetAccounts")
+        interactiveCommitDebouncer.cancel()
+        sdkActivationRelay.cancel()
+        try await Api.resetAccounts()
+        await AuthSupportImpl.clearAllAuth()
+        accountId = nil
+        accountsById = [:]
+        orderedAccountIds = []
+        walletVersionsData = nil
+        clearUpdatingStatuses()
+        try await db.write { db in
+            _ = try MAccount.deleteAll(db)
+            try db.execute(sql: "UPDATE common SET current_account_id = NULL")
+            try MOrderedAccountIds(orderedAccountIds: []).upsert(db)
+        }
+
+        let migrationGlobalStorage = GlobalStorage()
+        try await migrationGlobalStorage.deleteAll()
+        migrationGlobalStorage.update {
+            $0["stateVersion"] = STATE_VERSION
+        }
+        try await migrationGlobalStorage.syncronize()
+
+        await ActivityStore.clean()
+        await BalanceDataStore.clean()
+        NftStore.clean()
+        KeychainHelper.deleteAllWallets()
+        Api.shared?.webViewBridge.recreateWebView()
+        WalletCoreData.notify(event: .accountsReset)
+    }
+
+    @discardableResult
+    public func removeAccount(accountId: String, nextAccountId: String) async throws -> MAccount {
+        let removedAccount = accountsById[accountId]
+        if let removedAccount {
+            await _unsubscribeNotifications(account: removedAccount)
+        }
+        let timestamps = await ActivityStore.getNewestActivityTimestamps(accountId: nextAccountId)
+        try await Api.removeAccount(accountId: accountId, nextAccountId: nextAccountId, newestActivityTimestamps: timestamps)
+        await cleanupAuthAfterRemovingAccount(accountId: accountId, removedAccount: removedAccount)
+        setUpdatingActivities(accountId: accountId, isUpdating: false)
+        setUpdatingBalance(accountId: accountId, isUpdating: false)
+        try await db.write { db in
+            _ = try MAccount.deleteOne(db, key: accountId)
+        }
+        WalletCoreData.notify(event: .accountDeleted(accountId: accountId))
+        if let currentAccount = self.account, currentAccount.id == nextAccountId, self.accountId == nextAccountId {
+            return currentAccount
+        } else {
+            return try await activateAccount(accountId: nextAccountId)
+        }
+    }
+
+    private func cleanupAuthAfterRemovingAccount(accountId: String, removedAccount: MAccount?) async {
+        guard let removedAccount, removedAccount.type.isStoredEncrypted else {
+            return
+        }
+
+        let hasOtherEncryptedAccounts = accountsById.values.contains {
+            $0.id != accountId && $0.type.isStoredEncrypted
+        }
+
+        if hasOtherEncryptedAccounts {
+            await EnclaveManager.shared.removeSecret(id: accountId)
+        } else {
+            await AuthSupportImpl.clearAllAuth()
+        }
+    }
+    
+    // MARK: - Reordering accounts
+    
+    public func reorderAccounts(newOrderHint: OrderedSet<String>) {
+        withMutation(keyPath: \._orderedAccountIds) {
+            _orderedAccountIds.withLock {
+                let oldItems = $0
+                let hintedOrder = OrderedSet(newOrderHint.filter { oldItems.contains($0) })
+                $0 = hintedOrder.union(oldItems)
+            }
+        }
+        saveOrderedAccountIds()
+    }
+    
+    private func loadOrderedAccountIds() {
+        do {
+            guard let db = _db else {
+                assertionFailure("database not ready")
+                return
+            }
+            let row = try db.read { db in
+                try MOrderedAccountIds.fetchOne(db, key: SINGLETON_TABLE_ROW_ID)
+            }
+            orderedAccountIds = OrderedSet(row?.orderedAccountIds ?? [])
+        } catch {
+            log.error("loadOrderedAccountIds failed: \(error, .public)")
+        }
+    }
+    
+    private func saveOrderedAccountIds() {
+        do {
+            guard let db = _db else {
+                assertionFailure("database not ready")
+                return
+            }
+            let row = MOrderedAccountIds(orderedAccountIds: Array(orderedAccountIds))
+            try db.write { db in
+                try row.upsert(db)
+            }
+        } catch {
+            log.error("saveOrderedAccountIds failed: \(error, .public)")
+        }
+    }
+    
+    // MARK: - Domains
+    
+    public func walletCore(event: WalletCoreData.Event) {
+        switch event {
+        case .updateAccount(let update):
+            Task {
+                await handleUpdateAccount(update: update)
+            }
+        default:
+            break
+        }
+    }
+    
+    func handleUpdateAccount(update: ApiUpdate.UpdateAccount) async {
+        guard var account = accountsById[update.accountId] else {
+            return
+        }
+
+        let chain = update.chain.rawValue
+        var didChange = false
+
+        if let address = update.address {
+            if account.byChain[chain] == nil {
+                account.byChain[chain] = AccountChain(address: address)
+                didChange = true
+            } else if account.byChain[chain]?.address != address {
+                account.byChain[chain]?.address = address
+                didChange = true
+            }
+        }
+
+        switch update.domain {
+        case .unchanged:
+            break
+        case .changed(let domain):
+            if account.byChain[chain]?.domain != domain {
+                account.byChain[chain]?.domain = domain
+                didChange = true
+            }
+        case .removed:
+            if account.byChain[chain]?.domain != nil {
+                account.byChain[chain]?.domain = nil
+                didChange = true
+            }
+        }
+        if let isMultisig = update.isMultisig {
+            if account.byChain[chain]?.isMultisig != isMultisig {
+                account.byChain[chain]?.isMultisig = isMultisig
+                didChange = true
+            }
+        }
+        if let derivation = update.derivation {
+            if account.byChain[chain]?.derivation != derivation {
+                account.byChain[chain]?.derivation = derivation
+                didChange = true
+            }
+        }
+        switch update.mfa {
+        case .unchanged:
+            log.info("[mfa] no change due to updateAccount")
+            break
+        case .changed(let mfa):
+            log.info("[mfa] change due to updateAccount")
+            if account.byChain[chain]?.mfa != mfa {
+                account.byChain[chain]?.mfa = mfa
+                didChange = true
+            }
+        case .removed:
+            log.info("[mfa] remove due to updateAccount")
+            if account.byChain[chain]?.mfa != nil {
+                account.byChain[chain]?.mfa = nil
+                didChange = true
+            }
+        }
+
+        if didChange {
+            accountsById[update.accountId] = account
+            try? await _storeAccount(account: account)
+        }
+    }
+
+
+    // MARK: - Notifications
+
+    public var notificationsEnabledAccountIds: Set<String> {
+        Set(AppStorageHelper.pushNotifications?.enabledAccounts ?? [])
+    }
+    
+    public func didRegisterForPushNotifications(userToken: String) {
+        let existingInfo = AppStorageHelper.pushNotifications
+        let previousToken = existingInfo?.userToken
+
+        let info = GlobalPushNotifications(
+            isAvailable: true,
+            userToken: userToken,
+            platform: .ios,
+            enabledAccounts: existingInfo?.enabledAccounts ?? []
+        )
+        AppStorageHelper.pushNotifications = info
+
+        let enabledAccounts = info.enabledAccounts
+        guard !enabledAccounts.isEmpty else { return }
+
+        let accounts = info.enabledAccounts.compactMap { accountsById[$0] }
+        let addresses = accounts.flatMap { notificationAddresses(for: $0) }
+        guard !addresses.isEmpty else { return }
+
+        Task {
+            do {
+                let subscribeProps = ApiSubscribeNotificationsProps(
+                    userToken: userToken,
+                    platform: .ios,
+                    langCode: LocalizationSupport.shared.langCode,
+                    addresses: addresses
+                )
+
+                if let previousToken, previousToken != userToken {
+                    async let subscribeResult = Api.subscribeNotifications(props: subscribeProps)
+                    async let _ = Api.unsubscribeNotifications(props: ApiUnsubscribeNotificationsProps(
+                        userToken: previousToken,
+                        addresses: addresses
+                    ))
+                    let result = try await subscribeResult
+                    updateEnabledNotificationAccounts(info: info, accounts: accounts, result: result)
+                } else {
+                    let result = try await Api.subscribeNotifications(props: subscribeProps)
+                    updateEnabledNotificationAccounts(info: info, accounts: accounts, result: result)
+                }
+            } catch {
+                log.info("didRegisterForPushNotifications: \(error, .public)")
+            }
+        }
+    }
+    
+    public func refreshEnabledNotificationSubscriptions() {
+        guard let info = AppStorageHelper.pushNotifications,
+              let userToken = info.userToken else {
+            return
+        }
+        let accounts = info.enabledAccounts.compactMap { accountsById[$0] }
+        let addresses = accounts.flatMap { notificationAddresses(for: $0) }
+        guard !addresses.isEmpty else { return }
+
+        Task {
+            do {
+                let result = try await Api.subscribeNotifications(props: ApiSubscribeNotificationsProps(
+                    userToken: userToken,
+                    platform: .ios,
+                    langCode: LocalizationSupport.shared.langCode,
+                    addresses: addresses
+                ))
+                updateEnabledNotificationAccounts(info: info, accounts: accounts, result: result)
+            } catch {
+                log.info("refreshEnabledNotificationSubscriptions: \(error, .public)")
+            }
+        }
+    }
+    
+    private func subscribeNotificationsIfAvailable(account: MAccount) async {
+        if let info = AppStorageHelper.pushNotifications, info.enabledAccounts.count < MAX_PUSH_NOTIFICATIONS_ACCOUNT_COUNT {
+            await _subscribeNotifications(account: account)
+        }
+    }
+    
+    @MainActor public func selectedNotificationsAccounts(accounts: [MAccount]) async {
+        let toEnableAccountIds = Set(accounts.map(\.id))
+        let oldEnabledAccountIds = Set(AppStorageHelper.pushNotifications?.enabledAccounts ?? [])
+        if oldEnabledAccountIds == toEnableAccountIds {
+            return
+        }
+        let toUnsubscribeAccounts = oldEnabledAccountIds
+            .filter { !toEnableAccountIds.contains($0) }
+            .compactMap { accountsById[$0] }
+        for account in toUnsubscribeAccounts {
+            await _unsubscribeNotifications(account: account)
+        }
+        for account in accounts {
+            await _subscribeNotifications(account: account)
+        }
+    }
+
+    private func _subscribeNotifications(account: MAccount, force: Bool = false) async {
+        do {
+            if var info = AppStorageHelper.pushNotifications,
+                let userToken = info.userToken
+            {
+                if info.enabledAccounts.contains(account.id), !force {
+                    return
+                }
+                let addresses = notificationAddresses(for: account)
+                guard !addresses.isEmpty else {
+                    log.info("_subscribeNotifications: no supported addresses")
+                    return
+                }
+                let result = try await Api.subscribeNotifications(props: ApiSubscribeNotificationsProps(
+                    userToken: userToken,
+                    platform: .ios,
+                    langCode: LocalizationSupport.shared.langCode,
+                    addresses: addresses
+                ))
+                let enabledAddresses = Set(result.addressKeys.keys)
+                if addresses.contains(where: { enabledAddresses.contains($0.address) }) {
+                    if !info.enabledAccounts.contains(account.id) {
+                        info.enabledAccounts.append(account.id)
+                    }
+                } else {
+                    info.enabledAccounts.removeAll { $0 == account.id }
+                }
+                AppStorageHelper.pushNotifications = info
+            } else {
+                log.info("_subscribeNotifications: no info or token")
+            }
+        } catch {
+            log.info("_subscribeNotifications: \(error)")
+        }
+    }
+
+    private func _unsubscribeNotifications(account: MAccount) async {
+        do {
+            if var info = AppStorageHelper.pushNotifications,
+                let userToken = info.userToken
+            {
+                let addresses = notificationAddresses(for: account)
+                if !addresses.isEmpty {
+                    _ = try await Api.unsubscribeNotifications(props: ApiUnsubscribeNotificationsProps(
+                        userToken: userToken,
+                        addresses: addresses
+                    ))
+                }
+                info.enabledAccounts.removeAll { $0 == account.id }
+                AppStorageHelper.pushNotifications = info
+            } else {
+                log.info("_unsubscribeNotifications: no info or userToken")
+            }
+        } catch {
+            log.info("\(error)")
+        }
+    }
+    
+    private func notificationAddresses(for account: MAccount) -> [ApiNotificationAddress] {
+        account.orderedChains.compactMap { chain, info in
+            if chain.doesSupportPushNotifications {
+                return ApiNotificationAddress(
+                    title: account.displayName,
+                    address: info.address,
+                    chain: chain
+                )
+            }
+            return nil
+        }
+    }
+
+    private func updateEnabledNotificationAccounts(
+        info: GlobalPushNotifications,
+        accounts: [MAccount],
+        result: ApiSubscribeNotificationsResult
+    ) {
+        let enabledAddresses = Set(result.addressKeys.keys)
+        let enabledAccountIds = accounts
+            .filter { account in
+                notificationAddresses(for: account)
+                    .contains { enabledAddresses.contains($0.address) }
+            }
+            .map(\.id)
+        var updatedInfo = info
+        updatedInfo.enabledAccounts = enabledAccountIds
+        AppStorageHelper.pushNotifications = updatedInfo
+    }
+
+    // MARK: - Misc
+    
+    /// Whether activities are being updated for the current account
+    public var updatingActivities: Bool {
+        accountId.map { accountId in
+            _updatingActivitiesAccountIds.withLock { $0.contains(accountId) }
+        } ?? false
+    }
+
+    /// Whether balances are being updated for the current account
+    public var updatingBalance: Bool {
+        accountId.map { accountId in
+            _updatingBalanceAccountIds.withLock { $0.contains(accountId) }
+        } ?? false
+    }
+
+    func setUpdatingActivities(accountId: String, isUpdating: Bool) {
+        _updatingActivitiesAccountIds.withLock {
+            if isUpdating { $0.insert(accountId) } else { $0.remove(accountId) }
+        }
+    }
+
+    func setUpdatingBalance(accountId: String, isUpdating: Bool) {
+        _updatingBalanceAccountIds.withLock {
+            if isUpdating { $0.insert(accountId) } else { $0.remove(accountId) }
+        }
+    }
+
+    private func clearUpdatingStatuses() {
+        _updatingActivitiesAccountIds.withLock { $0 = [] }
+        _updatingBalanceAccountIds.withLock { $0 = [] }
+    }
+
+    public func clean() {
+        interactiveCommitDebouncer.cancel()
+        sdkActivationRelay.cancel()
+        currentAccountIdObservation?.cancel()
+        currentAccountIdObservation = nil
+        accountsObservation?.cancel()
+        accountsObservation = nil
+        _db = nil
+        accountId = nil
+        accountsById = [:]
+        orderedAccountIds = []
+        self.walletVersionsData = nil
+        clearUpdatingStatuses()
+    }
+}
+
+extension _AccountStore: DependencyKey {
+    static public let liveValue: _AccountStore = .shared
+    static public let previewValue: _AccountStore = {
+        let accountStore = _AccountStore()
+        accountStore.accountsById = [
+            MAccount(
+                id: "0-mainnet",
+                title: "My Wallet",
+                type: .mnemonic,
+                byChain: [
+                    .ton: AccountChain(address: "UQf7abcd1234efgh5678ijkl9012mnop34Aef3dsdaQ8N", domain: nil),
+                    .tron: AccountChain(address: "TUQf7abcd1234efgh5678ijkl9012mnop34ef3dsdaPqh", domain: nil),
+                ]
+            ),
+            MAccount(
+                id: "1-mainnet",
+                title: "Personal Wallet",
+                type: .mnemonic,
+                byChain: [
+                    .ton: AccountChain(address: "UQf7abcd1234efgh5678ijkl9012mnop34ef3dsdaQ8N", domain: "tema.ton"),
+                    .tron: AccountChain(address: "TUQf7abcd1234efgh5678ijkl9012mnop34ef3dsdacC9", domain: "screamingseagull.tron"),
+                ]
+            ),
+            MAccount(
+                id: "2-mainnet",
+                title: "My Saved",
+                type: .view,
+                byChain: [
+                    .ton: AccountChain(address: "UQf7abcd1234efgh5678ijkl9012mnop3456qrst7890d0Gh", domain: nil),
+                ]
+            ),
+            MAccount(
+                id: "3-testnet",
+                title: "Just for Test",
+                type: .view,
+                byChain: [
+                    .ton: AccountChain(address: "UQdk9876zyxw5432vuts2109rqpo8765nmlk4321jihg7654z7-d", domain: nil),
+                ]
+            ),
+            MAccount(
+                id: "4-mainnet",
+                title: "Yet Another Walleeeeeeeeeeeeeeeeeeet",
+                type: .mnemonic,
+                byChain: [
+                    .ton: AccountChain(address: "UQ2c1234abcd5678efgh9012ijkl3456mnop7890qrst2345Kd9A", domain: nil),
+                ]
+            ),
+            MAccount(
+                id: "5-mainnet",
+                title: "Family Wallet",
+                type: .hardware,
+                byChain: [
+                    .ton: AccountChain(address: "EQ9876abcd5432efgh2109ijkl8765mnop4321qrst7890klmn9-d", domain: nil),
+                    .tron: AccountChain(address: "T9876543210abcdefghijklmnopqrstuvwxyz01234567890Va", domain: nil),
+                ]
+            ),
+            MAccount(
+                id: "6-mainnet",
+                title: "Durov's Wallet",
+                type: .view,
+                byChain: [
+                    .ton: AccountChain(address: "EQabcdef1234567890ghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP", domain: "wolf.t.me"),
+                ]
+            ),
+            MAccount(
+                id: "7-mainnet",
+                title: "Old Wallet",
+                type: .mnemonic,
+                byChain: [
+                    .ton: AccountChain(address: "EQ1234abcd5678efgh9012ijkl3456mnop7890qrst2345uvwxwQ9", domain: nil),
+                    .tron: AccountChain(address: "Tabcdef1234567890ghijklmnopqrstuvwxyzABCDEFGHIJKLMN0cH", domain: nil),
+                ]
+            ),
+            MAccount(
+                id: "8-mainnet",
+                title: "Super Secret",
+                type: .mnemonic,
+                byChain: [
+                    .ton: AccountChain(address: "UQc81234abcd5678efgh9012ijkl3456mnop7890qrst2345uvwxc4Zs", domain: nil),
+                ]
+            ),
+            
+        ].dictionaryByKey(\.id)
+        accountStore.accountId = "0-mainnet"
+        accountStore.orderedAccountIds = OrderedSet(accountStore.accountsById.keys.sorted())
+        return accountStore
+    }()
+}
+
+extension DependencyValues {
+    public var accountStore: _AccountStore {
+        get { self[_AccountStore.self] }
+        set { self[_AccountStore.self] = newValue }
+    }
+}
+
+public enum ValueFetchingState<T: Sendable>: Sendable {
+    case notSet
+    case data(T)
+}

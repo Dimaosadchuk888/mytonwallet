@@ -1,0 +1,36 @@
+$avatarSize: 2.625rem;
+
+.avatar {
+  position: relative;
+
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+
+  width: #{$avatarSize};
+  height: #{$avatarSize};
+  padding-top: 0.125rem;
+  border-radius: 50%;
+
+  font-size: 1.0625rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-activity-icon);
+  white-space: nowrap;
+
+  background: linear-gradient(to bottom, var(--start-color) 0%, var(--end-color) 100%);
+}
+
+.imageWrapper {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}

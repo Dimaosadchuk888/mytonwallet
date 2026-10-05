@@ -1,0 +1,125 @@
+import SwiftUI
+import WalletCore
+import WalletContext
+
+public struct FeeDetailsView: View {
+    
+    ///The token denoting the `token` fields of the `FeeTerms` objects.
+    private var nativeToken: ApiToken
+    private var fee: ExplainedTransferFee
+    private var extraContent: AnyView?
+    
+    private var realAmount: TokenAmount {
+        TokenAmount(fee.realFee?.nativeSum ?? 0, nativeToken)
+    }
+    
+    private var fullAmount: TokenAmount {
+        TokenAmount(fee.fullFee?.nativeSum ?? 0, nativeToken)
+    }
+    
+    private var excessAmount: TokenAmount {
+        TokenAmount(fee.excessFee ?? 0, nativeToken)
+    }
+    
+    private var showExcess: Bool {
+        excessAmount.amount > 0
+    }
+    private var realLargerThanExcess: Bool {
+        realAmount.amount > excessAmount.amount
+    }
+    
+    public init(nativeToken: ApiToken, fee: ExplainedTransferFee, extraContent: AnyView? = nil) {
+        self.nativeToken = nativeToken
+        self.fee = fee
+        self.extraContent = extraContent
+    }
+    
+    public var body: some View {
+        VStack(spacing: 24) {
+            chart
+            explaination
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 6)
+    }
+
+    @ViewBuilder
+    var chart: some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(lang("Final Fee"))
+                    .textStyle(.footnoteStrong)
+                    .foregroundStyle(.tint)
+                
+                Spacer()
+                
+                if showExcess {
+                    Text(lang("Excess"))
+                        .textStyle(.footnoteStrong)
+                        .foregroundColor(.green)
+                }
+            }
+            .padding(.horizontal, 12)
+            
+            HStack(spacing: 3) {
+                Text(amount: realAmount, format: .init(preset: .fee, precision: fee.realFee?.precision))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.vertical, 11)
+                    .padding(.horizontal, 12)
+                    
+                    .padding(.trailing, 3) // visually balance ~
+                    .frame(maxWidth: realLargerThanExcess ? .infinity : nil, alignment: .leading)
+                    .background(Color.accentColor)
+                    .clipShape(.rect(cornerRadius: 4))
+                
+                if showExcess {
+                    Text(amount: excessAmount, format: .init(preset: .fee, precision: .approximate))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: true)
+                        .padding(.vertical, 11)
+                        .padding(.horizontal, 12)
+                        
+                        .frame(maxWidth: realLargerThanExcess ? nil : .infinity, alignment: .trailing)
+                        .background(Color.green)
+                        .clipShape(.rect(cornerRadius: 4))
+                }
+            }
+            .clipShape(.rect(cornerRadius: 8))
+            .textStyle(.bodyStrong, content: .technical)
+            .foregroundColor(.white)
+        }
+    }
+
+    @ViewBuilder
+    var explaination: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            fullFeeExplanation
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let extraContent = extraContent {
+                extraContent
+            }
+        }
+        .textStyle(.body, scaling: .dynamic)
+        .padding(.horizontal, 12)
+    }
+
+    private var fullFeeExplanation: Text {
+        let precision = fee.fullFee?.precision
+        let fullAmountText = fullAmount.formatted(
+            .fee,
+            roundHalfUp: true,
+            precision: precision
+        )
+        if !showExcess {
+            let explanation = L10n.dappReturnDetails(feeAmount: "**\(fullAmountText)**", receivedAmount: "")
+            let firstParagraph = explanation.components(separatedBy: "\n\n").first ?? explanation
+            return Text(LocalizedStringKey(firstParagraph))
+        }
+
+        let explanation = L10n.feeDetails(fullFee: "**\(fullAmountText)**", excessSymbol: nativeToken.symbol, chainName: nativeToken.chain.title)
+        return Text(LocalizedStringKey(explanation))
+    }
+}

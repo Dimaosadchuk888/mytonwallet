@@ -1,0 +1,508 @@
+//
+//  HomeCard.swift
+//  MyTonWalletAir
+//
+//  Created by nikstar on 19.11.2025.
+//
+
+import Foundation
+import UIKit
+import ContextMenuKit
+import UIComponents
+import WalletCore
+import WalletContext
+import SwiftUI
+import SwiftUIIntrospect
+import Perception
+import Dependencies
+
+struct HomeCardContent: View {
+    
+    var headerViewModel: HomeHeaderViewModel
+    var accountContext: AccountContext
+    var layout: HomeCardLayoutMetrics
+    var minimumHomeCardFontScale: CGFloat = 1
+    @AppStorage(WalletCardSettings.topLineUserDefaultsKey)
+    private var cardTopLineRawValue = WalletCardTopLine.defaultValue.rawValue
+    
+    var progress: CGFloat { headerViewModel.collapseProgress }
+    
+    var body: some View {
+        WithPerceptionTracking {
+            ZStack {
+                _CenterContent(
+                    headerViewModel: headerViewModel,
+                    accountContext: accountContext,
+                    layout: layout,
+                    minimumHomeCardFontScale: minimumHomeCardFontScale
+                )
+                    .scaleEffect(balanceScale)
+                    .backportGeometryGroup()
+                    .offset(y: -bottomPadding)
+                    .id(accountContext.accountId)
+                    .animation(.default, value: accountContext.balance)
+
+                Group {
+                    if showsWalletName {
+                        _WalletTitleLine(accountContext: accountContext)
+                    } else {
+                        _AddressLine(accountContext: accountContext)
+                    }
+                }
+                .frame(maxHeight: .infinity, alignment: .bottom)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                SeasonalOverlay(seasonalTheme: headerViewModel.seasonalTheme)
+            }
+            .overlay(alignment: .topTrailing) {
+                HomeCardPromotionHitArea(
+                    promotion: accountContext.activePromotion,
+                    cardSize: CGSize(width: layout.itemWidth, height: layout.itemHeight)
+                )
+            }
+            .opacity(headerViewModel.isCardHidden ? 0 : 1)
+        }
+    }
+    
+    var targetBottomPadding: CGFloat {
+        -16 + (IOS_26_MODE_ENABLED ? -3 : -14)
+    }
+
+    var balanceScale: CGFloat { interpolate(from: 1, to: 17.0/40.0, progress: progress) }
+    var bottomPadding: CGFloat { interpolate(from: 0, to: targetBottomPadding, progress: progress) }
+
+    private var showsWalletName: Bool {
+        guard headerViewModel.rootNavigationStyle.usesNavigationBarTopTabs else { return false }
+        let topLine = WalletCardTopLine(rawValue: cardTopLineRawValue) ?? .defaultValue
+        return topLine == .walletName
+    }
+}
+
+private struct _CenterContent: View {
+    
+    let headerViewModel: HomeHeaderViewModel
+    let accountContext: AccountContext
+    let layout: HomeCardLayoutMetrics
+    let minimumHomeCardFontScale: CGFloat
+    
+    var body: some View {
+        WithPerceptionTracking {
+            VStack(spacing: 5) {
+                _BalanceView(accountContext: accountContext, layout: layout, minimumHomeCardFontScale: minimumHomeCardFontScale)
+                    .padding(.leading, 1)
+                    .padding(.horizontal, 32)
+                
+                _BalanceChange(
+                    accountContext: accountContext,
+                    style: .card
+                )
+            }
+            .offset(y: -5)
+        }
+    }
+}
+
+private struct _BalanceView: View {
+
+    let accountContext: AccountContext
+    let layout: HomeCardLayoutMetrics
+    let minimumHomeCardFontScale: CGFloat
+    @Dependency(\.sensitiveData.isHidden) private var isSensitiveDataHidden
+
+    var body: some View {
+        WithPerceptionTracking {
+            _BalanceViewContent(
+                accountId: accountContext.accountId,
+                balance: accountContext.balance,
+                nft: accountContext.nft,
+                isCurrent: accountContext.isCurrent,
+                cardWidth: layout.itemWidth,
+                minimumHomeCardFontScale: minimumHomeCardFontScale,
+                isSensitiveDataHidden: isSensitiveDataHidden
+            )
+        }
+    }
+}
+
+private struct _BalanceViewContent: View, Equatable {
+
+    var accountId: String
+    var balance: BaseCurrencyAmount?
+    var nft: ApiNft?
+    var isCurrent: Bool
+    var cardWidth: CGFloat
+    var minimumHomeCardFontScale: CGFloat
+    var isSensitiveDataHidden: Bool
+    
+    var body: some View {
+        let style = MtwCardBalanceView.Style.homeCard(
+            cardWidth: cardWidth,
+            minimumScale: minimumHomeCardFontScale
+        )
+        MtwCardBalanceView(
+            balance: balance,
+            isNumericTranstionEnabled: isCurrent,
+            style: style,
+            secondaryOpacity: nft?.metadata?.mtwCardType?.isPremium == true ? 1 : 0.75,
+            onSensitiveDataReveal: {
+                AppActions.setSensitiveDataIsHidden(false)
+            }
+        )
+            .padding(40)
+            .sourceAtop {
+                MtwCardBalanceGradient(nft: nft)
+            }
+            .padding(-40)
+            .overlay {
+                HomeCardBalanceRevealHint(
+                    style: style,
+                    isVisible: isSensitiveDataHidden
+                )
+            }
+            .homeCardBalanceInteractions(
+                accountId: accountId,
+                isSensitiveDataHidden: isSensitiveDataHidden
+            )
+            .backportGeometryGroup()
+    }
+}
+
+struct HomeCardBalanceRevealHint: View {
+    let style: MtwCardBalanceView.Style
+    let isVisible: Bool
+
+    var body: some View {
+        let size = style.sensitiveDataCellSize * 1.5
+        Image.airBundle("HomeHide")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .foregroundStyle(Color(style.sensitiveDataTheme.color))
+            .opacity(isVisible ? 0.5 : 0)
+            .animation(.default, value: isVisible)
+            .accessibilityHidden(true)
+            .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    func homeCardBalanceInteractions(
+        accountId: String,
+        isSensitiveDataHidden: Bool
+    ) -> some View {
+        gesture(
+            TapGesture().onEnded {
+                AppActions.setSensitiveDataIsHidden(true)
+            },
+            isEnabled: !isSensitiveDataHidden
+        )
+        .contextMenuSource(
+            isEnabled: !isSensitiveDataHidden,
+            triggers: .longPress,
+            configuration: makeBaseCurrencyMenuConfig(accountId: accountId)
+        )
+    }
+}
+
+struct _BalanceChange: View {
+
+    enum Style {
+        case card
+        case plainBackground
+    }
+
+    let accountContext: AccountContext
+    var style: Style = .card
+
+    var body: some View {
+        WithPerceptionTracking {
+            _BalanceChangeContent(
+                balance: accountContext.balance,
+                balance24h: accountContext.balance24h,
+                balanceChange: accountContext.balanceChange,
+                nft: accountContext.nft,
+                style: style,
+                onTap: {
+                    AppActions.showPortfolio(accountContext: accountContext)
+                }
+            )
+        }
+    }
+}
+
+private struct _BalanceChangeContent: View, Equatable {
+    let text: String?
+    let nft: ApiNft?
+    let isPositive: Bool
+    let style: _BalanceChange.Style
+    let onTap: () -> Void
+    
+    init(
+        balance: BaseCurrencyAmount?,
+        balance24h: BaseCurrencyAmount?,
+        balanceChange: Double?,
+        nft: ApiNft?,
+        style: _BalanceChange.Style,
+        onTap: @escaping () -> Void
+    ) {
+        self.text = Self.makeText(balance: balance, balance24h: balance24h, balanceChange: balanceChange)
+        self.nft = nft
+        self.style = style
+        self.onTap = onTap
+        if let balance, let balance24h, balance.amount > 0, balance24h.amount > 0 {
+            self.isPositive = balance.amount > balance24h.amount
+        } else {
+            self.isPositive = false
+        }
+    }
+    
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.text == rhs.text && lhs.nft == rhs.nft && lhs.isPositive == rhs.isPositive && lhs.style == rhs.style
+    }
+
+    var body: some View {
+        ZStack {
+            if let text {
+                if text.isEmpty {
+                    emptyView()
+                } else {
+                    mainView(text)
+                }
+            } else {
+                placeholderView()
+            }
+        }
+        .backportGeometryGroup()
+    }
+    
+    private static func makeText(
+        balance: BaseCurrencyAmount?,
+        balance24h: BaseCurrencyAmount?,
+        balanceChange: Double?
+    ) -> String? {
+        guard let balance
+        else { return nil }
+        
+        guard let balance24h, balance.amount > 0, balance24h.amount > 0
+        else { return "" }
+        
+        let change = BaseCurrencyAmount(balance.amount - balance24h.amount, balance.baseCurrency)
+        let string = change.formatted(.baseCurrencyEquivalent, showMinus: false)
+        let percentString =
+            if let balanceChange { "\(formatPercent(balanceChange)) · " }
+            else { "" }
+        
+        return "\(percentString)\(string)"
+    }
+    
+    private func mainView(_ text: String) -> some View {
+        let (textColor, bgColor) = colors
+        return Button(action: onTap) {
+            HStack(spacing: 4) {
+                Text(text)
+                    .environment(\.layoutDirection, .leftToRight)
+                Image(systemName: "chevron.forward")
+                    .textStyle(.caption2Strong, content: .technical)
+            }
+            .font(.compactDisplay(size: 17, weight: .medium))
+            .foregroundStyle(textColor)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 8)
+            .background {
+                ZStack {
+                    BackgroundBlur(radius: 12)
+                    Capsule().fill(bgColor)
+                }
+                .clipShape(.capsule)
+                .frame(height: 26)
+            }
+        }
+        .buttonStyle(.plain)
+        .sensitiveData(
+            alignment: .center,
+            cols: 10,
+            rows: 2,
+            cellSize: 13,
+            theme: sensitiveDataTheme,
+            cornerRadius: 13
+        )
+    }
+
+    private var sensitiveDataTheme: ShyMask.Theme {
+        switch style {
+        case .card:
+            .color(UIColor(getSecondaryForegroundColor(nft: nft)))
+        case .plainBackground:
+            .adaptive
+        }
+    }
+
+    private var colors: (foreground: Color, background: Color) {
+        switch style {
+        case .card:
+            let usesPositiveColor = isPositive && nft == nil
+            let baseColor = usesPositiveColor ? Color.air.positiveBalance : getSecondaryForegroundColor(nft: nft)
+            return (
+                usesPositiveColor ? baseColor : baseColor.opacity(0.8),
+                baseColor.opacity(usesPositiveColor ? 0.16 : 0.10)
+            )
+        case .plainBackground:
+            let baseColor = isPositive ? Color(UIColor(hex: "#34C759")) : Color.air.secondaryLabel
+            return (baseColor, baseColor.opacity(0.10))
+        }
+    }
+    
+    private func placeholderView() -> some View {
+        Rectangle()
+            .fill(.white.opacity(0.12))
+            .clipShape(.capsule)
+            .frame(idealWidth: 76, maxWidth: 76, minHeight: 26, maxHeight: 26)
+    }
+    
+    private func emptyView() -> some View {
+        Color.clear
+            .frame(width: 76, height: 26)
+    }
+}
+
+private struct _WalletTitleLine: View {
+
+    let accountContext: AccountContext
+
+    @Namespace private var ns
+
+    var body: some View {
+        WithPerceptionTracking {
+            let account = accountContext.account
+            let addressLine = accountContext.addressLine
+            let nft = accountContext.nft
+            let isTemporary = account.isTemporary == true
+            let increasedBadgeOpacity = nft?.metadata?.mtwCardType?.isPremium == true
+
+            HStack(spacing: 8) {
+                if isTemporary {
+                    AddViewButton(
+                        accountId: account.id,
+                        foregroundStyle: getSecondaryForegroundColor(nft: nft)
+                    )
+                    .padding(.vertical, -6)
+                }
+
+                HStack(spacing: MtwCardAddressLine.Style.homeCard.accountTypeIconSpacing) {
+                    if addressLine.isTestnet {
+                        addressLine.testnetImage
+                            .sourceAtop {
+                                MtwCardCenteredGradient(nft: nft)
+                                    .matchedGeometryEffect(id: "walletTitle", in: ns, isSource: false)
+                            }
+                    }
+
+                    Group {
+                        if let leadingIcon = addressLine.leadingIcon {
+                            switch leadingIcon {
+                            case .ledger:
+                                AccountTypeBadge(.hardware, increasedOpacity: increasedBadgeOpacity)
+                            case .view:
+                                AccountTypeBadge(.view, increasedOpacity: increasedBadgeOpacity)
+                            }
+                        }
+                    }
+                    .sourceAtop {
+                        MtwCardCenteredGradient(nft: nft)
+                            .matchedGeometryEffect(id: "walletTitle", in: ns, isSource: false)
+                    }
+                    .background {
+                        if addressLine.leadingIcon == .view {
+                            BackgroundBlur(radius: 12)
+                                .clipShape(.rect(cornerRadius: viewBadgeCornerRadius))
+                                .padding(.vertical, -viewBadgeVerticalPadding)
+                        }
+                    }
+
+                    HStack(spacing: 4) {
+                        Text(account.displayName)
+                            .lineLimit(1)
+
+                        Image.airBundle("QRIcon")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 18, height: 18)
+                            .accessibilityHidden(true)
+                    }
+                    .opacity(MtwCardAddressLine.Style.homeCard.textOpacity)
+                    .sourceAtop {
+                        MtwCardCenteredGradient(nft: nft)
+                            .matchedGeometryEffect(id: "walletTitle", in: ns, isSource: false)
+                    }
+                }
+                .textStyle(.bodyStrong)
+                .background {
+                    Color.clear.matchedGeometryEffect(id: "walletTitle", in: ns, isSource: true)
+                }
+                .padding(.vertical, 10)
+                .contentShape(Rectangle())
+                .contextMenuSource(
+                    triggers: [.tap],
+                    configuration: makeAddressesMenuConfig(accountContext: accountContext)
+                )
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.isButton)
+                .accessibilityLabel(account.displayName)
+                .accessibilityHint(lang("Open addresses"))
+            }
+            .padding(.horizontal, 40)
+            .padding(.bottom, 6)
+            .animation(.smooth.delay(0.18), value: isTemporary)
+        }
+    }
+}
+
+private struct _AddressLine: View {
+
+    let accountContext: AccountContext
+    
+    var body: some View {
+        WithPerceptionTracking {
+            let account = accountContext.account
+            _AddressLineContent(
+                accountId: account.id,
+                isTemporary: account.isTemporary == true,
+                addressLine: accountContext.addressLine,
+                accountContext: accountContext,
+                nft: accountContext.nft
+            )
+        }
+    }
+}
+
+private struct _AddressLineContent: View {
+
+    var accountId: String
+    var isTemporary: Bool
+    var addressLine: MAccount.AddressLine
+    var accountContext: AccountContext
+    var nft: ApiNft?
+    
+    var body: some View {
+        HStack(spacing: 8) {
+            if isTemporary {
+                AddViewButton(accountId: accountId, foregroundStyle: getSecondaryForegroundColor(nft: nft))
+                    .padding(.vertical, -6)
+            }
+            MtwCardAddressLine(addressLine: addressLine, style: .homeCard, gradient: MtwCardCenteredGradient(nft: nft))
+                .padding(.vertical, 8)
+                .padding(.trailing, 8)
+                .contextMenuSource(
+                    triggers: [.tap],
+                    configuration: makeAddressesMenuConfig(accountContext: accountContext)
+                )
+                .padding(.trailing, -8)
+                .backportGeometryGroup()
+        }
+        .padding(.horizontal, 40)
+        .padding(.bottom, 9)
+        .animation(.smooth.delay(0.18), value: isTemporary)
+    }
+}

@@ -1,0 +1,190 @@
+import React, { memo, useMemo } from '../../../../lib/teact/teact';
+import { getActions, withGlobal } from '../../../../global';
+
+import type { ApiBaseCurrency, ApiCurrencyRates, ApiStakingState } from '../../../../api/types';
+import type { Account, UserToken } from '../../../../global/types';
+
+import {
+  selectAccountStakingStates,
+  selectCurrentAccountId,
+  selectCurrentAccountTokens,
+  selectNetworkAccounts,
+} from '../../../../global/selectors';
+import { getAccountTitle } from '../../../../util/account';
+import buildClassName from '../../../../util/buildClassName';
+import { calculateFullBalance } from '../../../../util/calculateFullBalance';
+import { toDecimal } from '../../../../util/decimals';
+import { formatCurrencyWithZero, getShortCurrencySymbol } from '../../../../util/formatNumber';
+import { isPlatformAccountEnabled, usePlatformAccount } from '../../../../platform/accountStore';
+
+import useLang from '../../../../hooks/useLang';
+
+import SensitiveData from '../../../ui/SensitiveData';
+import Transition from '../../../ui/Transition';
+
+import styles from './AccountSelector.module.scss';
+
+interface OwnProps {
+  withAccountSelector?: boolean;
+  withBalance?: boolean;
+}
+
+interface StateProps {
+  currentAccount?: Account;
+  tokens?: UserToken[];
+  baseCurrency: ApiBaseCurrency;
+  currencyRates: ApiCurrencyRates;
+  stakingStates?: ApiStakingState[];
+  isSensitiveDataHidden?: true;
+}
+
+function AccountSelector({
+  currentAccount,
+  withAccountSelector,
+  withBalance,
+  tokens,
+  baseCurrency,
+  currencyRates,
+  stakingStates,
+  isSensitiveDataHidden,
+}: OwnProps & StateProps) {
+  const { openAccountSelector } = getActions();
+
+  const lang = useLang();
+  const platformAccount = usePlatformAccount();
+  const balanceValues = useMemo(() => {
+    return tokens
+      ? calculateFullBalance(tokens, stakingStates, currencyRates[baseCurrency], platformAccount?.balances)
+      : undefined;
+  }, [tokens, stakingStates, currencyRates, baseCurrency, platformAccount?.balances]);
+  const shortBaseSymbol = getShortCurrencySymbol(baseCurrency);
+  const { primaryWholePart, primaryFractionPart } = balanceValues || {};
+  const internalTon = platformAccount?.balance ? (() => {
+    try {
+      const nano = BigInt(platformAccount.balance);
+      const whole = nano / 1_000_000_000n;
+      const fraction = (nano % 1_000_000_000n).toString().padStart(9, '0').replace(/0+$/, '');
+      return `${whole}${fraction ? `.${fraction}` : ''} TON`;
+    } catch {
+      return undefined;
+    }
+  })() : undefined;
+  const internalEth = platformAccount?.balances?.ETH !== undefined ? (() => {
+    try {
+      return formatCurrencyWithZero(toDecimal(BigInt(platformAccount.balances.ETH!), 18, true), 'ETH', 6, true);
+    } catch {
+      return undefined;
+    }
+  })() : undefined;
+  const hasInternalBalance = internalTon !== undefined || internalEth !== undefined;
+  const shouldUseInternalBalance = isPlatformAccountEnabled();
+  const displayedInternalTon = internalTon ?? '— TON';
+  const displayedInternalBalance = (
+    <div className={styles.internalBalances}>
+      <span>{displayedInternalTon}</span>
+      {internalEth && <span className={styles.internalSecondary}>{internalEth}</span>}
+    </div>
+  );
+  const shouldHideDisplayedBalance = Boolean(
+    isSensitiveDataHidden && (shouldUseInternalBalance && hasInternalBalance
+      ? platformAccount?.balance !== '0' || platformAccount?.balances?.ETH !== '0'
+      : balanceValues?.primaryValue !== undefined && balanceValues.primaryValue !== '0'),
+  );
+
+  function handleOpenAccountSelector() {
+    openAccountSelector();
+  }
+
+  const accountTitleClassName = buildClassName(
+    styles.accountTitle,
+    withAccountSelector && !withBalance && styles.accountTitleInteractive,
+    withBalance && styles.withBalance,
+  );
+
+  return (
+    <Transition
+      name="slideVerticalFade"
+      activeKey={withBalance ? 1 : 0}
+      className={styles.root}
+      slideClassName={styles.slide}
+    >
+      {withBalance && (
+        <div className={buildClassName(styles.balance, 'rounded-font')}>
+          <SensitiveData
+            isActive={shouldHideDisplayedBalance}
+            shouldHoldSize
+            align="center"
+            cols={10}
+            rows={2}
+            cellSize={8.5}
+          >
+            <span
+              className={styles.currencySwitcher}
+            >
+              {shouldUseInternalBalance ? displayedInternalBalance : (balanceValues?.primaryValue === '0'
+                ? formatCurrencyWithZero(0, shortBaseSymbol)
+                : (
+                  <>
+                    {shortBaseSymbol.length === 1 && (
+                      <span className={buildClassName(styles.balanceCurrency, styles.balanceCurrencyPrefix)}>
+                        {shortBaseSymbol}
+                      </span>
+                    )}
+                    {primaryWholePart}
+                    {primaryFractionPart && <span className={styles.balanceFractionPart}>.{primaryFractionPart}</span>}
+                    {shortBaseSymbol.length > 1 && (
+                      <span className={styles.balanceCurrency}>&nbsp;{shortBaseSymbol}</span>
+                    )}
+                  </>
+                ))}
+            </span>
+          </SensitiveData>
+        </div>
+      )}
+      {Boolean(currentAccount) && (
+        <button
+          type="button"
+          className={accountTitleClassName}
+          aria-label={lang('Switch Account')}
+          aria-haspopup="dialog"
+          onClick={withAccountSelector ? handleOpenAccountSelector : undefined}
+          disabled={!withAccountSelector}
+        >
+          <span className={styles.accountTitleInner}>
+            {getAccountTitle(currentAccount)}
+          </span>
+          {withAccountSelector && !withBalance && (
+            <i className={buildClassName('icon icon-expand', styles.expandIcon)} aria-hidden />
+          )}
+        </button>
+      )}
+    </Transition>
+  );
+}
+
+export default memo(withGlobal<OwnProps>(
+  (global): StateProps => {
+    const {
+      currencyRates,
+      settings: {
+        baseCurrency,
+        isSensitiveDataHidden,
+      },
+    } = global;
+
+    const accounts = selectNetworkAccounts(global);
+    const currentAccountId = selectCurrentAccountId(global)!;
+    const currentAccount = accounts?.[currentAccountId];
+    const stakingStates = selectAccountStakingStates(global, currentAccountId);
+
+    return {
+      currentAccount,
+      tokens: selectCurrentAccountTokens(global),
+      baseCurrency,
+      currencyRates,
+      stakingStates,
+      isSensitiveDataHidden,
+    };
+  },
+  (global, _, stickToFirst) => stickToFirst(selectCurrentAccountId(global)),
+)(AccountSelector));

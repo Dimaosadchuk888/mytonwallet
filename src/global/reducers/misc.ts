@@ -1,0 +1,491 @@
+import type {
+  ApiBalanceBySlug,
+  ApiChain,
+  ApiCurrencyRates,
+  ApiNetwork,
+  ApiSwapAsset,
+  ApiTokenWithPrice,
+} from '../../api/types';
+import type {
+  Account, AccountChain, AccountState, AccountType, ChainDisplayConfiguration, GlobalState,
+} from '../types';
+import { AuthState } from '../types';
+
+import { POPULAR_WALLET_VERSIONS } from '../../config';
+import { generateAccountTitle } from '../../util/account';
+import { getDefaultEnabledSlugs } from '../../util/chain';
+import { getIsDefaultChainDisplayConfiguration } from '../../util/chainDisplay';
+import { sanitizeCurrencyRates } from '../../util/currencyRates';
+import isPartialDeepEqual from '../../util/isPartialDeepEqual';
+import { getChainBySlug } from '../../util/tokens';
+import {
+  selectAccount,
+  selectAccountOrAuthAccount,
+  selectAccountSettings,
+  selectAccountState,
+  selectCurrentAccountId,
+  selectCurrentNetwork,
+  selectNetworkAccounts,
+} from '../selectors';
+
+export function updateAuth(global: GlobalState, authUpdate: Partial<GlobalState['auth']>) {
+  return {
+    ...global,
+    auth: {
+      ...global.auth,
+      ...authUpdate,
+    },
+  } as GlobalState;
+}
+
+export function updateAccounts(
+  global: GlobalState,
+  state: Partial<GlobalState['accounts']>,
+) {
+  return {
+    ...global,
+    accounts: {
+      ...(global.accounts || { byId: {} }),
+      ...state,
+    },
+  };
+}
+
+export function setIsPinAccepted(global: GlobalState): GlobalState {
+  return {
+    ...global,
+    isPinAccepted: true,
+  };
+}
+
+export function clearIsPinAccepted(global: GlobalState): GlobalState {
+  return global.isPinAccepted
+    ? { ...global, isPinAccepted: undefined }
+    : global;
+}
+
+export function createAccount({
+  global,
+  accountId,
+  type,
+  byChain,
+  partial,
+  titlePostfix,
+  network,
+  isMnemonicImported,
+}: {
+  global: GlobalState;
+  accountId: string;
+  type: AccountType;
+  byChain: Account['byChain'];
+  partial?: Partial<Account>;
+  titlePostfix?: string;
+  network?: ApiNetwork;
+  isMnemonicImported?: boolean;
+}) {
+  const account: Account = {
+    ...partial,
+    type,
+    byChain,
+  };
+
+  if (!account.title) {
+    network = network || selectCurrentNetwork(global);
+    const accounts = selectNetworkAccounts(global) || {};
+
+    account.title = generateAccountTitle({
+      accounts,
+      accountType: type,
+      network,
+      titlePostfix,
+    });
+  } else if (titlePostfix) {
+    const title = account.title?.replace(new RegExp(`\\b(${POPULAR_WALLET_VERSIONS.join('|')})\\b`, 'g'), '');
+    account.title = `${title.trim()} ${titlePostfix}`;
+  }
+
+  if (selectAccount(global, accountId)) {
+    throw new Error(`Account ${accountId} already exists`);
+  }
+
+  return {
+    ...global,
+    accounts: {
+      ...global.accounts,
+      byId: {
+        ...global.accounts?.byId,
+        [accountId]: account,
+      },
+    },
+  };
+}
+
+export function updateAccount(
+  global: GlobalState,
+  accountId: string,
+  partial: Partial<Account>,
+) {
+  const account = selectAccount(global, accountId);
+
+  if (!account) {
+    throw new Error(`Account ${accountId} doesn't exist`);
+  }
+
+  return {
+    ...global,
+    accounts: {
+      ...global.accounts,
+      byId: {
+        ...global.accounts?.byId,
+        [accountId]: {
+          ...account,
+          ...partial,
+        },
+      },
+    },
+  };
+}
+
+export function updateAccountChain(
+  global: GlobalState,
+  accountId: string,
+  chain: ApiChain,
+  partial: Partial<AccountChain>,
+) {
+  const account = selectAccount(global, accountId);
+  if (!account) {
+    throw new Error(`Account ${accountId} doesn't exist`);
+  }
+
+  const chainData = account.byChain[chain];
+  if (!chainData) {
+    throw new Error(`Account ${accountId} doesn't have the ${chain} chain`);
+  }
+
+  const updatedAccount = {
+    ...account,
+    byChain: {
+      ...account.byChain,
+      [chain]: {
+        ...chainData,
+        ...partial,
+      },
+    },
+  };
+
+  return {
+    ...global,
+    accounts: {
+      ...global.accounts,
+      byId: {
+        ...global.accounts?.byId,
+        [accountId]: updatedAccount,
+      },
+    },
+  };
+}
+
+export function renameAccount(global: GlobalState, accountId: string, title: string) {
+  return updateAccount(global, accountId, { title });
+}
+
+export function createAccountsFromGlobal(global: GlobalState, isMnemonicImported = false): GlobalState {
+  for (const account of global.auth.accounts ?? []) {
+    global = createAccount({ global, type: 'mnemonic', ...account, isMnemonicImported });
+  }
+
+  return global;
+}
+
+export function updateBalances(
+  global: GlobalState,
+  accountId: string,
+  chain: ApiChain,
+  chainBalances: ApiBalanceBySlug,
+): GlobalState {
+  const newBalances: ApiBalanceBySlug = { ...chainBalances };
+  const currentBalances = selectAccountState(global, accountId)?.balances?.bySlug ?? {};
+
+  for (const [slug, currentBalance] of Object.entries(currentBalances)) {
+    if (getChainBySlug(slug) !== chain) {
+      newBalances[slug] = currentBalance;
+    }
+  }
+
+  const importedSlugs = selectAccountSettings(global, accountId)?.importedSlugs ?? [];
+  const network = selectCurrentNetwork(global);
+
+  // Initialize all default tokens with 0n if not yet set, across all chains.
+  // This ensures tokens from chains whose first balance fetch hasn't completed yet are still visible.
+  //
+  // For example: inactive (new) Solana wallets are never polled - BalanceStream skips fetching entirely
+  // once the wallet is determined to be inactive. So, it is necessary to initialize Solana tokens to 0n
+  // until the wallet receives its first transaction and becomes active.
+  // This is why all default tokens are initialized in this place.
+  for (const slug of getDefaultEnabledSlugs(network)) {
+    if (!(slug in newBalances)) {
+      newBalances[slug] = 0n;
+    }
+  }
+
+  // For manually imported tokens, only initialize for the current chain
+  for (const slug of importedSlugs) {
+    if (getChainBySlug(slug) === chain && !(slug in newBalances)) {
+      newBalances[slug] = 0n;
+    }
+  }
+
+  return updateAccountState(global, accountId, {
+    balances: {
+      bySlug: newBalances,
+    },
+  });
+}
+
+export function changeBalance(global: GlobalState, accountId: string, slug: string, balance: bigint) {
+  return updateAccountState(global, accountId, {
+    balances: {
+      bySlug: {
+        ...selectAccountState(global, accountId)?.balances?.bySlug,
+        [slug]: balance,
+      },
+    },
+  });
+}
+
+export function updateTokens(
+  global: GlobalState,
+  partial: Record<string, ApiTokenWithPrice>,
+  withDeepCompare = false,
+  shouldPreservePrices = false,
+): GlobalState {
+  const existingTokens = global.tokenInfo?.bySlug;
+
+  if (shouldPreservePrices) {
+    partial = Object.values(partial).reduce((result, token) => {
+      const existingToken = existingTokens?.[token.slug];
+
+      result[token.slug] = {
+        ...token,
+        priceUsd: existingToken?.priceUsd ?? token.priceUsd,
+        percentChange24h: existingToken?.percentChange24h ?? token.percentChange24h,
+      };
+      return result;
+    }, {} as Record<string, ApiTokenWithPrice>);
+  }
+
+  if (withDeepCompare && existingTokens && isPartialDeepEqual(existingTokens, partial)) {
+    return global;
+  }
+
+  return {
+    ...global,
+    tokenInfo: {
+      ...global.tokenInfo,
+      bySlug: {
+        ...existingTokens,
+        ...partial,
+      },
+    },
+  };
+}
+
+export function updateSwapTokens(
+  global: GlobalState,
+  partial: Record<string, ApiSwapAsset>,
+): GlobalState {
+  const currentTokens = global.swapTokenInfo?.bySlug;
+
+  return {
+    ...global,
+    swapTokenInfo: {
+      ...global.swapTokenInfo,
+      bySlug: {
+        ...currentTokens,
+        ...partial,
+      },
+      isLoaded: true,
+    },
+  };
+}
+
+export function updateCurrentAccountState(global: GlobalState, partial: Partial<AccountState>): GlobalState {
+  return updateAccountState(global, selectCurrentAccountId(global)!, partial);
+}
+
+export function updateAccountState(
+  global: GlobalState, accountId: string, partial: Partial<AccountState>, withDeepCompare = false,
+): GlobalState {
+  // Updates from the API may arrive after the account is removed.
+  // This check prevents that useless data from persisting in the global state.
+  if (!doesAccountExist(global, accountId)) {
+    return global;
+  }
+
+  const accountState = selectAccountState(global, accountId);
+
+  if (withDeepCompare && accountState && isPartialDeepEqual(accountState, partial)) {
+    return global;
+  }
+
+  return {
+    ...global,
+    byAccountId: {
+      ...global.byAccountId,
+      [accountId]: {
+        ...accountState,
+        ...partial,
+      },
+    },
+  };
+}
+
+export function updateSettings(global: GlobalState, settingsUpdate: Partial<GlobalState['settings']>) {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      ...settingsUpdate,
+    },
+  } as GlobalState;
+}
+
+export function updateInstallMfa(global: GlobalState, mfaUpdate: Partial<GlobalState['settings']['installMfa']>) {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      installMfa: {
+        ...global.settings.installMfa,
+        ...mfaUpdate,
+      },
+    },
+  } as GlobalState;
+}
+
+export function updateRemoveMfa(global: GlobalState, mfaUpdate: Partial<GlobalState['settings']['removeMfa']>) {
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      removeMfa: {
+        ...global.settings.removeMfa,
+        ...mfaUpdate,
+      },
+    },
+  } as GlobalState;
+}
+
+export type OpenableSection = 'settings' | 'agent' | 'explore' | 'market' | 'portfolio';
+
+// Settings, Agent, Explore and Portfolio are mutually exclusive full-screen sections.
+// Opening one must close the others - otherwise their flags stack and the lower-priority
+// view (see `getActiveKey` in LandscapeLayout / `getAppState` in App) silently stays hidden.
+export function openSection(global: GlobalState, section: OpenableSection): GlobalState {
+  return {
+    ...global,
+    areSettingsOpen: section === 'settings',
+    isAgentOpen: section === 'agent' || undefined,
+    isExploreOpen: section === 'explore' || undefined,
+    isMarketOpen: section === 'market' || undefined,
+    isPortfolioOpen: section === 'portfolio' || undefined,
+  };
+}
+
+export function updateAccountSettings(
+  global: GlobalState,
+  accountId: string,
+  settingsUpdate: Partial<GlobalState['settings']['byAccountId']['*']>,
+) {
+  // Updates from the API may arrive after the account is removed.
+  // This check prevents that useless data from persisting in the global state.
+  if (!doesAccountExist(global, accountId)) {
+    return global;
+  }
+
+  return {
+    ...global,
+    settings: {
+      ...global.settings,
+      byAccountId: {
+        ...global.settings.byAccountId,
+        [accountId]: {
+          ...global.settings.byAccountId[accountId],
+          ...settingsUpdate,
+        },
+      },
+    },
+  } as GlobalState;
+}
+
+export function updateCurrentAccountSettings(
+  global: GlobalState,
+  settingsUpdate: Partial<GlobalState['settings']['byAccountId']['*']>,
+) {
+  return updateAccountSettings(global, selectCurrentAccountId(global)!, settingsUpdate);
+}
+
+export function updateCurrentChainDisplayConfiguration(global: GlobalState, config: ChainDisplayConfiguration) {
+  return updateCurrentAccountSettings(global, {
+    chainDisplayConfiguration: getIsDefaultChainDisplayConfiguration(config) ? undefined : config,
+  });
+}
+
+export function updateBiometrics(global: GlobalState, biometricsUpdate: Partial<GlobalState['biometrics']>) {
+  return {
+    ...global,
+    biometrics: {
+      ...global.biometrics,
+      ...biometricsUpdate,
+    },
+  };
+}
+
+export function updateRestrictions(global: GlobalState, partial: Partial<GlobalState['restrictions']>) {
+  return {
+    ...global,
+    restrictions: {
+      ...global.restrictions,
+      ...partial,
+    },
+  };
+}
+
+export function updateCurrentAccountId(global: GlobalState, accountId: string): GlobalState {
+  if (!accountId) {
+    throw Error('Empty accountId!');
+  }
+
+  return {
+    ...global,
+    currentAccountId: accountId,
+  };
+}
+
+function doesAccountExist(global: GlobalState, accountId: string) {
+  return !!selectAccountOrAuthAccount(global, accountId);
+}
+
+export function updateCurrencyRates(global: GlobalState, rates: ApiCurrencyRates): GlobalState {
+  return {
+    ...global,
+    currencyRates: sanitizeCurrencyRates(rates),
+  };
+}
+
+export function updateCurrentTransactionInfo(
+  global: GlobalState,
+  partial: Partial<GlobalState['currentTransactionInfo']>,
+): GlobalState {
+  return {
+    ...global,
+    currentTransactionInfo: {
+      ...global.currentTransactionInfo,
+      ...partial,
+    },
+  };
+}
+
+export function resetAuthToStartScreen(global: GlobalState) {
+  return updateAuth(global, { state: AuthState.none, error: undefined });
+}

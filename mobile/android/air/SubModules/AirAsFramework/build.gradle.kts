@@ -1,0 +1,44 @@
+plugins {
+    id("org.mytonwallet.android.library")
+}
+
+android {
+    namespace = "org.mytonwallet.app_air.airasframework"
+}
+
+val airSubModulePath = project.property("airSubModulePath")
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.material)
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.constraintlayout)
+    implementation(libs.androidx.biometric)
+    implementation(libs.fresco)
+    implementation(libs.zxing)
+    implementation(project("$airSubModulePath:UIComponents"))
+    implementation(project("$airSubModulePath:UICreateWallet"))
+    implementation(project("$airSubModulePath:UIPasscode"))
+    implementation(project("$airSubModulePath:UIHome"))
+    implementation(project("$airSubModulePath:UIPortfolio"))
+    implementation(project("$airSubModulePath:UISend"))
+    implementation(project("$airSubModulePath:UIReceive"))
+    implementation(project("$airSubModulePath:UIStake"))
+    implementation(project("$airSubModulePath:UIAssets"))
+    implementation(project("$airSubModulePath:UIBrowser"))
+    implementation(project("$airSubModulePath:UISettings"))
+    implementation(project("$airSubModulePath:UITonConnect"))
+    implementation(project("$airSubModulePath:UIWalletConnectPay"))
+    implementation(project("$airSubModulePath:WalletContext"))
+    implementation(project("$airSubModulePath:WalletBaseContext"))
+    implementation(project("$airSubModulePath:WalletCore"))
+    implementation(project("$airSubModulePath:UITransaction"))
+    implementation(project("$airSubModulePath:OverScroll"))
+    implementation(project("$airSubModulePath:UIInAppBrowser"))
+    implementation(project("$airSubModulePath:UISwap"))
+    implementation(project("$airSubModulePath:Ledger"))
+    implementation(project("$airSubModulePath:QRScan"))
+    implementation(project("$airSubModulePath:UIWidgetsConfigurations"))
+    implementation(project("$airSubModulePath:NativeEnclave"))
+}

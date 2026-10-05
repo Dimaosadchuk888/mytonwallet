@@ -1,0 +1,45 @@
+package org.mytonwallet.app_air.uicomponents.helpers
+
+import java.lang.ref.WeakReference
+import org.mytonwallet.app_air.uicomponents.widgets.IPopup
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WNavigationPopup
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WPopupHost
+
+object PopupHelpers {
+
+    private val popups = ArrayList<WeakReference<IPopup>>()
+    private var popupHostRef: WeakReference<WPopupHost>? = null
+    val popupHost: WPopupHost? get() = popupHostRef?.get()
+
+    fun attachPopupHost(popupHost: WPopupHost) {
+        this.popupHostRef = WeakReference(popupHost)
+    }
+
+    fun popupShown(popup: IPopup) {
+        popups.add(WeakReference(popup))
+    }
+
+    fun popupDismissed(popup: IPopup) {
+        popups.removeAll {
+            it.get() == popup
+        }
+    }
+
+    fun dismissAllPopups() {
+        popups.toList().forEach {
+            it.get()?.dismiss()
+        }
+    }
+
+    fun dismissMenuPopups() {
+        popups.toList().forEach {
+            (it.get() as? WNavigationPopup)?.dismiss()
+        }
+    }
+
+    fun onBackPressed(): Boolean {
+        if (popups.isEmpty()) return false
+        popups.lastOrNull()?.get()?.onBackPressed() ?: return false
+        return true
+    }
+}

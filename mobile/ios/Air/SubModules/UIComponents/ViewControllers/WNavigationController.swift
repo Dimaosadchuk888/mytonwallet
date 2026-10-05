@@ -1,0 +1,163 @@
+//
+//  WNavigationController.swift
+//  UIComponents
+//
+//  Created by Sina on 6/29/24.
+//
+
+import UIKit
+import WalletContext
+import WalletCore
+
+public protocol WBackSwipeControlling: AnyObject {
+    func shouldAllowBackSwipe(at point: CGPoint) -> Bool
+}
+
+class SlowedPanGestureRecognizer: UIPanGestureRecognizer {
+    override func velocity(in view: UIView?) -> CGPoint {
+        let originalVelocity = super.velocity(in: view)
+        return CGPoint(x: min(1000, originalVelocity.x),
+                       y: originalVelocity.y)
+    }
+}
+
+open class WNavigationController: UINavigationController {
+    
+    private let log = Log("WNavigationController")
+    private let sheetDimmingController = SheetDimmingController()
+    public var onWillShowViewController: ((UIViewController) -> Void)?
+    public var pushViewControllerInterceptor: ((UIViewController, Bool) -> Bool)?
+    public var popViewControllerInterceptor: ((Bool) -> Bool)?
+    
+    public var isExtraSheetDimmingEnabled: Bool = false {
+        didSet {
+            guard !isExtraSheetDimmingEnabled else { return }
+            sheetDimmingController.removeDimmingView()
+        }
+    }
+    
+    open override func viewDidLoad() {
+        super.viewDidLoad()
+        delegate = self
+        if !IOS_26_MODE_ENABLED {
+            setupFullWidthBackGesture()
+        }
+    }
+    
+    open override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        guard isExtraSheetDimmingEnabled else { return }
+        sheetDimmingController.viewWillAppear(in: self, animated: animated)
+    }
+    
+    open override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard isExtraSheetDimmingEnabled else { return }
+        sheetDimmingController.viewDidLayoutSubviews(in: self)
+    }
+    
+    open override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        guard isExtraSheetDimmingEnabled else { return }
+        sheetDimmingController.viewWillDisappear(in: self, animated: animated)
+    }
+
+    fileprivate lazy var fullWidthBackGestureRecognizer = SlowedPanGestureRecognizer()
+
+    private func setupFullWidthBackGesture() {
+        // The trick here is to wire up our full-width `fullWidthBackGestureRecognizer` to execute the same handler as the system `interactivePopGestureRecognizer`.
+        guard let interactivePopGestureRecognizer = interactivePopGestureRecognizer,
+              let targets = interactivePopGestureRecognizer.value(forKey: "targets") else {
+            return
+        }
+        fullWidthBackGestureRecognizer.setValue(targets, forKey: "targets")
+        fullWidthBackGestureRecognizer.delegate = self
+        view.addGestureRecognizer(fullWidthBackGestureRecognizer)
+
+        // Disable default pop gesture
+        interactivePopGestureRecognizer.isEnabled = false
+    }
+    
+    public override func pushViewController(_ viewController: UIViewController, animated: Bool) {
+        if pushViewControllerInterceptor?(viewController, animated) == true {
+            return
+        }
+        if viewControllers.count > 0, (viewController as? WViewController)?.hideBottomBar != false {
+            viewController.hidesBottomBarWhenPushed = true
+        }
+        super.pushViewController(viewController, animated: animated)
+    }
+    
+    open override func popViewController(animated: Bool) -> UIViewController? {
+        if let presentedViewController, presentedViewController.isBeingDismissed {
+            log.error("Dismissing a modal view controller. Will not pop to prevent freeze")
+            return nil
+        }
+        if popViewControllerInterceptor?(animated) == true {
+            return nil
+        }
+        return super.popViewController(animated: animated)
+    }
+    
+}
+
+extension WNavigationController: UINavigationControllerDelegate {
+    public func navigationController(_ navigationController: UINavigationController,
+                                     willShow viewController: UIViewController, animated: Bool) {
+        onWillShowViewController?(viewController)
+        guard let vc = viewController as? WViewController else {return}
+        setNavigationBarHidden(vc.hideNavigationBar,
+                               animated: animated)
+    }
+}
+
+extension WNavigationController: UIGestureRecognizerDelegate {
+    public func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        let isThereStackedViewControllers = viewControllers.count > 1
+        guard isThereStackedViewControllers, presentedViewController == nil else {
+            return false
+        }
+
+        if let controller = topViewController,
+           let backSwipeController = controller as? WBackSwipeControlling
+        {
+            let point = gestureRecognizer.location(in: controller.view)
+            return backSwipeController.shouldAllowBackSwipe(at: point)
+        }
+
+        return true
+    }
+    
+    public func fullWidthBackGestureRecognizerRequireToFail(_ otherGestureRecognizer: UIGestureRecognizer) {
+        fullWidthBackGestureRecognizer.require(toFail: otherGestureRecognizer)
+    }
+}
+
+extension UINavigationController {
+
+    public var isBackSwipeToDismissAllowed: Bool {
+        if let navigationController = self as? WNavigationController,
+           !IOS_26_MODE_ENABLED {
+            return navigationController.fullWidthBackGestureRecognizer.isEnabled
+        }
+        if #available(iOS 26.0, *) {
+            return interactiveContentPopGestureRecognizer?.isEnabled ?? true
+        }
+        return interactivePopGestureRecognizer?.isEnabled ?? true
+    }
+    
+    /// A temporary solution to disable backswipe for a navigation controller stack
+    /// Should be revised with full navigation management refactoring
+    public func allowBackSwipeToDismiss(_ allow: Bool) {
+        if let navigationController = self as? WNavigationController,
+           !IOS_26_MODE_ENABLED {
+            navigationController.fullWidthBackGestureRecognizer.isEnabled = allow
+            return
+        }
+        if #available(iOS 26.0, *) {
+            self.interactiveContentPopGestureRecognizer?.isEnabled = allow
+            return
+        }
+        self.interactivePopGestureRecognizer?.isEnabled = allow
+    }
+}

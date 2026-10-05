@@ -1,0 +1,49 @@
+//
+//  MSwapEstimate.swift
+//  WalletCore
+//
+//  Created by Sina on 5/10/24.
+//
+
+import Foundation
+import WalletContext
+import WalletCoreTypes
+
+public struct NetworkFeeData {
+    public let chain: ApiChain?
+    public let isNativeIn: Bool
+    public let fee: BigInt
+}
+
+public struct ApiSwapCexEstimateResponse: Equatable, Hashable, Codable, Sendable {
+    public var hint: ApiSwapHint?
+    public var cexLabel: ApiSwapCexLabel
+    public var providerName: String?
+    public var termsOfUseUrl: String?
+    public var privacyPolicyUrl: String?
+    public var amlKycPolicyUrl: String?
+    public var from: String
+    public var fromAmount: MDouble
+    public var to: String
+    public var toAmount: MDouble
+    public let swapFee: MDouble
+    public let ourFee: MDouble?
+    public let ourFeePercent: Double?
+    public var networkFee: MDouble? = nil
+    public var realNetworkFee: MDouble? = nil
+    // additional
+    public var fromMin: MDouble
+    public var fromMax: MDouble
+    public var toMin: MDouble?
+    public var toMax: MDouble?
+    public var dieselStatus: DieselStatus?
+
+    // Late-init properties
+    public var isEnoughNative: Bool? = nil
+    
+    mutating public func reverse() {
+        (from, to) = (to, from)
+        (fromAmount, toAmount) = (toAmount, fromAmount)
+        (toMin, toMax) = (fromMin, fromMax)
+    }
+}

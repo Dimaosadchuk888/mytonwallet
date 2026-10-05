@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    // We don't care about this since Webpack runs Babel after TypeScript
+    "target": "esnext",
+    "lib": ["dom", "dom.iterable", "webworker", "es2021", "es2022"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "esnext",
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react"
+  },
+  "include": [
+    "src", "tests", "plugins", "webpack.config.ts", "webpack-electron.config.ts",
+    "webpack-multisend.config.ts", "webpack-portfolio.config.ts", "webpack-air.config.ts",
+    "webpack-push.config.ts", "webpack-mfa.config.ts", "eslint.config.mjs", ".fantasticonrc.js", "svgo.config.mjs"
+  ],
+  "exclude": ["trash"]
+}

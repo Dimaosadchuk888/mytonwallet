@@ -1,0 +1,89 @@
+package org.mytonwallet.app_air.uicomponents.commonViews.cells.activity
+
+import android.content.Context
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.exactly
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.image.WNftImageView
+import org.mytonwallet.app_air.uicomponents.widgets.WFrameLayout
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.ThemeManager
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.takeIfNotBlank
+import org.mytonwallet.app_air.walletcontext.utils.colorWithAlpha
+import org.mytonwallet.app_air.walletcore.moshi.ApiNft
+
+class ActivitySingleTagView(context: Context) :
+    WFrameLayout(context),
+    WThemedView {
+
+    val imageView = WNftImageView(context, 32.dp, 0)
+    val titleLabel = WLabel(context).apply {
+        setStyle(adaptiveFontSize(), WFont.Medium)
+        setSingleLine()
+        ellipsize = TextUtils.TruncateAt.END
+        useCustomEmoji = true
+    }
+    val subtitleLabel = WLabel(context).apply {
+        setStyle(13f, WFont.Medium)
+        setSingleLine()
+        ellipsize = TextUtils.TruncateAt.END
+        useCustomEmoji = true
+    }
+
+    init {
+        addView(imageView, LayoutParams(56.dp, 56.dp))
+        addView(
+            titleLabel,
+            LayoutParams(WRAP_CONTENT, 24.dp).apply {
+                marginStart = 66.dp
+                marginEnd = 12.dp
+                topMargin = 8.dp
+                gravity = Gravity.TOP or Gravity.START
+            }
+        )
+        addView(
+            subtitleLabel,
+            LayoutParams(WRAP_CONTENT, 24.dp).apply {
+                marginStart = 66.dp
+                marginEnd = 12.dp
+                topMargin = 28.dp
+                gravity = Gravity.TOP or Gravity.START
+            }
+        )
+    }
+
+    fun configure(nft: ApiNft) {
+        imageView.setNftImage(nft.image)
+        titleLabel.text = nft.name?.takeIfNotBlank() ?: LocaleController.getString("NFT")
+        subtitleLabel.text = nft.collectionName
+    }
+
+    override fun updateTheme() {
+        imageView.updateTheme()
+        setBackgroundColor(
+            WColor.TrinaryBackground.color,
+            12f.dp,
+            true
+        )
+        if (ThemeManager.isDark) {
+            titleLabel.setTextColor(WColor.PrimaryText.color)
+            subtitleLabel.setTextColor(WColor.PrimaryText.color.colorWithAlpha(179))
+        } else {
+            titleLabel.setTextColor(WColor.PrimaryDarkText.color)
+            subtitleLabel.setTextColor(WColor.PrimaryDarkText.color)
+        }
+    }
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, 56.dp.exactly)
+    }
+}

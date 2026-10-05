@@ -1,0 +1,262 @@
+//
+//  EarnHeaderCell.swift
+//  UIEarn
+//
+//  Created by Sina on 5/13/24.
+//
+
+import UIKit
+import UIComponents
+import WalletCore
+import WalletContext
+
+class EarnHeaderCell: UICollectionViewCell {
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupViews()
+    }
+    
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    private let amountLabel = {
+        let lbl = UILabel()
+        lbl.translatesAutoresizingMaskIntoConstraints = false
+        lbl.font = .compactRounded(ofSize: 48, weight: .bold)
+        lbl.text = "0"
+        return lbl
+    }()
+    
+    private var amountContainer: WSensitiveData<UIStackView> = .init(cols: 13, rows: 3, cellSize: 14, cornerRadius: 10, theme: .adaptive, alignment: .center)
+    
+    private lazy var amountView: UIStackView = {
+        let v = UIStackView()
+        v.semanticContentAttribute = .forceLeftToRight
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.axis = .horizontal
+        v.addArrangedSubview(amountLabel)
+        v.addArrangedSubview(UIView())
+        NSLayoutConstraint.activate([
+            v.heightAnchor.constraint(equalToConstant: 56)
+        ])
+        return v
+    }()
+    
+    private lazy var currentlyStakedLabel = {
+        let lbl = UILabel()
+        lbl.applyTextStyle(.subheadline)
+        lbl.textAlignment = .center
+        lbl.text = lang("Currently Staked")
+        return lbl
+    }()
+    
+    private lazy var yourBalanceHintLabel = {
+        let lbl = UILabel()
+        lbl.applyTextStyle(.callout)
+        lbl.numberOfLines = 0
+        lbl.textAlignment = .center
+        lbl.text = "\n"
+        return lbl
+    }()
+    
+    private lazy var addStakeButton = {
+        let btn = WButton(style: .primary)
+        btn.setTitle(lang("Add Stake"), for: .normal)
+        btn.addTarget(self, action: #selector(addStakePressed), for: .touchUpInside)
+        btn.isEnabled = false
+        return btn
+    }()
+    
+    private lazy var unstakeButton = {
+        let btn = WButton(style: .secondary)
+        btn.setTitle(lang("Unstake"), for: .normal)
+        btn.addTarget(self, action: #selector(unstakePressed), for: .touchUpInside)
+        btn.isEnabled = false
+        return btn
+    }()
+    
+    private let indicatorView = WActivityIndicator()
+    
+    private lazy var actionsStackView = {
+        let v = UIStackView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.distribution = .fillEqually
+        v.addArrangedSubview(addStakeButton)
+        v.addArrangedSubview(unstakeButton, spacing: 12)
+        NSLayoutConstraint.activate([
+            v.heightAnchor.constraint(equalToConstant: 50)
+        ])
+        return v
+    }()
+    
+    private var bottomCornersViewContainer: UIView!
+    private var bottomCornersView: UIView!
+    
+    private lazy var stackView = {
+        let v = UIStackView()
+        v.alignment = .center
+        v.distribution = .fill
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.axis = .vertical
+        amountContainer.addContent(amountView)
+        v.addArrangedSubview(amountContainer, spacing: 16)
+        v.addArrangedSubview(currentlyStakedLabel, spacing: 16)
+        v.addArrangedSubview(yourBalanceHintLabel, spacing: 9)
+        v.addArrangedSubview(actionsStackView, margin: .init(top: 16, left: 16, bottom: 16, right: 16))
+        let actionsWidthAnchor = actionsStackView.widthAnchor.constraint(equalToConstant: 500)
+        actionsWidthAnchor.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            actionsWidthAnchor,
+            yourBalanceHintLabel.widthAnchor.constraint(equalTo: v.widthAnchor, constant: -64)
+        ])
+        v.alpha = 0
+        return v
+    }()
+    
+    private func setupViews() {
+        backgroundColor = .air.sheetBackground
+        
+        contentView.addSubview(stackView)
+        NSLayoutConstraint.activate([
+            stackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            stackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            stackView.topAnchor.constraint(equalTo: contentView.topAnchor),
+        ])
+        
+        // reversed bottom corner radius
+        bottomCornersViewContainer = UIView()
+        bottomCornersViewContainer.translatesAutoresizingMaskIntoConstraints = false
+        bottomCornersView = ReversedCornerRadiusView()
+        bottomCornersView.translatesAutoresizingMaskIntoConstraints = false
+        bottomCornersView.isUserInteractionEnabled = false
+        bottomCornersViewContainer.addSubview(bottomCornersView)
+        contentView.addSubview(bottomCornersViewContainer)
+        NSLayoutConstraint.activate([
+            bottomCornersView.leadingAnchor.constraint(equalTo: bottomCornersViewContainer.leadingAnchor),
+            bottomCornersView.trailingAnchor.constraint(equalTo: bottomCornersViewContainer.trailingAnchor),
+            bottomCornersView.topAnchor.constraint(equalTo: bottomCornersViewContainer.topAnchor),
+            bottomCornersView.bottomAnchor.constraint(equalTo: bottomCornersViewContainer.bottomAnchor),
+            bottomCornersViewContainer.widthAnchor.constraint(equalTo: contentView.widthAnchor),
+            bottomCornersViewContainer.heightAnchor.constraint(equalToConstant: ReversedCornerRadiusView.defaultRadius),
+            bottomCornersViewContainer.topAnchor.constraint(equalTo: stackView.bottomAnchor),
+            bottomCornersViewContainer.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 12)
+        ])
+        
+        indicatorView.translatesAutoresizingMaskIntoConstraints = false
+        indicatorView.stopAnimating(animated: false)
+        indicatorView.isHidden = true
+        contentView.addSubview(indicatorView)
+        NSLayoutConstraint.activate([
+            indicatorView.centerXAnchor.constraint(equalTo: stackView.centerXAnchor),
+            indicatorView.centerYAnchor.constraint(equalTo: stackView.centerYAnchor),
+        ])
+
+        updateTheme()
+    }
+
+    private func updateTheme() {
+        currentlyStakedLabel.textColor = .air.secondaryLabel
+        yourBalanceHintLabel.textColor = .air.secondaryLabel
+        bottomCornersViewContainer.backgroundColor = .air.groupedItem
+        bottomCornersView.backgroundColor = .air.sheetBackground
+    }
+    
+    private func updateUnstakingInfo() {
+        guard let stakingConfig,
+              let stakingState = stakingConfig.stakingState(stakingData: stakingData),
+              let unstakingAt = stakingConfig.unstakeTime(stakingData: stakingData),
+              let amnt = stakingState.unstakeRequestAmount, amnt > 0 else { return }
+        let time = unstakingAt.remainingFromNow
+        let amount = TokenAmount(amnt, stakingConfig.baseToken).formatted(.none, maxDecimals: 4)
+
+        if stakingState.type == .ethena {
+            yourBalanceHintLabel.text = L10n.unstakingWhenReceiveWithAmountEthena(amount: amount, time: time)
+        } else if stakingState.type == .nominators {
+            yourBalanceHintLabel.text = L10n.unstakingWhenReceive(time: time)
+        } else {
+            yourBalanceHintLabel.text = L10n.unstakingWhenReceiveWithAmount(amount: amount, time: time)
+        }
+        layoutIfNeeded()
+    }
+    
+    private weak var earnVC: EarnVC? = nil
+    private var stakingConfig: StakingConfig? = nil
+    private var stakingData: MStakingData? = nil
+    private var timer: Timer? = nil
+    
+    func configure(config: StakingConfig, stakingData: MStakingData?, supportsEarn: Bool, delegate: EarnVC) {
+        let token = config.baseToken
+        let canAddStake = supportsEarn && config.canAddStake
+        addStakeButton.isEnabled = canAddStake
+        addStakeButton.isUserInteractionEnabled = canAddStake
+        unstakeButton.isEnabled = supportsEarn
+        if let stakingState = config.stakingState(stakingData: stakingData) {
+            let stakingBalance = config.fullStakingBalance(stakingData: stakingData) ?? 0
+            let tokenAmount = TokenAmount(stakingBalance, token)
+            let isLargeAmount = abs(tokenAmount.doubleValue) >= 10
+            amountLabel.attributedText = tokenAmount.formatAttributed(
+                format: .init(preset: .defaultAdaptive),
+                integerFont: .compactRounded(ofSize: 48, weight: .bold),
+                fractionFont: .compactRounded(ofSize: 32, weight: .bold),
+                symbolFont: .compactRounded(ofSize: 32, weight: .bold),
+                integerColor: UIColor.label,
+                fractionColor: isLargeAmount ? .air.secondaryLabel : UIColor.label,
+                symbolColor: .air.secondaryLabel
+            )
+            unstakeButton.isHidden = stakingBalance == 0
+            self.stakingConfig = config
+            self.stakingData = stakingData
+            if let amount = stakingState.unstakeRequestAmount,
+               amount > 0,
+               let unstakingAt = config.unstakeTime(stakingData: stakingData) {
+                if unstakingAt > Date() {
+                    self.updateUnstakingInfo()
+                    if timer == nil {
+                        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                            Task { @MainActor in
+                                self?.updateUnstakingInfo()
+                            }
+                        }
+                    }
+                } else {
+                    timer?.invalidate()
+                    yourBalanceHintLabel.text = "\n"
+                }
+            } else {
+                timer?.invalidate()
+                yourBalanceHintLabel.text = "\n"
+            }
+            self.earnVC = delegate
+            if stackView.alpha == 0 {
+                UIView.animate(withDuration: 0.5) { [weak self] in
+                    guard let self else {return}
+                    stackView.alpha = 1
+                }
+            }
+            amountView.isHidden = false
+            indicatorView.isHidden = true
+            indicatorView.stopAnimating(animated: true)
+        } else {
+            amountView.isHidden = true
+            indicatorView.startAnimating(animated: true)
+            indicatorView.isHidden = false
+        }
+        if let readyToUnstakeAmount = config.readyToUnstakeAmount(stakingData: stakingData) {
+            let amount = TokenAmount(readyToUnstakeAmount, config.baseToken)
+            unstakeButton.setTitle(L10n.unstakeAmount(amount: amount.formatted(.none, maxDecimals: 2)), for: .normal)
+        } else {
+            unstakeButton.setTitle(lang("Unstake"), for: .normal)
+        }
+    }
+    
+    @objc func addStakePressed() {
+        earnVC?.stakeUnstakePressed(isStake: true)
+    }
+    
+    @objc func unstakePressed() {
+        earnVC?.stakeUnstakePressed(isStake: false)
+    }
+}

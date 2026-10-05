@@ -1,0 +1,1567 @@
+@file:Suppress("ktlint:standard:backing-property-naming")
+
+package org.mytonwallet.uihome.home.views.header
+
+import android.annotation.SuppressLint
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.drawable.BitmapDrawable
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.TouchDelegate
+import android.view.View
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.Toast
+import androidx.appcompat.widget.AppCompatImageView
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_CONSTRAINT
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.isGone
+import androidx.core.view.isInvisible
+import androidx.core.view.isVisible
+import java.math.BigInteger
+import kotlin.math.absoluteValue
+import kotlin.math.max
+import kotlin.math.roundToInt
+import org.mytonwallet.app_air.icons.R
+import org.mytonwallet.app_air.uicomponents.AnimationConstants
+import org.mytonwallet.app_air.uicomponents.base.ITabsVC
+import org.mytonwallet.app_air.uicomponents.base.WNavigationController
+import org.mytonwallet.app_air.uicomponents.base.WWindow
+import org.mytonwallet.app_air.uicomponents.commonViews.UpdateStatusView
+import org.mytonwallet.app_air.uicomponents.commonViews.WalletTypeView
+import org.mytonwallet.app_air.uicomponents.drawable.WRippleDrawable
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.exactly
+import org.mytonwallet.app_air.uicomponents.extensions.getLocationInWindow
+import org.mytonwallet.app_air.uicomponents.glass.GlassFlavor
+import org.mytonwallet.app_air.uicomponents.glass.GlassProviders
+import org.mytonwallet.app_air.uicomponents.glass.WGlassView
+import org.mytonwallet.app_air.uicomponents.helpers.ClipboardHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.HapticType
+import org.mytonwallet.app_air.uicomponents.helpers.Haptics
+import org.mytonwallet.app_air.uicomponents.helpers.NftGradientHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.TiltSensorManager
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.helpers.typeface
+import org.mytonwallet.app_air.uicomponents.image.Content
+import org.mytonwallet.app_air.uicomponents.image.WCustomImageView
+import org.mytonwallet.app_air.uicomponents.widgets.AutoScaleContainerView
+import org.mytonwallet.app_air.uicomponents.widgets.IPopup
+import org.mytonwallet.app_air.uicomponents.widgets.WGradientMaskView
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WLinearLayout
+import org.mytonwallet.app_air.uicomponents.widgets.WMultichainAddressLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WRadialGradientLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WShiningView
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.balance.WBalanceView
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.fadeOut
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup.BackgroundStyle
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup.Item.Config.Icon
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopupExpandableTrailingView
+import org.mytonwallet.app_air.uicomponents.widgets.sensitiveDataContainer.SensitiveDataMaskView
+import org.mytonwallet.app_air.uicomponents.widgets.sensitiveDataContainer.WSensitiveDataContainer
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.uiportfolio.viewControllers.portfolio.PortfolioVC
+import org.mytonwallet.app_air.uireceive.ReceiveVC
+import org.mytonwallet.app_air.uisettings.viewControllers.mintCard.MintCardVC
+import org.mytonwallet.app_air.uiwidgets.configurations.WidgetsConfigurations
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.models.MBaseCurrency
+import org.mytonwallet.app_air.walletbasecontext.theme.ThemeManager
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.getDrawableCompat
+import org.mytonwallet.app_air.walletbasecontext.utils.requireDrawableCompat
+import org.mytonwallet.app_air.walletbasecontext.utils.signSpace
+import org.mytonwallet.app_air.walletbasecontext.utils.toString
+import org.mytonwallet.app_air.walletbasecontext.utils.trimAddress
+import org.mytonwallet.app_air.walletbasecontext.utils.withLocalizedNumbers
+import org.mytonwallet.app_air.walletbasecontext.utils.x
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.helpers.ShareHelpers
+import org.mytonwallet.app_air.walletcontext.models.MWalletCardTopLine
+import org.mytonwallet.app_air.walletcontext.utils.AnimUtils.Companion.lerp
+import org.mytonwallet.app_air.walletcontext.utils.colorWithAlpha
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.api.setBaseCurrency
+import org.mytonwallet.app_air.walletcore.models.MAccount
+import org.mytonwallet.app_air.walletcore.models.MAccount.AccountChain
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+import org.mytonwallet.app_air.walletcore.moshi.ApiNft
+import org.mytonwallet.app_air.walletcore.stores.BalanceStore
+import org.mytonwallet.app_air.walletcore.stores.ConfigStore
+import org.mytonwallet.app_air.walletcore.stores.NftStore
+import org.mytonwallet.uihome.home.views.header.seasonal.SeasonalOverlayView
+
+@SuppressLint("ViewConstructor")
+class WalletCardView(
+    val window: WWindow,
+    private val keepCollapsedCardVisible: Boolean = false,
+    private val topTabsMode: Boolean = false
+) : WView(window),
+    WThemedView,
+    TiltSensorManager.TiltObserver {
+
+    companion object {
+        const val EXPANDED_RADIUS = 26
+        const val COLLAPSED_RADIUS = 4.5f
+    }
+
+    data class BalanceChange(val text: String?, val isPositive: Boolean)
+
+    var isInGoneState = false
+        set(value) {
+            if (field == value) return
+            field = value
+            isGone = value || account == null
+            updateGlareState()
+        }
+
+    var isOffScreen = false
+        set(value) {
+            if (field == value) return
+            field = value
+            updateGlareState()
+        }
+
+    var isBalanceCollapsed = false
+        set(value) {
+            if (field == value) return
+            field = value
+            updateGlareState()
+        }
+
+    // PRIVATE VARIABLES ///////////////////////////////////////////////////////////////////////////
+    var account: MAccount? = null
+        private set
+    private var cardNft: ApiNft? = null
+    private var nftGradientHelpers: NftGradientHelpers? = null
+    private var balanceAmount: BigInteger? = null
+    private var isShowingSkeletons = false
+
+    var statusViewState: UpdateStatusView.State = UpdateStatusView.State.Updated("")
+        private set
+
+    private val cardFullWidth: Int
+        get() {
+            return (window.window.decorView.width - 32.dp).coerceAtLeast(0)
+        }
+
+    // Tilt Effect
+    private var isSensorListening = false
+    private var currentTiltX = 0f
+    private var currentTiltY = 0f
+    override fun onTilt(x: Float, y: Float) {
+        if (shiningView.visibility != VISIBLE) return
+
+        currentTiltX = x
+        currentTiltY = y
+
+        shiningView.background =
+            nftGradientHelpers?.gradient(
+                cardFullWidth.toFloat(),
+                currentTiltX,
+                currentTiltY
+            )
+    }
+
+    // CHILDREN ////////////////////////////////////////////////////////////////////////////////////
+    private val img = WCustomImageView(context).apply {
+        defaultRounding = Content.Rounding.Radius(0f)
+    }
+
+    private val miniPlaceholders: MiniPlaceholdersView by lazy {
+        MiniPlaceholdersView(context).apply {
+            layoutParams = LayoutParams(36.dp, WRAP_CONTENT)
+            alpha = 0f
+            pivotY = 0f
+            pivotX = 18f.dp
+        }
+    }
+
+    private var balanceView = WBalanceView(context).apply {
+        clipChildren = false
+        clipToPadding = false
+        primaryColor = WColor.White.color
+        secondaryColor = WColor.White.color
+        smartDecimalsAlpha = true
+        reducedDecimalsAlpha = 191
+        smartDecimalsColor = true
+        typeface = WFont.Balance.typeface
+        containerWidth = window.windowView.width - 34.dp
+    }
+    private lateinit var balanceViewMaskWrapper: WGradientMaskView
+    private val arrowDownDrawable = context.getDrawableCompat(
+        R.drawable.ic_arrows_14
+    )?.mutate()
+    private var arrowImageView = AppCompatImageView(context).apply {
+        setImageDrawable(arrowDownDrawable)
+        alpha = 0.5f
+    }
+    private val balanceViewContainer: WSensitiveDataContainer<AutoScaleContainerView> by lazy {
+        val linearLayout = LinearLayout(context).apply {
+            clipChildren = false
+            clipToPadding = false
+            layoutDirection = LAYOUT_DIRECTION_LTR
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+        balanceViewMaskWrapper = WGradientMaskView(balanceView)
+        _primaryColor?.let { applyMaskColors(it) }
+        linearLayout.addView(balanceViewMaskWrapper, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        if (!topTabsMode) {
+            linearLayout.addView(
+                arrowImageView,
+                LayoutParams(18.dp, 24.dp).apply {
+                    leftMargin = 2.dp
+                    topMargin = 3.dp
+                    rightMargin = 2.dp
+                }
+            )
+        }
+        linearLayout.setOnClickListener {
+            if (mode == HomeHeaderView.Mode.Collapsed) return@setOnClickListener
+            if (topTabsMode) {
+                WGlobalStorage.toggleSensitiveDataHidden()
+            } else {
+                balanceViewContainerTapped()
+            }
+        }
+        linearLayout.setOnLongClickListener {
+            if (mode == HomeHeaderView.Mode.Collapsed || !topTabsMode) {
+                return@setOnLongClickListener false
+            }
+            balanceViewContainerTapped()
+            true
+        }
+        WSensitiveDataContainer(
+            AutoScaleContainerView(linearLayout).apply {
+                clipChildren = false
+                clipToPadding = false
+                maxAllowedWidth = balanceView.containerWidth
+                minPadding = 16.dp
+            },
+            WSensitiveDataContainer.MaskConfig(
+                9,
+                4,
+                Gravity.CENTER,
+                skin = SensitiveDataMaskView.Skin.DARK_THEME,
+                cellSize = 14.dp,
+                protectContentLayoutSize = false
+            )
+        ).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+    }
+
+    private val balanceChangeChevron = context.getDrawableCompat(
+        R.drawable.ic_arrow_right_16_24
+    )?.apply {
+        mutate()
+        setBounds(0, 0, intrinsicWidth, intrinsicHeight)
+    }
+
+    private val balanceChangeTextLabel: WLabel by lazy {
+        val lbl = WLabel(context)
+        lbl.setPadding(8.dp, 3.dp, 8.dp, 3.dp)
+        lbl.setStyle(adaptiveFontSize(), WFont.Medium)
+        lbl.compoundDrawablePadding = 0
+        lbl.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            null,
+            null,
+            balanceChangeChevron,
+            null
+        )
+        lbl.foreground = WRippleDrawable.create(14f.dp).apply {
+            rippleColor = Color.WHITE.colorWithAlpha(25)
+        }
+        lbl.setOnClickListener {
+            if (mode == HomeHeaderView.Mode.Collapsed) return@setOnClickListener
+            openPortfolio()
+        }
+        lbl
+    }
+
+    private val balanceChangeLabel: WSensitiveDataContainer<FrameLayout> by lazy {
+        val content = object : FrameLayout(context) {
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                balanceChangeBlurView?.measure(
+                    MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY)
+                )
+            }
+        }.apply {
+            minimumHeight = 28.dp
+            balanceChangeBlurView?.let {
+                addView(it, FrameLayout.LayoutParams(0, 0))
+                it.setupWith(clippedContainer)
+            }
+            addView(
+                balanceChangeTextLabel,
+                FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT, Gravity.CENTER)
+            )
+        }
+        WSensitiveDataContainer(
+            content,
+            WSensitiveDataContainer.MaskConfig(
+                16,
+                3,
+                Gravity.CENTER,
+                16.dp,
+                cellSize = 10.dp,
+                skin = SensitiveDataMaskView.Skin.DARK_THEME,
+                protectContentLayoutSize = false
+            )
+        )
+    }
+
+    private val balanceSkeletonView = WView(context).apply {
+        visibility = GONE
+    }
+    private val balanceChangeSkeletonView = WView(context).apply {
+        visibility = GONE
+    }
+
+    private val addressLabel: WMultichainAddressLabel by lazy {
+        WMultichainAddressLabel(context).apply {
+            setStyle(adaptiveFontSize(), WFont.Medium)
+            setPadding(5.dp, 1.5f.dp.roundToInt(), 5.dp, 2.dp)
+            containerWidth = cardFullWidth
+            background = WRippleDrawable.create(20f.dp).apply {
+                rippleColor = Color.WHITE.colorWithAlpha(25)
+            }
+        }
+    }
+
+    private val walletNameQrDrawable by lazy {
+        context.requireDrawableCompat(R.drawable.ic_qr).mutate().apply {
+            setBounds(0, 0, 18.dp, 18.dp)
+        }
+    }
+
+    private val walletNameLabel: WRadialGradientLabel by lazy {
+        WRadialGradientLabel(context).apply {
+            setStyle(adaptiveFontSize(), WFont.Medium)
+            setPadding(5.dp, 1.5f.dp.roundToInt(), 5.dp, 2.dp)
+            compoundDrawablePadding = 4.dp
+            setCompoundDrawablesRelative(null, null, walletNameQrDrawable, null)
+            containerWidth = cardFullWidth
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            background = WRippleDrawable.create(20f.dp).apply {
+                rippleColor = Color.WHITE.colorWithAlpha(25)
+            }
+        }
+    }
+
+    private var footerTopLine: MWalletCardTopLine? =
+        if (topTabsMode) WGlobalStorage.getWalletCardTopLine() else null
+    private val showWalletNameInFooter: Boolean
+        get() = footerTopLine == MWalletCardTopLine.WALLET_NAME
+    private val footerLabel: WRadialGradientLabel
+        get() = if (showWalletNameInFooter) walletNameLabel else addressLabel
+    private val footerLayoutChangeListener =
+        View.OnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val rect = Rect()
+            v.getHitRect(rect)
+            rect.inset(-5.dp, -4.dp)
+            bottomViewContainer.touchDelegate = TouchDelegate(rect, v)
+        }
+
+    private var walletTypeView: WalletTypeView
+
+    private val bottomViewContainer = WLinearLayout(context, LinearLayout.HORIZONTAL).apply {
+        gravity = Gravity.CENTER
+        setPadding(0, 4.dp, 0, 4.dp)
+        clipToPadding = false
+        walletTypeView = object : WalletTypeView(context, true) {
+            override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                super.onSizeChanged(w, h, oldw, oldh)
+                footerLabel.gradientOffset = -w
+            }
+        }
+        addView(
+            walletTypeView,
+            LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                marginStart = 2.dp
+                marginEnd = 1.dp
+            }
+        )
+        addView(footerLabel, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+    }
+
+    private val mintIconRipple = WRippleDrawable.create(20f.dp).apply {
+        rippleColor = Color.WHITE.colorWithAlpha(25)
+    }
+    private val mintIcon = AppCompatImageView(context).apply {
+        id = generateViewId()
+        scaleType = ImageView.ScaleType.CENTER
+        setOnClickListener {
+            if (mode == HomeHeaderView.Mode.Collapsed) return@setOnClickListener
+            window.navigationControllers.lastOrNull()?.let {
+                MintCardVC.present(it)
+            }
+        }
+        background = mintIconRipple
+        isGone = true
+    }
+
+    private val shiningView = WShiningView(context).apply {
+        visibility = GONE
+    }
+
+    private val balanceChangeBlurView: WGlassView? =
+        if (WGlobalStorage.isBlurEnabled()) {
+            WGlassView(context).apply {
+                flavor = GlassFlavor.FROSTED_PLAIN
+                liquidGlass = false
+                transparentBackstop = true
+                captureExpand = 40f.dp
+                setRadius(14f.dp)
+                setProvider(GlassProviders.legacy(WColor.Transparent))
+            }
+        } else {
+            null
+        }
+
+    private val seasonalOverlayView = SeasonalOverlayView(context).apply {
+        id = generateViewId()
+    }
+
+    private val promoOverlayView = PromoCardOverlayView(context).apply {
+        id = generateViewId()
+        visibility = GONE
+    }
+
+    private val clippedContainer = WView(context).apply {
+        id = generateViewId()
+        clipChildren = true
+        clipToPadding = true
+    }
+
+    private val contentView: WView by lazy {
+        val v = WView(context).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+        val maxBottomContainerWidth = max(240.dp, window.windowView.width - 100.dp)
+
+        clippedContainer.addView(img, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        clippedContainer.addView(shiningView, LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        clippedContainer.addView(
+            seasonalOverlayView,
+            LayoutParams(MATCH_CONSTRAINT, MATCH_CONSTRAINT)
+        )
+        clippedContainer.addView(miniPlaceholders)
+        clippedContainer.addView(balanceViewContainer, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        clippedContainer.addView(balanceChangeLabel, LayoutParams(WRAP_CONTENT, 28.dp))
+        clippedContainer.addView(balanceSkeletonView, LayoutParams(134.dp, 56.dp))
+        clippedContainer.addView(balanceChangeSkeletonView, LayoutParams(134.dp, 28.dp))
+        clippedContainer.addView(
+            bottomViewContainer,
+            LayoutParams(maxBottomContainerWidth, WRAP_CONTENT)
+        )
+        clippedContainer.addView(mintIcon, LayoutParams(40.dp, 40.dp))
+
+        clippedContainer.setConstraints {
+            allEdges(img)
+            allEdges(seasonalOverlayView)
+            toCenterX(miniPlaceholders)
+            toTop(miniPlaceholders)
+            toTop(balanceViewContainer)
+            toCenterX(balanceViewContainer)
+            toTop(balanceChangeLabel)
+            toCenterX(balanceChangeLabel)
+            toCenterX(bottomViewContainer)
+            toBottom(bottomViewContainer, 10f)
+            topToTop(balanceSkeletonView, balanceViewContainer)
+            centerXToCenterX(balanceSkeletonView, balanceViewContainer)
+            edgeToEdge(balanceChangeSkeletonView, balanceChangeLabel)
+            toEnd(mintIcon, 4f)
+        }
+
+        v.addView(clippedContainer, LayoutParams(MATCH_CONSTRAINT, MATCH_CONSTRAINT))
+        promoOverlayView.clipChildren = false
+        v.addView(promoOverlayView, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+
+        v.setConstraints {
+            allEdges(clippedContainer)
+            toTop(promoOverlayView)
+            toEnd(promoOverlayView)
+        }
+
+        v.post {
+            clippedContainer.setConstraints {
+                toBottom(mintIcon, 5f)
+                constrainMaxWidth(balanceViewContainer.id, (parent as View).width - 34.dp)
+            }
+        }
+
+        walletTypeView.setupBlurWith(clippedContainer)
+        v
+    }
+
+    override fun setupViews() {
+        super.setupViews()
+
+        clipChildren = false
+        clipToPadding = false
+
+        addView(contentView)
+
+        setConstraints {
+            allEdges(contentView)
+        }
+
+        balanceView.onTotalWidthChanged = { width ->
+            balanceViewMaskWrapper.setupLayout(
+                width = width,
+                height = 56.dp,
+                parentWidth = (this@WalletCardView.parent as HomeHeaderView).width
+            )
+        }
+        setupFooterLabel(footerLabel)
+
+        addressLabel.onLongPressChain = { chainName, _, _ ->
+            if (mode != HomeHeaderView.Mode.Collapsed) {
+                val chain = MBlockchain.supportedChains.find { it.name == chainName }
+                if (chain != null) {
+                    account?.byChain?.get(chainName)?.let { accountChain ->
+                        copyAccountToClipboard(accountChain, chain)
+                    }
+                }
+            }
+        }
+
+        updateSeasonalTheme()
+    }
+
+    private fun setupFooterLabel(label: WRadialGradientLabel) {
+        label.setOnClickListener {
+            if (mode == HomeHeaderView.Mode.Collapsed) return@setOnClickListener
+            openAddressMenu(label)
+        }
+        label.addOnLayoutChangeListener(footerLayoutChangeListener)
+    }
+
+    fun updateFooterTopLine() {
+        if (!topTabsMode) return
+        val topLine = WGlobalStorage.getWalletCardTopLine()
+        if (footerTopLine == topLine) return
+        val oldLabel = footerLabel
+        footerTopLine = topLine
+        val newLabel = footerLabel
+        if (oldLabel !== newLabel) {
+            oldLabel.setOnClickListener(null)
+            oldLabel.removeOnLayoutChangeListener(footerLayoutChangeListener)
+            bottomViewContainer.removeView(oldLabel)
+            bottomViewContainer.addView(
+                newLabel,
+                LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
+            )
+            setupFooterLabel(newLabel)
+            newLabel.gradientOffset = -walletTypeView.width
+            newLabel.alpha = oldLabel.alpha
+            val primaryColor = _primaryColor
+            val secondaryColor = _secondaryColor
+            val drawGradient = _drawGradient
+            if (primaryColor != null && secondaryColor != null && drawGradient != null) {
+                newLabel.setTextColor(primaryColor, secondaryColor, drawGradient)
+                walletNameQrDrawable.setTint(secondaryColor)
+            }
+        }
+        if (showWalletNameInFooter) {
+            walletNameLabel.text = account?.name.orEmpty()
+        } else {
+            updateAddressLabel()
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        startSensorListening()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        stopSensorListening()
+    }
+
+    override fun updateTheme() {
+        if (ThemeManager.isDark) startSensorListening() else stopSensorListening()
+        cardNft?.let {
+            startSensorListening()
+            shiningView.background =
+                nftGradientHelpers?.gradient(
+                    cardFullWidth.toFloat(),
+                    currentTiltX,
+                    currentTiltY
+                )
+            val colors = cardNft?.metadata?.mtwCardColors ?: return@let
+            setLabelColors(colors.first, colors.second, drawGradient = true)
+            return
+        } ?: run {
+            stopSensorListening()
+            shiningView.background = null
+        }
+        setLabelColors(Color.WHITE, Color.WHITE.colorWithAlpha(191), drawGradient = false)
+
+        if (balanceChangeBlurView == null) {
+            balanceChangeTextLabel.setBackgroundColor(
+                Color.WHITE.colorWithAlpha(25),
+                14f.dp
+            )
+        }
+        if (isShowingSkeletons) {
+            updateSkeletonViewColors()
+        }
+    }
+
+    fun onDestroy() {
+        stopSensorListening()
+        balanceView.onTotalWidthChanged = null
+        if (this::balanceViewMaskWrapper.isInitialized) balanceViewMaskWrapper.onDestroy()
+    }
+
+    fun startSensorListening() {
+        if (isSensorListening ||
+            cardNft == null ||
+            !ThemeManager.isDark ||
+            !isAttachedToWindow ||
+            headerMode != HomeHeaderView.Mode.Expanded
+        ) {
+            return
+        }
+        isSensorListening = true
+        TiltSensorManager.addObserver(this)
+    }
+
+    fun stopSensorListening() {
+        if (!isSensorListening) return
+        TiltSensorManager.removeObserver(this)
+        isSensorListening = false
+    }
+
+    // PUBLIC METHODS //////////////////////////////////////////////////////////////////////////////
+    fun setupLayout(parentWidth: Int) {
+        balanceView.containerWidth = parentWidth - 34.dp
+        balanceViewContainer.contentView.maxAllowedWidth = balanceView.containerWidth
+        balanceViewContainer.contentView.updateScale()
+        balanceViewMaskWrapper.setupLayout(parentWidth = parentWidth)
+    }
+
+    fun updatePositions(
+        balanceY: Float,
+        expandProgress: Float,
+        collapsedBalanceStyle: HomeHeaderView.CollapsedBalanceStyle?,
+        collapsedStyleProgress: Float
+    ) {
+        // Scale placeholders proportionally to the card's actual size
+        val cardWidth = this.layoutParams?.width ?: 36.dp
+        val placeholderScale = (if (cardWidth > 0) cardWidth / 36f.dp else 1f).coerceAtMost(3f)
+        if (placeholderScale != lastPlaceholderScale) {
+            lastPlaceholderScale = placeholderScale
+            miniPlaceholders.scaleX = placeholderScale
+            miniPlaceholders.scaleY = placeholderScale
+        }
+
+        balanceViewContainer.y = balanceY
+        balanceSkeletonView.y = balanceY
+        balanceChangeLabel.y = balanceY + 64.dp
+        val cardHeight = layoutParams?.height ?: 0
+        if (cardHeight > 0 && expandProgress > 0.9f && balanceChangeLabel.isVisible) {
+            val changeHeight = balanceChangeLabel.height.takeIf { it > 0 } ?: 28.dp
+            val bottomRowTop = cardHeight - 10.dp - bottomViewContainer.height
+            val overlap = balanceChangeLabel.y + changeHeight + 4.dp - bottomRowTop
+            if (overlap > 0) {
+                val pillLift = overlap.coerceAtMost(20f.dp)
+                balanceChangeLabel.y -= pillLift
+                val overlapProgress = 10 * (expandProgress - 0.9f)
+                val rest = lerp(0f, overlap - pillLift, overlapProgress)
+                if (rest > 0) {
+                    balanceViewContainer.y -= rest + lerp(0f, 8f.dp, overlapProgress)
+                    balanceSkeletonView.y = balanceViewContainer.y
+                    balanceChangeLabel.y -= rest
+                }
+            }
+        }
+        balanceChangeSkeletonView.y = balanceChangeLabel.y
+
+        val primarySize = 36f + 16f * expandProgress
+        val decimalsSize = 30f + 8f * expandProgress
+        balanceView.setScale(
+            lerp(
+                primarySize,
+                collapsedBalanceStyle?.primarySize ?: primarySize,
+                collapsedStyleProgress
+            ) / balanceView.primarySize,
+            lerp(
+                decimalsSize,
+                collapsedBalanceStyle?.decimalsSize ?: decimalsSize,
+                collapsedStyleProgress
+            ) / balanceView.decimalsSize,
+            (-2.5f).dp + 1f.dp * expandProgress +
+                HomeHeaderView.BALANCE_DECIMALS_TOP_TABS_OFFSET * collapsedStyleProgress
+        )
+        balanceView.translationX = if (topTabsMode) 0f else 11f.dp * (1 - expandProgress)
+        balanceViewContainer.contentView.updateScale()
+    }
+
+    fun updateBalanceChange(
+        balance: Double?,
+        balance24h: Double?,
+        animated: Boolean
+    ): BalanceChange {
+        isBalanceChangePositive =
+            balance != null && balance24h != null &&
+            balance > 0 && balance24h > 0 && balance > balance24h
+        var balanceChangeString: String? = null
+        balance?.let {
+            balance24h?.let {
+                if (balance > 0) {
+                    val changeValue = balance - balance24h
+                    if (changeValue.isFinite()) {
+                        val balanceChangeValueString = (changeValue.absoluteValue).toString(
+                            WalletCore.baseCurrency.decimalsCount,
+                            WalletCore.baseCurrency.sign,
+                            WalletCore.baseCurrency.decimalsCount,
+                            true
+                        )
+                        val balanceChangeSign =
+                            if (balance - balance24h >= 0) "+$signSpace" else "-$signSpace"
+                        val balanceChangePercentString =
+                            if (balance24h ==
+                                0.0
+                            ) {
+                                ""
+                            } else {
+                                val balanceChangePercent =
+                                    kotlin.math.abs(
+                                        ((balance - balance24h) / balance24h * 10000)
+                                            .roundToInt() / 100f
+                                    ).withLocalizedNumbers
+                                "$balanceChangeSign$balanceChangePercent% · "
+                            }
+                        balanceChangeString =
+                            "\u202D$balanceChangePercentString$balanceChangeValueString"
+                    }
+                }
+            }
+        }
+        updateBalanceChange(balanceChangeString, animated)
+        return BalanceChange(balanceChangeString, isBalanceChangePositive)
+    }
+
+    fun openPortfolio() {
+        val tabNav =
+            (window.topNavigationController?.viewControllers?.firstOrNull() as? ITabsVC)
+                ?.mainNavigationController
+        if (tabNav != null) {
+            tabNav.push(PortfolioVC(context))
+        } else {
+            window.navigationControllers.lastOrNull()?.push(PortfolioVC(context))
+        }
+    }
+
+    fun updateBalanceChange(balanceChangeString: String?, animated: Boolean) {
+        if (balanceChangeTextLabel.text.isEmpty() && animated) {
+            balanceChangeLabel.alpha = 0f
+            balanceChangeLabel.fadeIn()
+        }
+        balanceChangeTextLabel.text = balanceChangeString
+        balanceChangeLabel.visibility =
+            if (balanceChangeTextLabel.text.isNullOrEmpty()) INVISIBLE else VISIBLE
+        applyBalanceChangeColors()
+    }
+
+    fun animateBalance(animateConfig: WBalanceView.AnimateConfig) {
+        if (balanceAmount == null && animateConfig.amount != null) {
+            fadeInBalanceContainer()
+            showBalanceArrow(animateConfig.animated)
+            hideSkeletons()
+        } else if (animateConfig.amount == null) {
+            showSkeletons()
+        }
+        balanceAmount = animateConfig.amount
+        balanceView.animateText(animateConfig)
+        if (!showWalletNameInFooter) updateAddressLabel()
+    }
+
+    fun showSkeletons() {
+        if (isShowingSkeletons) return
+        isShowingSkeletons = true
+        balanceViewContainer.visibility = INVISIBLE
+        balanceSkeletonView.visibility = VISIBLE
+        balanceSkeletonView.alpha = 1f
+        val showBalanceChangePlace = account?.isNew != true && balanceAmount != BigInteger.ZERO
+        balanceChangeSkeletonView.isGone = !showBalanceChangePlace
+        balanceChangeSkeletonView.alpha = 1f
+        arrowImageView.visibility = INVISIBLE
+        updateSkeletonViewColors()
+    }
+
+    fun hideSkeletons() {
+        if (!isShowingSkeletons) return
+        isShowingSkeletons = false
+        balanceViewContainer.visibility = VISIBLE
+        balanceSkeletonView.fadeOut(onCompletion = {
+            if (!isShowingSkeletons) {
+                balanceSkeletonView.visibility = GONE
+                balanceChangeSkeletonView.visibility = GONE
+            }
+        })
+        if (balanceChangeSkeletonView.isVisible) balanceChangeSkeletonView.fadeOut()
+    }
+
+    fun getSkeletonViews(): List<View> = listOf(
+        balanceSkeletonView,
+        balanceChangeSkeletonView
+    )
+
+    fun setStatusViewState(value: UpdateStatusView.State, animated: Boolean) {
+        if (statusViewState == value) return
+        statusViewState = value
+        updateContentAlpha(animated)
+        if (::balanceViewMaskWrapper.isInitialized) {
+            updateGlareState()
+            balanceViewMaskWrapper.isLoading =
+                value == UpdateStatusView.State.Updating ||
+                value == UpdateStatusView.State.WaitingForNetwork
+        }
+    }
+
+    // Called to update account
+    private var shownAccountId: String? = null
+    private var shownIsTemporary: Boolean? = null
+
+    fun updateAccountData(account: MAccount?) {
+        if (showWalletNameInFooter) {
+            walletNameLabel.text = account?.name.orEmpty()
+        }
+        if (shownAccountId == account?.accountId && shownIsTemporary == account?.isTemporary) {
+            return
+        }
+        shownAccountId = account?.accountId
+        shownIsTemporary = account?.isTemporary
+        this.account = account
+        if (account == null) {
+            isGone = true
+            updateGlareState()
+            return
+        } else {
+            isGone = isInGoneState
+            updateGlareState()
+        }
+        if (!showWalletNameInFooter) {
+            updateAddressLabel()
+        }
+        updateCardImage()
+        updateMintIconVisibility()
+        walletTypeView.configure(account)
+        balanceAmount = null
+        animateBalance(
+            WBalanceView.AnimateConfig(
+                null,
+                0,
+                "",
+                animated = false,
+                setInstantly = mode == HomeHeaderView.Mode.Collapsed,
+                forceCurrencyToRight = false
+            )
+        )
+        updateBalanceChange(null, false)
+    }
+
+    fun updateCardImage() {
+        cardNft =
+            account?.accountId?.let { accountId ->
+                WGlobalStorage.getCardBackgroundNft(accountId)
+                    ?.let { ApiNft.fromJson(it) }
+            }
+        nftGradientHelpers = cardNft?.let { NftGradientHelpers(it) }
+        updateTheme()
+
+        if (cardNft == null) {
+            img.set(
+                Content(Content.Image.Res(org.mytonwallet.app_air.uicomponents.R.drawable.img_card))
+            )
+            clippedContainer.setConstraints {
+                allEdges(img)
+            }
+            shiningView.visibility = GONE
+            return
+        }
+        shiningView.visibility = VISIBLE
+        img.hierarchy.setPlaceholderImage(
+            context.getDrawableCompat(
+                org.mytonwallet.app_air.uicomponents.R.drawable.img_card
+            )
+        )
+        img.set(Content.ofUrl(cardNft?.metadata?.cardImageUrl(false) ?: ""))
+    }
+
+    fun updateAddressLabel() {
+        addressLabel.displayAddresses(
+            account,
+            WMultichainAddressLabel.walletExpandStyle,
+            maxAddressesByBalance = footerTopLine?.maxAddressesByBalance
+        )
+    }
+
+    fun updateSeasonalTheme() {
+        seasonalOverlayView.updateSeasonalTheme()
+    }
+
+    var headerMode = HomeHeaderView.DEFAULT_MODE
+        set(value) {
+            field = value
+            if (value == HomeHeaderView.Mode.Expanded) {
+                startSensorListening()
+            } else {
+                stopSensorListening()
+            }
+        }
+    var mode = HomeHeaderView.DEFAULT_MODE
+    fun expand(animated: Boolean) {
+        if (mode == HomeHeaderView.Mode.Expanded) return
+        mode = HomeHeaderView.Mode.Expanded
+        updateContentAlpha(animated)
+        if (animated) {
+            miniPlaceholders.fadeOut(AnimationConstants.INSTANT_ANIMATION)
+            shiningView.fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+            seasonalOverlayView.fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+            if (promoOverlayView.isVisible) {
+                promoOverlayView.fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+            }
+        } else {
+            miniPlaceholders.alpha = 0f
+            shiningView.alpha = 1f
+            seasonalOverlayView.alpha = 1f
+            promoOverlayView.alpha = if (promoOverlayView.isVisible) 1f else 0f
+        }
+        startSensorListening()
+    }
+
+    fun collapse(animated: Boolean) {
+        if (mode == HomeHeaderView.Mode.Collapsed) return
+        stopSensorListening()
+        mode = HomeHeaderView.Mode.Collapsed
+        updateContentAlpha(animated)
+        if (animated) {
+            miniPlaceholders.alpha = 0f
+            miniPlaceholders.fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+            shiningView.fadeOut(AnimationConstants.VERY_QUICK_ANIMATION)
+            seasonalOverlayView.fadeOut(AnimationConstants.VERY_QUICK_ANIMATION)
+            if (promoOverlayView.isVisible) {
+                promoOverlayView.fadeOut(AnimationConstants.VERY_QUICK_ANIMATION)
+            }
+        } else {
+            miniPlaceholders.alpha = 1f
+            shiningView.alpha = 0f
+            seasonalOverlayView.alpha = 0f
+            promoOverlayView.alpha = 0f
+        }
+    }
+
+    var currentRadius = -1f
+    fun setRoundingParam(radius: Float) {
+        if (this.currentRadius == radius) return
+        this.currentRadius = radius
+        clippedContainer.setBackgroundColor(Color.TRANSPARENT, radius, true)
+        img.setBackgroundColor(Color.TRANSPARENT, radius, true)
+        img.defaultRounding = Content.Rounding.Radius(radius)
+        shiningView.radius = radius
+    }
+
+    fun updateMintIconVisibility() {
+        val accountId = account?.accountId
+        val eligible = account?.network?.isMainnet == true &&
+            account?.isViewOnly == false &&
+            ConfigStore.isLimited != true
+        val hasCardsOrMinting = accountId != null &&
+            (WGlobalStorage.getCardsInfo(accountId) != null || NftStore.isCardMinting(accountId))
+        mintIcon.isGone = !(eligible && hasCardsOrMinting)
+    }
+
+    fun updatePromotion() {
+        promoOverlayView.updatePromotion(account?.accountId)
+    }
+
+    fun viewWillDisappear() {
+        balanceView.interruptAnimation()
+    }
+
+    fun updateActionsTransformProgress(progress: Float) {
+        updateActionsAlpha(progress)
+    }
+
+    // PRIVATE METHODS /////////////////////////////////////////////////////////////////////////////
+    private var lastPlaceholderScale = -1f
+    private var lastActionsAlpha = -1f
+    private fun updateActionsAlpha(actionsAlpha: Float) {
+        if (actionsAlpha == lastActionsAlpha) return
+        lastActionsAlpha = actionsAlpha
+        footerLabel.alpha = actionsAlpha
+        mintIcon.alpha = actionsAlpha
+        walletTypeView.alpha = actionsAlpha
+        balanceChangeLabel.alpha = actionsAlpha
+    }
+
+    private var isBalanceChangePositive = false
+    private var _primaryColor: Int? = null
+    private var _secondaryColor: Int? = null
+    private var _drawGradient: Boolean? = null
+    private fun applyMaskColors(primaryColor: Int) {
+        balanceViewMaskWrapper.setupColors(
+            intArrayOf(
+                primaryColor.colorWithAlpha(77),
+                primaryColor.colorWithAlpha(179),
+                primaryColor.colorWithAlpha(77)
+            )
+        )
+    }
+
+    private fun setLabelColors(primaryColor: Int, secondaryColor: Int, drawGradient: Boolean) {
+        if (_primaryColor == primaryColor &&
+            _secondaryColor == secondaryColor &&
+            _drawGradient == drawGradient
+        ) {
+            return
+        }
+        _primaryColor = primaryColor
+        _secondaryColor = secondaryColor
+        _drawGradient = drawGradient
+        if (::balanceViewMaskWrapper.isInitialized) {
+            applyMaskColors(primaryColor)
+        }
+        balanceView.alpha = 1f
+        balanceView.updateColors(primaryColor, secondaryColor, drawGradient)
+        arrowDownDrawable?.setTint(secondaryColor)
+        footerLabel.setTextColor(primaryColor, secondaryColor, drawGradient)
+        if (showWalletNameInFooter) {
+            walletNameQrDrawable.setTint(secondaryColor)
+        } else {
+            updateAddressLabel()
+        }
+        miniPlaceholders.setColor(primaryColor)
+        mintIcon.setImageDrawable(
+            context.requireDrawableCompat(
+                R.drawable.ic_mint
+            ).apply {
+                setTint(secondaryColor.colorWithAlpha(191))
+            }
+        )
+        cardNft?.metadata?.overlayLabelBackground?.let { it ->
+            walletTypeView.setColor(
+                it.colorWithAlpha(25),
+                it.colorWithAlpha(204)
+            )
+        } ?: run {
+            walletTypeView.setColor(
+                secondaryColor.colorWithAlpha(41),
+                secondaryColor.colorWithAlpha(191)
+            )
+        }
+        applyBalanceChangeColors()
+    }
+
+    private fun applyBalanceChangeColors() {
+        cardNft?.metadata?.overlayLabelBackground?.let { it ->
+            balanceChangeTextLabel.setTextColor(it.colorWithAlpha(204))
+            balanceChangeChevron?.setTint(it.colorWithAlpha(204))
+            balanceChangeBlurView?.setTintOverlayColor(it.colorWithAlpha(12))
+            balanceChangeTextLabel.setBackgroundColor(
+                if (balanceChangeBlurView == null || !WGlobalStorage.isBlurEnabled()) {
+                    it.colorWithAlpha(25)
+                } else {
+                    Color.TRANSPARENT
+                },
+                13f.dp
+            )
+        } ?: run {
+            val secondaryColor = _secondaryColor ?: Color.WHITE.colorWithAlpha(191)
+            balanceChangeTextLabel.setTextColor(secondaryColor.colorWithAlpha(191))
+            balanceChangeChevron?.setTint(secondaryColor.colorWithAlpha(191))
+            balanceChangeBlurView?.setTintOverlayColor(secondaryColor.colorWithAlpha(20))
+            balanceChangeTextLabel.setBackgroundColor(
+                if (balanceChangeBlurView == null || !WGlobalStorage.isBlurEnabled()) {
+                    secondaryColor.colorWithAlpha(41)
+                } else {
+                    Color.TRANSPARENT
+                },
+                13f.dp
+            )
+        }
+        if (isBalanceChangePositive && cardNft == null) {
+            val positiveColor = WColor.PositiveBalance.color
+            balanceChangeTextLabel.setTextColor(positiveColor)
+            balanceChangeChevron?.setTint(positiveColor)
+        }
+    }
+
+    private fun updateSkeletonViewColors() {
+        balanceSkeletonView.setBackgroundColor(
+            Color.WHITE.colorWithAlpha(25),
+            8f.dp
+        )
+        balanceChangeSkeletonView.setBackgroundColor(
+            Color.WHITE.colorWithAlpha(25),
+            14f.dp
+        )
+    }
+
+    private fun fadeInBalanceContainer() {
+        balanceViewContainer.alpha = 0f
+        balanceViewContainer.fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+    }
+
+    fun showBalanceArrow(animated: Boolean) {
+        if (arrowImageView.isInvisible) {
+            arrowImageView.visibility = VISIBLE
+            if (animated) arrowImageView.fadeIn(AnimationConstants.VERY_QUICK_ANIMATION)
+        }
+    }
+
+    private fun updateGlareState() {
+        if (!::balanceViewMaskWrapper.isInitialized) return
+        balanceViewMaskWrapper.isAnimationAllowed =
+            !isGone && !isOffScreen && !isBalanceCollapsed
+    }
+
+    private var currentAlpha = 1f
+    private fun updateContentAlpha(animated: Boolean = true) {
+        contentView.animate().cancel()
+        if (mode == HomeHeaderView.Mode.Collapsed && !keepCollapsedCardVisible) {
+            // Card view may be above stateView, so hide it if required
+            when (statusViewState) {
+                UpdateStatusView.State.WaitingForNetwork, UpdateStatusView.State.Updating -> {
+                    if (currentAlpha > 0f) {
+                        currentAlpha = 0f
+                        if (animated) {
+                            contentView.fadeOut()
+                        } else {
+                            contentView.alpha = 0f
+                        }
+                    }
+                }
+
+                else ->
+                    if (currentAlpha < 1f) {
+                        currentAlpha = 1f
+                        if (animated) {
+                            contentView.fadeIn()
+                        } else {
+                            contentView.alpha = 1f
+                        }
+                    }
+            }
+        } else {
+            if (currentAlpha < 1f) {
+                currentAlpha = 1f
+                if (animated) {
+                    contentView.fadeIn()
+                } else {
+                    contentView.alpha = 1f
+                }
+            }
+        }
+    }
+
+    private fun balanceViewContainerTapped() {
+        presentBaseCurrencyPopup(
+            anchor = balanceViewContainer.contentView,
+            windowBackgroundStyle = BackgroundStyle.Cutout.fromView(
+                this@WalletCardView,
+                roundRadius = EXPANDED_RADIUS.dp.toFloat(),
+                verticalOffset = (-0.5f).dp.roundToInt()
+            )
+        )
+    }
+
+    fun presentBaseCurrencyPopup(anchor: View, windowBackgroundStyle: BackgroundStyle) {
+        val account = account ?: return
+        WMenuPopup.present(
+            anchor,
+            listOf(
+                MBaseCurrency.USD,
+                MBaseCurrency.EUR,
+                MBaseCurrency.RUB,
+                MBaseCurrency.CNY,
+                MBaseCurrency.BTC,
+                MBaseCurrency.TON
+            ).map {
+                val totalBalance =
+                    BalanceStore.calcTotalBalanceInBaseCurrency(account.accountId, it)?.total
+                WMenuPopup.Item(
+                    WMenuPopup.Item.Config.SelectableItem(
+                        title = it.currencyName,
+                        subtitle = totalBalance?.toString(
+                            decimals = 9,
+                            currency = it.sign,
+                            currencyDecimals = 9,
+                            smartDecimals = true,
+                            roundUp = false
+                        ),
+                        isSelected = WalletCore.baseCurrency.currencySymbol == it.currencySymbol
+                    ),
+                    false
+                ) {
+                    WalletCore.setBaseCurrency(newBaseCurrency = it.currencyCode) { _, _ -> }
+                    WidgetsConfigurations.reloadWidgets(context)
+                }
+            },
+            centerHorizontally = true,
+            yOffset = (-6).dp,
+            popupWidth = 225.dp,
+            positioning = WMenuPopup.Positioning.BELOW,
+            windowBackgroundStyle = windowBackgroundStyle
+        )
+    }
+
+    fun copyFirstAddress() {
+        account?.displayedChains()?.firstOrNull()?.let {
+            val chain = MBlockchain.valueOfOrNull(it.key) ?: return
+            copyAccountToClipboard(it.value, chain)
+        }
+    }
+
+    private fun copyAccountToClipboard(account: AccountChain, chain: MBlockchain) {
+        if (!ClipboardHelpers.copyToClipboard(context, "", account.domain ?: account.address)) {
+            return
+        }
+        val text = if (account.domain != null) {
+            LocaleController.getString("%chain% Domain Copied")
+                .replace("%chain%", chain.displayName)
+        } else {
+            LocaleController.getString("%chain% Address Copied")
+                .replace("%chain%", chain.displayName)
+        }
+        Haptics.play(this, HapticType.LIGHT_TAP)
+        Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyAddressToClipboard(address: String, chain: MBlockchain) {
+        if (!ClipboardHelpers.copyToClipboard(context, "", address)) {
+            return
+        }
+        val text = LocaleController.getString("%chain% Address Copied")
+            .replace("%chain%", chain.displayName)
+        Haptics.play(this, HapticType.LIGHT_TAP)
+        Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun makeChainIconStackDrawable(chains: List<MBlockchain>): BitmapDrawable {
+        val width = 36.dp
+        val outerIconSize = 19.dp
+        val innerIconSize = 17.dp
+        val iconInset = (outerIconSize - innerIconSize) / 2f
+        val spacing = (width - outerIconSize) / 2f
+        val stackWidth = outerIconSize + spacing * (chains.size - 1).coerceAtLeast(0)
+        val startX = (width - stackWidth) / 2f
+        val bitmap = createBitmap(width, outerIconSize).apply {
+            density = resources.displayMetrics.densityDpi
+        }
+        val canvas = Canvas(bitmap)
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = WColor.ThumbBackground.color
+        }
+        chains.forEachIndexed { index, chain ->
+            val left = startX + index * spacing
+            canvas.drawCircle(
+                left + outerIconSize / 2f,
+                outerIconSize / 2f,
+                outerIconSize / 2f,
+                borderPaint
+            )
+            context.getDrawableCompat(chain.icon)?.apply {
+                val checkpoint = canvas.save()
+                canvas.translate(left + iconInset, iconInset)
+                setBounds(0, 0, innerIconSize, innerIconSize)
+                draw(canvas)
+                canvas.restoreToCount(checkpoint)
+            }
+        }
+        return bitmap.toDrawable(resources)
+    }
+
+    fun openAddressMenu(anchorView: View? = null) {
+        val currentAccount = account ?: return
+        val anchor = anchorView ?: footerLabel
+        val location = anchor.getLocationInWindow()
+
+        lateinit var popup: IPopup
+        val menuWidth = 276.dp
+        val trailingDirection = if (LocaleController.isRTL) -1f else 1f
+        val trailingLayoutDirection = if (LocaleController.isRTL) {
+            LAYOUT_DIRECTION_RTL
+        } else {
+            LAYOUT_DIRECTION_LTR
+        }
+
+        fun makeAddressActionButton(icon: Int, tintColor: WColor, onClick: (() -> Unit)? = null) =
+            object : AppCompatImageView(contentView.context), WThemedView {
+                init {
+                    updateTheme()
+                    onClick?.let { action ->
+                        setOnClickListener { action() }
+                    }
+                }
+
+                override val isTinted = true
+                override fun updateTheme() {
+                    val drw = context.getDrawableCompat(icon)
+                    drw?.setTint(tintColor.color)
+                    setImageDrawable(drw)
+                    background = onClick?.let {
+                        WRippleDrawable.create(14f.dp).apply {
+                            rippleColor = WColor.SecondaryBackground.color
+                        }
+                    }
+                }
+
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                    super.onMeasure(28.dp.exactly, 28.dp.exactly)
+                }
+            }
+
+        fun openReceive(chain: MBlockchain) {
+            popup.dismiss()
+            val receiveVC = ReceiveVC.createIfAvailable(context, chain) ?: return
+            val navVC = WNavigationController(
+                window,
+                WNavigationController.PresentationConfig.PreferredFullScreen
+            )
+            navVC.setRoot(receiveVC)
+            window.present(navVC)
+        }
+
+        fun makeAddressActionsView(chain: MBlockchain, accountChain: AccountChain) =
+            WLinearLayout(contentView.context, LinearLayout.HORIZONTAL).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                layoutDirection = trailingLayoutDirection
+                addView(
+                    makeAddressActionButton(R.drawable.ic_copy, WColor.SecondaryText) {
+                        copyAddressToClipboard(accountChain.address, chain)
+                        popup.dismiss()
+                    }
+                )
+                addView(
+                    makeAddressActionButton(R.drawable.ic_qr_thin, WColor.Tint) {
+                        openReceive(chain)
+                    }.apply {
+                        contentDescription = LocaleController.getString("Receive")
+                    },
+                    LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                        marginStart = 8.dp
+                    }
+                )
+                translationX = trailingDirection * 4f.dp
+            }
+
+        fun makeDomainAddressActionsView(chain: MBlockchain, accountChain: AccountChain): View {
+            val arrowView = makeAddressActionButton(
+                R.drawable.ic_menu_arrow_right,
+                WColor.PrimaryLightText
+            ).apply {
+                scaleX = trailingDirection
+            }
+            val qrView = makeAddressActionButton(R.drawable.ic_qr_thin, WColor.Tint) {
+                openReceive(chain)
+            }.apply {
+                contentDescription = LocaleController.getString("Receive")
+            }
+            return object :
+                WLinearLayout(contentView.context, LinearLayout.HORIZONTAL),
+                WMenuPopupExpandableTrailingView {
+                init {
+                    gravity = Gravity.CENTER_VERTICAL
+                    layoutDirection = trailingLayoutDirection
+                    clipChildren = false
+                    clipToPadding = false
+                    addView(arrowView)
+                    addView(
+                        qrView,
+                        LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                            marginStart = 8.dp
+                        }
+                    )
+                    translationX = trailingDirection * 4f.dp
+                    setSubmenuExpansionProgress(0f)
+                }
+
+                override fun setSubmenuExpansionProgress(progress: Float) {
+                    val safeProgress = progress.coerceIn(0f, 1f)
+                    arrowView.rotation = trailingDirection * 90f * safeProgress
+                    arrowView.translationX = trailingDirection * 36f.dp * safeProgress
+                    qrView.alpha = 1f - safeProgress
+                    qrView.translationX = trailingDirection * 4f.dp * safeProgress
+                    qrView.isClickable = safeProgress == 0f
+                    qrView.importantForAccessibility = if (safeProgress == 0f) {
+                        IMPORTANT_FOR_ACCESSIBILITY_YES
+                    } else {
+                        IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    }
+                }
+            }
+        }
+
+        fun makeCopyActionView(onCopy: () -> Unit) =
+            WLinearLayout(contentView.context, LinearLayout.HORIZONTAL).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                layoutDirection = trailingLayoutDirection
+                addView(
+                    makeAddressActionButton(R.drawable.ic_copy, WColor.SecondaryText) {
+                        onCopy()
+                        popup.dismiss()
+                    }
+                )
+                translationX = trailingDirection * 4f.dp
+            }
+
+        fun makeCopyItem(value: String, type: String, onCopy: () -> Unit) = WMenuPopup.Item(
+            WMenuPopup.Item.Config.Item(
+                icon = null,
+                title = value,
+                subtitle = LocaleController.getString(type),
+                trailingViewProvider = { makeCopyActionView(onCopy) }
+            ),
+            false
+        ) {
+            onCopy()
+        }
+
+        fun makeAddressItem(chain: MBlockchain, accountChain: AccountChain): WMenuPopup.Item {
+            val domain = accountChain.domain?.trim()?.takeIf { it.isNotEmpty() }
+            val subItems = domain?.let {
+                listOf(
+                    makeCopyItem(it, "Domain") {
+                        copyAccountToClipboard(accountChain.copy(domain = it), chain)
+                    },
+                    makeCopyItem(accountChain.address.trimAddress(12), "Address") {
+                        copyAddressToClipboard(accountChain.address, chain)
+                    }
+                )
+            }
+            return WMenuPopup.Item(
+                WMenuPopup.Item.Config.Item(
+                    icon = Icon(
+                        chain.icon,
+                        tintColor = null,
+                        iconSize = 36.dp,
+                        iconMargin = 10.dp
+                    ),
+                    title = chain.displayName,
+                    subtitle = accountChain.address.trimAddress(12),
+                    textMargin = 58.dp,
+                    subItems = subItems,
+                    trailingViewProvider = if (subItems == null) {
+                        { makeAddressActionsView(chain, accountChain) }
+                    } else {
+                        { makeDomainAddressActionsView(chain, accountChain) }
+                    },
+                    submenuTransition = if (subItems == null) {
+                        WMenuPopup.SubmenuTransition.PAGE
+                    } else {
+                        WMenuPopup.SubmenuTransition.EXPAND_FROM_ITEM
+                    }
+                ),
+                false
+            ) {
+                copyAddressToClipboard(accountChain.address, chain)
+            }
+        }
+
+        fun makeShareItem(hasSeparator: Boolean) = WMenuPopup.Item(
+            WMenuPopup.Item.Config.Item(
+                icon = Icon(
+                    R.drawable.ic_share,
+                    tintColor = WColor.SecondaryText,
+                    iconSize = 30.dp,
+                    iconMargin = 16.dp
+                ),
+                title = LocaleController.getString("Share Wallet Link"),
+                textMargin = 58.dp
+            ),
+            hasSeparator
+        ) {
+            ShareHelpers.shareText(
+                context,
+                currentAccount.shareLink,
+                LocaleController.getString("Share Wallet Link")
+            )
+        }
+
+        val chainDisplaySnapshot = currentAccount.chainDisplaySnapshot()
+        val visibleAddressChains = chainDisplaySnapshot.visibleChains.mapNotNull { accountChain ->
+            val chain = MBlockchain.valueOfOrNull(accountChain.key) ?: return@mapNotNull null
+            chain to accountChain.value
+        }
+        val allAddressChains = chainDisplaySnapshot.orderedChains.mapNotNull { accountChain ->
+            val chain = MBlockchain.valueOfOrNull(accountChain.key) ?: return@mapNotNull null
+            chain to accountChain.value
+        }
+        val items = mutableListOf(makeShareItem(visibleAddressChains.isNotEmpty())).apply {
+            addAll(
+                visibleAddressChains.map { (chain, chainAccount) ->
+                    makeAddressItem(chain, chainAccount)
+                }
+            )
+        }
+        if (allAddressChains.size > visibleAddressChains.size) {
+            items.last().hasSeparator = true
+            val allChainItems = allAddressChains.map { (chain, chainAccount) ->
+                makeAddressItem(chain, chainAccount)
+            }
+            val visibleChains = visibleAddressChains.map { it.first }.toSet()
+            val hiddenChains = allAddressChains.filterNot { visibleChains.contains(it.first) }
+            items.add(
+                WMenuPopup.Item(
+                    WMenuPopup.Item.Config.Item(
+                        icon = Icon(
+                            iconResId = null,
+                            tintColor = null,
+                            iconSize = 36.dp,
+                            iconMargin = 10.dp,
+                            drawable = makeChainIconStackDrawable(
+                                hiddenChains.take(3).map { it.first }
+                            )
+                        ),
+                        title = LocaleController.getString("All Chains"),
+                        subItems = allChainItems,
+                        textMargin = 58.dp,
+                        submenuTransition = WMenuPopup.SubmenuTransition.EXPAND_FROM_ITEM
+                    ),
+                    false
+                )
+            )
+        }
+
+        popup = WMenuPopup.present(
+            anchor,
+            items,
+            popupWidth = menuWidth,
+            xOffset = -location.x + ((parent as View).width / 2) - menuWidth / 2,
+            yOffset = 0,
+            positioning = WMenuPopup.Positioning.BELOW,
+            windowBackgroundStyle = BackgroundStyle.Cutout.fromView(
+                anchor,
+                roundRadius = 16f.dp
+            )
+        )
+    }
+}

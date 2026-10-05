@@ -1,0 +1,716 @@
+@file:Suppress("ktlint:standard:backing-property-naming")
+
+package org.mytonwallet.app_air.uicomponents.commonViews.cells.activity
+
+import android.annotation.SuppressLint
+import android.graphics.Color
+import android.graphics.Path
+import android.graphics.RectF
+import android.text.TextUtils
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
+import androidx.core.view.children
+import androidx.core.view.doOnPreDraw
+import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.dynamicanimation.animation.FloatValueHolder
+import androidx.dynamicanimation.animation.SpringAnimation
+import androidx.dynamicanimation.animation.SpringForce
+import kotlin.math.roundToInt
+import org.mytonwallet.app_air.uicomponents.adapter.BaseListHolder
+import org.mytonwallet.app_air.uicomponents.adapter.implementation.Item
+import org.mytonwallet.app_air.uicomponents.base.ITabsVC
+import org.mytonwallet.app_air.uicomponents.base.WWindow
+import org.mytonwallet.app_air.uicomponents.commonViews.ReversedCornerView
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.exactly
+import org.mytonwallet.app_air.uicomponents.extensions.getLocationOnScreen
+import org.mytonwallet.app_air.uicomponents.extensions.setPaddingDpLocalized
+import org.mytonwallet.app_air.uicomponents.extensions.unspecified
+import org.mytonwallet.app_air.uicomponents.helpers.NftActionHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.PopupHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.SpannableHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.widgets.WCell
+import org.mytonwallet.app_air.uicomponents.widgets.WFrameLayout
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.models.MBaseCurrency
+import org.mytonwallet.app_air.walletbasecontext.theme.ThemeManager
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.x
+import org.mytonwallet.app_air.walletbasecontext.utils.y
+import org.mytonwallet.app_air.walletcontext.utils.AnimUtils.Companion.lerp
+import org.mytonwallet.app_air.walletcontext.utils.colorWithAlpha
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.moshi.ApiTransactionStatus
+import org.mytonwallet.app_air.walletcore.moshi.MApiTransaction
+import org.mytonwallet.app_air.walletcore.stores.TokenStore
+
+@SuppressLint("ViewConstructor")
+class ActivityCell(
+    val parentView: View,
+    val withoutTagAndComment: Boolean,
+    val isFirstInDay: Boolean?
+) : WCell(parentView.context, LayoutParams(MATCH_PARENT, 0)),
+    WThemedView {
+
+    companion object {
+        const val FIRST_DAY_MAIN_CONTENT_HEIGHT = 100
+        const val MAIN_CONTENT_HEIGHT = 60
+        const val SPACING_BELOW_TAG_AND_COMMENT = 12
+        const val SPACING_BETWEEN_TAG_AND_COMMENT = 8
+    }
+
+    private val dateView = ActivityDateLabel(context)
+    private val mainContentView = ActivityMainContentView(context)
+
+    // Dates go into the subtitle instead of day headers (see ActivityMainContentView).
+    var showsInlineDate: Boolean
+        get() = mainContentView.showsInlineDate
+        set(value) {
+            mainContentView.showsInlineDate = value
+        }
+    private val commentLabel: WLabel by lazy {
+        WLabel(context).apply {
+            setStyle(adaptiveFontSize())
+            setTextColor(Color.WHITE)
+            maxLines = 5
+            isSingleLine = false
+            ellipsize = TextUtils.TruncateAt.END
+            useCustomEmoji = true
+        }
+    }
+    private var commentView: FrameLayout? = null
+    private var singleTagView: ActivitySingleTagView? = null
+
+    private val recyclerWidth: Int
+        get() = parentView.width.takeIf { it > 0 } ?: parentView.parentWidthFallback()
+
+    private fun View.parentWidthFallback(): Int {
+        var v: View? = this
+        while (v != null) {
+            if (v.width > 0) return v.width
+            v = v.parent as? View
+        }
+        return resources.displayMetrics.widthPixels
+    }
+
+    private val bigRadius get() = ViewConstants.BLOCK_RADIUS.dp
+
+    var onTap: ((MApiTransaction) -> Unit)? = null
+
+    // Called once the collapse started by `Positioning.isRemoving` has fully finished (not when it
+    // is cancelled by a rebind), so the owner can drop the row from the list.
+    var onRemoved: ((MApiTransaction) -> Unit)? = null
+
+    var allowNftMenu: Boolean = false
+    private var transaction: MApiTransaction? = null
+    private var accountId: String? = null
+    private var transactionAddressName: String? = null
+    private var positioning: Positioning? = null
+    private var baseCurrency: MBaseCurrency? = null
+    private var baseCurrencyRate: Double? = null
+    private var heightSpringAnimation: SpringAnimation? = null
+
+    override fun setupViews() {
+        super.setupViews()
+
+        addView(dateView, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        addView(
+            mainContentView,
+            LayoutParams(
+                MATCH_PARENT,
+                if (withoutTagAndComment) MAIN_CONTENT_HEIGHT.dp else WRAP_CONTENT
+            )
+        )
+
+        setConstraints {
+            toTop(dateView)
+            setVerticalBias(mainContentView.id, 0f)
+            topToBottom(mainContentView, dateView)
+            toBottom(mainContentView)
+        }
+
+        // A cell bound before its first attach already carries the start height of a running or
+        // pending height animation; the rest height must not overwrite it.
+        if (heightSpringAnimation == null && positioning?.isAdded != true) {
+            if (withoutTagAndComment && isFirstInDay != null) {
+                layoutParams.height =
+                    if (isFirstInDay) FIRST_DAY_MAIN_CONTENT_HEIGHT.dp else MAIN_CONTENT_HEIGHT.dp
+            } else {
+                layoutParams.height = WRAP_CONTENT
+            }
+        }
+
+        setOnClickListener {
+            if (positioning?.isRemoving == true) return@setOnClickListener
+            onTap?.let { onTap -> transaction?.let(onTap) }
+        }
+    }
+
+    data class Positioning(
+        val isFirst: Boolean,
+        val isFirstInDay: Boolean,
+        val isLastInDay: Boolean,
+        val isLast: Boolean,
+        val isAdded: Boolean = false,
+        val isAddedAsNewDay: Boolean = false,
+        // The row is leaving the list: collapse its height to 0 while fading the content out
+        // (the reverse of the `isAdded` reveal), then report through `onRemoved`.
+        val isRemoving: Boolean = false,
+        // The `isAdded` reveal grows from 0 instead of the card corner radius: another row is
+        // collapsing in step with it, so the list must not gain any height on the first frame.
+        val revealsFromZero: Boolean = false
+    ) {
+        fun matches(comparing: Positioning): Boolean = this.isFirst == comparing.isFirst &&
+            this.isFirstInDay == comparing.isFirstInDay &&
+            this.isLast == comparing.isLast &&
+            this.isLastInDay == comparing.isLastInDay &&
+            this.isRemoving == comparing.isRemoving
+    }
+
+    fun configure(
+        transaction: MApiTransaction,
+        accountId: String,
+        isMultichain: Boolean,
+        positioning: Positioning
+    ) {
+        if (this.transaction?.isSame(transaction) == true &&
+            this.transaction?.isChanged(transaction) == false &&
+            this.accountId == accountId &&
+            this.transactionAddressName == transaction.addressName() &&
+            WalletCore.baseCurrency == baseCurrency &&
+            TokenStore.baseCurrencyRate == baseCurrencyRate &&
+            this.positioning?.matches(positioning) == true
+        ) {
+            // Nothing changed, just update theme
+            updateTheme()
+            if (!withoutTagAndComment) {
+                configureComment(transaction)
+            }
+            return
+        }
+        val wasShowingSameTransaction = this.transaction?.isSame(transaction) == true
+        this.transaction = transaction
+        this.accountId = accountId
+        this.transactionAddressName = transaction.addressName()
+        this.baseCurrency = WalletCore.baseCurrency
+        this.baseCurrencyRate = TokenStore.baseCurrencyRate
+        val firstChanged = this.positioning?.isFirst != positioning.isFirst
+        val lastChanged = this.positioning?.isLast != positioning.isLast
+        val wasRemoving = this.positioning?.isRemoving == true
+        this.positioning = positioning
+
+        dateView.visibility = if (positioning.isFirstInDay) VISIBLE else GONE
+        if (positioning.isFirstInDay) dateView.configure(transaction.dt, positioning.isFirst)
+
+        mainContentView.configure(transaction, accountId, isMultichain)
+
+        if (!withoutTagAndComment) {
+            configureTags(transaction)
+            configureComment(transaction)
+        }
+
+        updateTheme(forceUpdate = firstChanged || lastChanged)
+
+        if (positioning.isRemoving) {
+            heightSpringAnimation?.cancel()
+            startRemoveAnimation(collapseFromLaidOutHeight = wasShowingSameTransaction)
+        } else if (positioning.isAdded) {
+            heightSpringAnimation?.cancel()
+            resetTransientState()
+            val startHeight = insertStartHeight(positioning)
+
+            updateLayoutParams {
+                height = startHeight
+            }
+            mainContentView.alpha = 0f
+            if (positioning.isAddedAsNewDay) {
+                dateView.alpha = 0f
+            }
+            doOnPreDraw {
+                requestLayout()
+                startInsertAnimation()
+            }
+        } else if (heightSpringAnimation?.isRunning == true || wasRemoving) {
+            heightSpringAnimation?.cancel()
+            resetTransientState()
+        }
+    }
+
+    private fun insertStartHeight(positioning: Positioning): Int = when {
+        positioning.isFirstInDay && !positioning.isAddedAsNewDay ->
+            (FIRST_DAY_MAIN_CONTENT_HEIGHT - MAIN_CONTENT_HEIGHT).dp
+
+        positioning.revealsFromZero -> 0
+
+        else -> bigRadius.roundToInt()
+    }
+
+    // Restores the resting look after an interrupted or finished height animation.
+    private fun resetTransientState() {
+        children.forEach {
+            it.scaleX = 1f
+            it.scaleY = 1f
+            it.alpha = 1f
+            it.translationY = 0f
+        }
+        val restHeight = if (cellHeight > 0) cellHeight else WRAP_CONTENT
+        if (layoutParams.height != restHeight) {
+            updateLayoutParams {
+                height = restHeight
+            }
+        }
+    }
+
+    // Measures the natural height of the currently configured content (all visible children).
+    private fun measureContentHeight(): Int {
+        val widthSpec = parentView.width.exactly
+        val heightSpec = 0.unspecified
+        mainContentView.measure(widthSpec, heightSpec)
+        var contentHeight = mainContentView.measuredHeight
+        if (dateView.isVisible) {
+            dateView.measure(widthSpec, heightSpec)
+            contentHeight += dateView.measuredHeight
+        }
+        if (!withoutTagAndComment) {
+            if (singleTagView?.isVisible == true) {
+                singleTagView?.measure(widthSpec, heightSpec)
+                contentHeight += singleTagView?.measuredHeight ?: 0
+            }
+            if (singleTagView?.isVisible == true && commentView?.isVisible == true) {
+                contentHeight += SPACING_BETWEEN_TAG_AND_COMMENT.dp
+            }
+            if (commentView?.isVisible == true) {
+                commentView?.measure(widthSpec, heightSpec)
+                contentHeight += commentView?.measuredHeight ?: 0
+            }
+            if (singleTagView?.isVisible == true || commentView?.isVisible == true) {
+                contentHeight += SPACING_BELOW_TAG_AND_COMMENT.dp
+            }
+        }
+        return contentHeight
+    }
+
+    private fun startRemoveAnimation(collapseFromLaidOutHeight: Boolean) {
+        val transaction = transaction ?: return
+        // A cell already showing this activity collapses from where it stands (it may have been
+        // mid-reveal); a recycled or fresh one from the natural height of its new content.
+        val startHeight =
+            if (collapseFromLaidOutHeight && height > 0) height else measureContentHeight()
+        if (startHeight <= 0) {
+            updateLayoutParams { height = 0 }
+            onRemoved?.invoke(transaction)
+            return
+        }
+        if (layoutParams.height != startHeight) {
+            updateLayoutParams { height = startHeight }
+        }
+        // Mirror of the reveal: the content is fully faded once the row is at 70% of its height,
+        // the remaining collapse happens on an empty row.
+        val fadeStartHeight = 0.7f * startHeight
+        val fadeRange = startHeight - fadeStartHeight
+
+        heightSpringAnimation = SpringAnimation(FloatValueHolder()).apply {
+            setStartValue(startHeight.toFloat())
+            spring = SpringForce(0f).apply {
+                stiffness = 500f
+                dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            }
+            setMinValue(0f)
+
+            addUpdateListener { _, value, _ ->
+                updateLayoutParams {
+                    height = value.toInt().coerceAtLeast(0)
+                }
+                val fraction = ((value - fadeStartHeight) / fadeRange).coerceIn(0f, 1f)
+                val scale = lerp(0.95f, 1f, fraction)
+                children.forEach {
+                    it.alpha = fraction
+                    it.scaleX = scale
+                    it.scaleY = scale
+                }
+            }
+
+            addEndListener { _, canceled, _, _ ->
+                if (canceled) {
+                    resetTransientState()
+                    return@addEndListener
+                }
+                updateLayoutParams { height = 0 }
+                if (positioning?.isRemoving == true &&
+                    this@ActivityCell.transaction === transaction
+                ) {
+                    onRemoved?.invoke(transaction)
+                }
+            }
+        }
+        heightSpringAnimation?.start()
+    }
+
+    private fun startInsertAnimation() {
+        val positioning = positioning ?: return
+        val widthSpec = parentView.width.exactly
+        val heightSpec = 0.unspecified
+        mainContentView.measure(widthSpec, heightSpec)
+        var targetHeight = mainContentView.measuredHeight
+        if (positioning.isFirstInDay) {
+            dateView.measure(widthSpec, heightSpec)
+            targetHeight += dateView.measuredHeight
+        }
+        val mainContentViewBottom = targetHeight
+        var tagViewBottom = 0
+        if (!withoutTagAndComment) {
+            if (singleTagView?.isVisible == true) {
+                singleTagView?.measure(widthSpec, heightSpec)
+                targetHeight += singleTagView?.measuredHeight ?: 0
+            }
+            tagViewBottom = targetHeight
+            if (singleTagView?.isVisible == true && commentView?.isVisible == true) {
+                targetHeight += SPACING_BETWEEN_TAG_AND_COMMENT.dp
+            }
+            if (commentView?.isVisible == true) {
+                commentView?.measure(widthSpec, heightSpec)
+                targetHeight += commentView?.measuredHeight ?: 0
+            }
+            if (singleTagView?.isVisible == true || commentView?.isVisible == true) {
+                targetHeight += SPACING_BELOW_TAG_AND_COMMENT.dp
+            }
+        }
+
+        val startHeight = insertStartHeight(positioning)
+
+        heightSpringAnimation = SpringAnimation(FloatValueHolder()).apply {
+            setStartValue(startHeight.toFloat())
+            spring = SpringForce(targetHeight.toFloat()).apply {
+                stiffness = 500f
+                dampingRatio = SpringForce.DAMPING_RATIO_NO_BOUNCY
+            }
+
+            addUpdateListener { _, value, _ ->
+                updateLayoutParams {
+                    height = value.toInt()
+                }
+                val appearanceStartHeight = 0.7f * mainContentViewBottom
+                val appearanceHeight = targetHeight - appearanceStartHeight
+                val fraction =
+                    ((value - appearanceStartHeight) / appearanceHeight).coerceIn(
+                        0f,
+                        1f
+                    )
+                mainContentView.alpha = lerp(0f, 1f, fraction)
+                mainContentView.scaleX = lerp(0.85f, 1f, mainContentView.alpha)
+                mainContentView.scaleY = mainContentView.scaleX
+                val overflowShift = ((value - mainContentViewBottom) / 2f).coerceAtMost(0f)
+                mainContentView.translationY = overflowShift
+                dateView.translationY = overflowShift
+                if (positioning.isAddedAsNewDay) {
+                    dateView.alpha = mainContentView.alpha
+                    dateView.scaleX = mainContentView.scaleX
+                    dateView.scaleY = mainContentView.scaleY
+                }
+                if (!withoutTagAndComment) {
+                    singleTagView?.let { singleTagView ->
+                        val fraction =
+                            (
+                                (value - mainContentViewBottom) /
+                                    (targetHeight - mainContentViewBottom)
+                                ).coerceIn(
+                                0.7f,
+                                1f
+                            )
+                        singleTagView.alpha = lerp(0f, 1f, (fraction - 0.7f) * 10 / 3)
+                        singleTagView.scaleX = lerp(0.95f, 1f, singleTagView.alpha)
+                        singleTagView.scaleY = singleTagView.scaleX
+                    }
+                    commentView?.let { commentView ->
+                        val fraction =
+                            ((value - tagViewBottom) / (targetHeight - tagViewBottom)).coerceIn(
+                                0.7f,
+                                1f
+                            )
+                        commentView.alpha = lerp(0f, 1f, (fraction - 0.7f) * 10 / 3)
+                        commentView.scaleX = lerp(0.95f, 1f, commentView.alpha)
+                        commentView.scaleY = commentView.scaleX
+                    }
+                }
+            }
+
+            addEndListener { _, canceled, _, _ ->
+                if (canceled) {
+                    children.forEach {
+                        it.scaleX = 1f
+                        it.scaleY = 1f
+                        it.alpha = 1f
+                    }
+                }
+                mainContentView.translationY = 0f
+                dateView.translationY = 0f
+
+                val newHeight = if (cellHeight > 0) cellHeight else WRAP_CONTENT
+                if (layoutParams.height != newHeight) {
+                    updateLayoutParams {
+                        height = newHeight
+                    }
+                }
+            }
+        }
+        heightSpringAnimation?.start()
+    }
+
+    private fun configureTags(transaction: MApiTransaction) {
+        val txn = transaction as? MApiTransaction.Transaction
+        val nft = txn?.nft
+
+        if (txn?.isNft != true || nft == null) {
+            singleTagView?.visibility = GONE
+            setOnLongClickListener(null)
+            isLongClickable = false
+            return
+        }
+
+        val tagView = singleTagView ?: createTagView().also { singleTagView = it }
+        tagView.visibility = VISIBLE
+        tagView.configure(nft)
+        tagView.updateTheme()
+
+        if (!allowNftMenu) {
+            setOnLongClickListener(null)
+            isLongClickable = false
+            return
+        }
+
+        setOnLongClickListener {
+            WMenuPopup.present(
+                this,
+                listOf(
+                    WMenuPopup.Item(
+                        WMenuPopup.Item.Config.Item(
+                            icon = WMenuPopup.Item.Config.Icon(
+                                org.mytonwallet.app_air.icons.R.drawable.ic_flag_30,
+                                WColor.Red
+                            ),
+                            title = LocaleController.getString("Hide and Report"),
+                            titleColor = WColor.Red.color
+                        )
+                    ) {
+                        val accountId = accountId ?: return@Item
+                        NftActionHelpers.hideAndReportNft(context as? WWindow, accountId, nft)
+                    }
+                ),
+                popupWidth = WRAP_CONTENT,
+                yOffset = (-20).dp,
+                positioning = WMenuPopup.Positioning.BELOW,
+                centerHorizontally = true,
+                windowBackgroundStyle = WMenuPopup.BackgroundStyle.Cutout(
+                    contentCutoutPath(roundRadius = bigRadius)
+                ),
+                backdropStyle = WMenuPopup.BackdropStyle.BlurDimmed,
+                usePillShadow = true
+            )
+            true
+        }
+    }
+
+    private fun contentCutoutPath(roundRadius: Float): Path {
+        val cellLocation = getLocationOnScreen()
+        val contentTop = mainContentView.getLocationOnScreen().y.toFloat()
+        val left = cellLocation.x.toFloat()
+        val right = (cellLocation.x + width).toFloat()
+        val bottom = (cellLocation.y + height).toFloat()
+        val contentAreaBounds = PopupHelpers.popupHost?.getContentAreaBounds()
+        val windowTopVC = (context as? WWindow)?.topViewController
+        val topVC = (windowTopVC as? ITabsVC)
+            ?.activeNavigationController?.viewControllers?.lastOrNull()
+            ?: windowTopVC
+        val topBlurView = topVC?.topBlurView
+        val topBlurBottom = topBlurView?.let {
+            val cornerRadius = (it as? ReversedCornerView)?.cornerRadius ?: 0f
+            it.getLocationOnScreen().y + it.height - cornerRadius
+        } ?: 0f
+        val clampTop = maxOf(
+            topBlurBottom,
+            contentAreaBounds?.top?.toFloat() ?: 0f
+        )
+        val clampedTop = maxOf(contentTop, clampTop)
+        val clampedBottom = contentAreaBounds?.let { minOf(bottom, it.bottom.toFloat()) } ?: bottom
+        return Path().apply {
+            if (clampedBottom <= clampedTop) return@apply
+            addRoundRect(
+                RectF(left, clampedTop, right, clampedBottom),
+                roundRadius,
+                roundRadius,
+                Path.Direction.CW
+            )
+        }
+    }
+
+    private fun createTagView(): ActivitySingleTagView {
+        val tagView = ActivitySingleTagView(context)
+        addView(tagView, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+
+        tagView.layoutParams = (tagView.layoutParams as LayoutParams).apply {
+            matchConstraintMaxWidth = recyclerWidth - 96.dp - ViewConstants.HORIZONTAL_PADDINGS.dp
+        }
+
+        setConstraints {
+            constrainedWidth(tagView.id, true)
+            setVerticalBias(tagView.id, 0f)
+            setHorizontalBias(tagView.id, 0f)
+            topToTop(tagView, mainContentView, MAIN_CONTENT_HEIGHT.toFloat())
+            toStart(tagView, 76f)
+            toEnd(tagView, 10f)
+            toBottom(tagView, SPACING_BELOW_TAG_AND_COMMENT.toFloat())
+        }
+
+        return tagView
+    }
+
+    private fun configureComment(transaction: MApiTransaction) {
+        val txn = transaction as? MApiTransaction.Transaction
+
+        if (txn?.hasComment != true) {
+            commentView?.visibility = GONE
+            return
+        }
+
+        val commentContainer = commentView ?: createCommentView().also { commentView = it }
+        commentContainer.visibility = VISIBLE
+
+        commentLabel.text = txn.comment?.trim()?.take(300)
+            ?: SpannableHelpers.encryptedCommentSpan(context)
+
+        if (txn.isIncoming) {
+            commentContainer.background = IncomingCommentDrawable()
+            commentLabel.setPaddingDpLocalized(18, 6, 12, 6)
+            commentLabel.maxWidth = recyclerWidth - 172.dp
+        } else {
+            commentContainer.background = OutgoingCommentDrawable().apply {
+                if (transaction.status == ApiTransactionStatus.FAILED) {
+                    setBubbleColor(WColor.Red.color.colorWithAlpha(38))
+                }
+            }
+            commentLabel.setPaddingDpLocalized(12, 6, 18, 6)
+            commentLabel.maxWidth = recyclerWidth - 118.dp
+        }
+        (commentContainer.background as ICommentDrawable).apply {
+            if (transaction.status == ApiTransactionStatus.FAILED) {
+                setBubbleColor(WColor.Red.color.colorWithAlpha(38))
+            }
+        }
+        commentLabel.setTextColor(
+            if (transaction.status == ApiTransactionStatus.FAILED) WColor.Red else WColor.White
+        )
+
+        updateCommentConstraints(txn.isIncoming)
+    }
+
+    private fun createCommentView(): WFrameLayout {
+        val container = WFrameLayout(context).apply {
+            minimumHeight = 36.dp
+            addView(commentLabel, FrameLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        }
+        addView(container, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        return container
+    }
+
+    private fun updateCommentConstraints(isIncoming: Boolean) {
+        val commentContainer = commentView ?: return
+
+        setConstraints {
+            toBottom(commentContainer, 12f)
+
+            if (singleTagView?.isVisible == true) {
+                topToBottom(commentContainer, singleTagView!!, 8f)
+            } else {
+                topToTop(commentContainer, mainContentView, 60f)
+            }
+
+            if (isIncoming) {
+                toStart(commentContainer, 70f)
+                toEnd(commentContainer, 108f)
+                setHorizontalBias(commentContainer.id, 0f)
+            } else {
+                toStart(commentContainer, 108f)
+                toEnd(commentContainer, 10f)
+                setHorizontalBias(commentContainer.id, 1f)
+            }
+        }
+    }
+
+    override fun updateTheme() {
+        updateTheme(forceUpdate = false)
+    }
+
+    private var _isDarkThemeApplied: Boolean? = null
+    private var _lastBigRadius: Float? = null
+    private fun updateTheme(forceUpdate: Boolean) {
+        dateView.updateTheme()
+        if (!forceUpdate) {
+            val darkModeChanged = ThemeManager.isDark != _isDarkThemeApplied
+            val radiusChanged = _lastBigRadius != ViewConstants.BLOCK_RADIUS
+            if (!darkModeChanged && !radiusChanged) return
+        }
+        _isDarkThemeApplied = ThemeManager.isDark
+        _lastBigRadius = ViewConstants.BLOCK_RADIUS
+        setBackgroundColor(
+            WColor.Background.color,
+            if (positioning?.isFirst == true) bigRadius else 0f,
+            if (positioning?.isLast == true) bigRadius else 0f
+        )
+        addRippleEffect(
+            WColor.SecondaryBackground.color,
+            0f,
+            if (positioning?.isLast == true) bigRadius else 0f
+        )
+        mainContentView.updateTheme()
+        if (!withoutTagAndComment) {
+            singleTagView?.updateTheme()
+        }
+    }
+
+    private val cellHeight: Int
+        get() {
+            return if (withoutTagAndComment) {
+                if (dateView.isVisible) FIRST_DAY_MAIN_CONTENT_HEIGHT.dp else MAIN_CONTENT_HEIGHT.dp
+            } else {
+                0
+            }
+        }
+
+    // Used in recycler-views not using custom rvAdapter
+    class Holder(parentView: View) :
+        BaseListHolder<Item.Activity>(
+            ActivityCell(parentView, false, null).apply {
+                val cellHeight = cellHeight
+                layoutParams = ViewGroup.LayoutParams(
+                    MATCH_PARENT,
+                    if (cellHeight > 0) cellHeight else WRAP_CONTENT
+                )
+            }
+        ) {
+        private val view: ActivityCell = itemView as ActivityCell
+        override fun onBind(item: Item.Activity) {
+            view.configure(
+                transaction = item.activity,
+                accountId = item.accountId,
+                isMultichain = item.isMultichain,
+                positioning = Positioning(
+                    isFirst = item.isFirst,
+                    isFirstInDay = false,
+                    isLastInDay = item.isLast,
+                    isLast = item.isLast
+                )
+            )
+        }
+    }
+}

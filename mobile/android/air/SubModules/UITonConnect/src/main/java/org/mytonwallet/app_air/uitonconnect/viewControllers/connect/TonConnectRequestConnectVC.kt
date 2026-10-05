@@ -1,0 +1,758 @@
+package org.mytonwallet.app_air.uitonconnect.viewControllers.connect
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import kotlin.math.max
+import kotlinx.coroutines.launch
+import org.mytonwallet.app_air.ledger.screens.ledgerConnect.LedgerConnectVC
+import org.mytonwallet.app_air.uicomponents.base.WNavigationBar
+import org.mytonwallet.app_air.uicomponents.base.WNavigationController
+import org.mytonwallet.app_air.uicomponents.base.WViewController
+import org.mytonwallet.app_air.uicomponents.base.showAlert
+import org.mytonwallet.app_air.uicomponents.commonViews.cells.HeaderCell
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.helpers.DappWarningPopupHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.widgets.WButton
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.dialog.WDialog
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.uipasscode.viewControllers.passcodeConfirm.PasscodeConfirmVC
+import org.mytonwallet.app_air.uipasscode.viewControllers.passcodeConfirm.PasscodeViewState
+import org.mytonwallet.app_air.uisettings.viewControllers.settings.cells.SettingsAccountCell
+import org.mytonwallet.app_air.uisettings.viewControllers.settings.models.SettingsItem
+import org.mytonwallet.app_air.uitonconnect.viewControllers.send.commonViews.ConnectRequestConfirmView
+import org.mytonwallet.app_air.uitonconnect.viewControllers.send.commonViews.ConnectRequestView
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.logger.Logger
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletcontext.WalletContextManager
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.models.MBlockchainNetwork
+import org.mytonwallet.app_air.walletcore.JSWebViewBridge
+import org.mytonwallet.app_air.walletcore.TON_CHAIN
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.WalletEvent
+import org.mytonwallet.app_air.walletcore.api.activateAccount
+import org.mytonwallet.app_air.walletcore.helpers.DappDeeplinkReturnTracker
+import org.mytonwallet.app_air.walletcore.helpers.WalletCreationVM
+import org.mytonwallet.app_air.walletcore.models.MAccount
+import org.mytonwallet.app_air.walletcore.models.MBridgeError
+import org.mytonwallet.app_air.walletcore.moshi.ApiDappUrlTrustStatus
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiMethod
+import org.mytonwallet.app_air.walletcore.moshi.api.ApiUpdate
+import org.mytonwallet.app_air.walletcore.moshi.inject.ApiDappSessionChain
+import org.mytonwallet.app_air.walletcore.stores.AccountStore
+
+@SuppressLint("ViewConstructor")
+class TonConnectRequestConnectVC(
+    context: Context,
+    private var update: ApiUpdate.ApiUpdateDappConnect? = null
+) : WViewController(context),
+    WalletCreationVM.Delegate {
+    @Suppress("PropertyName")
+    override val TAG = "TonConnectRequestConnect"
+
+    override val shouldDisplayTopBar = false
+    override val shouldDisplayBottomBar = false
+
+    private val requestView = ConnectRequestView(context).apply {
+        configure(update?.dapp, update?.needsNewMultichainWallet == true)
+    }
+
+    private val headerView = HeaderCell(context).apply {
+        alpha = 0f
+    }
+
+    private val accountView = SettingsAccountCell(context).apply {
+        alpha = 0f
+    }
+
+    private val warningView = WLabel(context).apply {
+        setStyle(14f, WFont.Regular)
+        setTextColor(WColor.Orange.color)
+        visibility = View.GONE
+        text = LocaleController.getString("No matching chains")
+        gravity = Gravity.CENTER
+    }
+
+    private val buttonView: WButton = WButton(context, WButton.Type.PRIMARY).apply {
+        text = LocaleController.getString("Connect Wallet")
+    }
+
+    private val scrollingContentView = LinearLayout(context).apply {
+        orientation = LinearLayout.VERTICAL
+
+        addView(
+            requestView,
+            ConstraintLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        addView(
+            headerView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                48.dp
+            ).apply {
+                leftMargin = 10.dp
+                rightMargin = 10.dp
+            }
+        )
+        addView(
+            accountView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                SettingsAccountCell.heightForItem(true)
+            ).apply {
+                topMargin = 0.dp
+                leftMargin = 10.dp
+                rightMargin = 10.dp
+            }
+        )
+        addView(
+            warningView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = 20.dp
+                topMargin = 12.dp
+                rightMargin = 20.dp
+            }
+        )
+    }
+
+    private val bottomContainer = LinearLayout(context).apply {
+        id = View.generateViewId()
+        orientation = LinearLayout.VERTICAL
+        addView(
+            buttonView,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                leftMargin = 20.dp
+                topMargin = 8.dp
+                rightMargin = 20.dp
+                bottomMargin = 15.dp
+            }
+        )
+    }
+
+    private val scrollView = ScrollView(context).apply {
+        id = View.generateViewId()
+        isVerticalScrollBarEnabled = false
+        clipToPadding = false
+        addView(
+            scrollingContentView,
+            ConstraintLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+    }
+
+    override fun setupViews() {
+        super.setupViews()
+
+        setupNavBar(true)
+        navigationBar?.addCloseButton {
+            navigationController?.window?.dismissLastNav()
+        }
+
+        view.addView(
+            scrollView,
+            ConstraintLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        view.addView(
+            bottomContainer,
+            ConstraintLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        view.setConstraints {
+            allEdges(scrollView)
+            toCenterX(bottomContainer)
+            toBottom(bottomContainer)
+        }
+
+        normalizeSelectedAccount()
+        updateButtonState()
+        updateHeaderView()
+        updateAccountView()
+
+        requestView.onWarningClick = { showTrustStatusWarning() }
+
+        buttonView.setOnClickListener {
+            val update = update ?: return@setOnClickListener
+            if (update.needsNewMultichainWallet) {
+                createMultichainWallet(update)
+                return@setOnClickListener
+            }
+
+            if (!isSelectedAccountCompatible()) {
+                openWalletSelection()
+                return@setOnClickListener
+            }
+
+            val account = AccountStore.accountById(update.accountId)
+
+            if (account?.supports(requiredChains()) != true) {
+                showAlert(
+                    LocaleController.getString("Error"),
+                    LocaleController.getString("No matching chains")
+                )
+                return@setOnClickListener
+            }
+
+            val requiresSigning = update.proof != null
+            if (account.accountType == MAccount.AccountType.VIEW && requiresSigning) {
+                showAlert(
+                    LocaleController.getString("Error"),
+                    LocaleController.getString("Action is not possible on a view-only wallet.")
+                )
+                return@setOnClickListener
+            }
+
+            if (!requiresSigning) {
+                buttonView.isLoading = true
+                connectConfirm(
+                    update.promiseId,
+                    enclaveToken = ""
+                ) { success ->
+                    buttonView.isLoading = false
+                    if (success) {
+                        window!!.dismissLastNav()
+                    }
+                }
+                return@setOnClickListener
+            }
+
+            if (account.isHardware) {
+                confirmHardware()
+            } else {
+                confirmPasscode()
+            }
+        }
+
+        updateTheme()
+        insetsUpdated()
+    }
+
+    override fun updateTheme() {
+        super.updateTheme()
+        view.setBackgroundColor(
+            WColor.SecondaryBackground.color,
+            ViewConstants.BLOCK_RADIUS.dp,
+            0f,
+            true
+        )
+        warningView.setTextColor(WColor.Orange.color)
+    }
+
+    override fun insetsUpdated() {
+        super.insetsUpdated()
+        val bottomInset = max(
+            (navigationController?.getSystemBars()?.bottom ?: 0),
+            (navigationController?.imeInsetBottom ?: 0)
+        )
+        bottomContainer.setPaddingRelative(
+            systemBarStartInset,
+            0,
+            systemBarEndInset,
+            bottomInset
+        )
+        scrollView.setPaddingRelative(
+            systemBarStartInset,
+            (WNavigationBar.DEFAULT_HEIGHT - 28).dp,
+            systemBarEndInset,
+            measuredBottomContainerHeight()
+        )
+    }
+
+    private fun measuredBottomContainerHeight(): Int {
+        val width = maxOf(view.width, navigationController?.width ?: 0)
+            .takeIf { it > 0 } ?: context.resources.displayMetrics.widthPixels
+        bottomContainer.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        return bottomContainer.measuredHeight
+    }
+
+    override val isExpandable = false
+
+    override fun getModalHalfExpandedHeight(): Int? {
+        val width = maxOf(
+            view.width,
+            navigationController?.width ?: 0,
+            context.resources.displayMetrics.widthPixels
+        )
+        scrollingContentView.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val contentHeight = scrollingContentView.measuredHeight.takeIf { it > 0 } ?: return null
+        val measured = contentHeight + measuredBottomContainerHeight() +
+            (WNavigationBar.DEFAULT_HEIGHT - 28).dp
+        val windowHeight = window?.windowView?.height?.takeIf { it > 0 } ?: return measured
+        return minOf(measured, windowHeight)
+    }
+
+    private fun confirmHardware() {
+        val update = update ?: return
+        val account = AccountStore.activeAccount!!
+        val ledgerConnectVC = LedgerConnectVC(
+            context,
+            LedgerConnectVC.Mode.ConnectToSubmitTransfer(
+                account.tonAddress!!,
+                signData = LedgerConnectVC.SignData.SignLedgerProof(
+                    accountId = update.accountId,
+                    operationChain = TON_CHAIN,
+                    promiseId = update.promiseId,
+                    proof = update.proof!!
+                ),
+                onDone = {
+                    isConfirmed = true
+                    window!!.dismissLastNav {
+                        window!!.dismissLastNav {
+                            returnToDappIfNeeded(update.promiseId)
+                        }
+                    }
+                }
+            ),
+            headerView = ConnectRequestConfirmView(context).apply { configure(update.dapp) }
+        )
+        val nav = WNavigationController(
+            window!!,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        )
+        nav.setRoot(ledgerConnectVC)
+        window!!.present(nav)
+    }
+
+    private fun confirmPasscode() {
+        val update = update ?: return
+        val window = window ?: return
+        lateinit var navVC: WNavigationController
+        val passcodeVC = PasscodeConfirmVC(
+            context,
+            PasscodeViewState.CustomHeader(
+                ConnectRequestConfirmView(context).apply { configure(update.dapp) },
+                LocaleController.getString("Confirm")
+            ),
+            task = { enclaveToken ->
+                connectConfirm(
+                    update.promiseId,
+                    enclaveToken,
+                    { success ->
+                        if (!success) return@connectConfirm
+                        window.dismissLastNav {
+                            window.dismissLastNav()
+                        }
+                    }
+                )
+            }
+        )
+        navVC = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        )
+        navVC.setRoot(passcodeVC)
+        window.present(navVC)
+    }
+
+    var isConfirmed = false
+    private fun connectConfirm(
+        promiseId: String,
+        enclaveToken: String,
+        onCompletion: (success: Boolean) -> Unit
+    ) {
+        val update = update ?: return
+        isConfirmed = true
+        WalletCore.recordTonConnectEvent("wallet-connect-accepted", promiseId)
+
+        fun callback(account: MAccount) {
+            window!!.lifecycleScope.launch {
+                try {
+                    val signResult = if (update.proof != null) {
+                        WalletCore.call(
+                            ApiMethod.DApp.SignDappProof(
+                                listOfNotNull(account.dappChain(TON_CHAIN)),
+                                account.accountId,
+                                update.proof,
+                                enclaveToken
+                            )
+                        )
+                    } else {
+                        null
+                    }
+                    WalletCore.call(
+                        ApiMethod.DApp.ConfirmDappRequestConnect(
+                            promiseId,
+                            ApiMethod.DApp.ConfirmDappRequestConnect.Request(
+                                account.accountId,
+                                signResult?.signatures
+                            )
+                        )
+                    )
+                    onCompletion(true)
+                    returnToDappIfNeeded(promiseId)
+                } catch (err: JSWebViewBridge.ApiError) {
+                    Logger.e(Logger.LogTag.TON_CONNECT, "submitConnect: $err")
+                    isConfirmed = false
+                    onCompletion(false)
+                }
+            }
+        }
+
+        if (AccountStore.activeAccount?.accountId == update.accountId) {
+            callback(AccountStore.activeAccount!!)
+        } else {
+            WalletCore.activateAccount(
+                accountId = update.accountId,
+                notifySDK = true
+            ) { activatedAccount, _ ->
+                val activatedAccount = activatedAccount ?: run {
+                    isConfirmed = false
+                    onCompletion(false)
+                    return@activateAccount
+                }
+                callback(activatedAccount)
+            }
+        }
+    }
+
+    private fun createMultichainWallet(update: ApiUpdate.ApiUpdateDappConnect) {
+        val window = window ?: return
+        if (!WGlobalStorage.isPasscodeSet()) {
+            // Express creation needs an existing passcode; fall back to the full add-wallet flow.
+            cancelAndOpenAddWallet(update)
+            return
+        }
+        lateinit var passcodeConfirmVC: PasscodeConfirmVC
+        passcodeConfirmVC = PasscodeConfirmVC(
+            context,
+            PasscodeViewState.Default(
+                LocaleController.getString("Enter Passcode"),
+                "",
+                LocaleController.getString("Create Multichain Wallet"),
+                showNavigationSeparator = false,
+                startWithBiometrics = true
+            ),
+            task = { enclaveToken ->
+                createWalletAndResume(passcodeConfirmVC, update, enclaveToken)
+            }
+        )
+        passcodeConfirmVC.isTaskAsync = true
+        val nav = WNavigationController(
+            window,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        )
+        nav.setRoot(passcodeConfirmVC)
+        window.present(nav)
+    }
+
+    private val walletCreationVM by lazy {
+        WalletCreationVM(this)
+    }
+    private var creationPasscodeConfirmVC: PasscodeConfirmVC? = null
+    private var creationDappUpdate: ApiUpdate.ApiUpdateDappConnect? = null
+
+    private fun createWalletAndResume(
+        passcodeConfirmVC: PasscodeConfirmVC,
+        update: ApiUpdate.ApiUpdateDappConnect,
+        enclaveToken: String
+    ) {
+        passcodeConfirmVC.view.lockView()
+        creationPasscodeConfirmVC = passcodeConfirmVC
+        creationDappUpdate = update
+        WalletCore.call(ApiMethod.Auth.GenerateMnemonic(), callback = { words, err ->
+            val window = window
+            if (words == null || window == null) {
+                passcodeConfirmVC.restartAuth()
+                passcodeConfirmVC.showError(err?.parsed)
+                return@call
+            }
+            walletCreationVM.finalizeAccount(
+                window,
+                MBlockchainNetwork.ofAccountId(update.accountId),
+                words,
+                0,
+                enclaveToken
+            )
+        })
+    }
+
+    override fun showError(error: MBridgeError?) {
+        val passcodeConfirmVC = creationPasscodeConfirmVC
+        if (passcodeConfirmVC != null) {
+            passcodeConfirmVC.restartAuth()
+            passcodeConfirmVC.showError(error)
+            return
+        }
+        super.showError(error)
+    }
+
+    override fun finalizedCreation(createdAccount: MAccount, importedAccountsCount: Int) {
+        creationPasscodeConfirmVC = null
+        WalletCore.notifyEvent(WalletEvent.AddNewWalletCompletion)
+        // Keep the connect request pending and resume it with the new wallet.
+        creationDappUpdate?.let { pendingUpdate ->
+            setDappUpdate(
+                pendingUpdate.copy(
+                    accountId = createdAccount.accountId,
+                    multichainResolution = null
+                )
+            )
+        }
+        creationDappUpdate = null
+        window?.dismissLastNav()
+    }
+
+    private fun cancelAndOpenAddWallet(update: ApiUpdate.ApiUpdateDappConnect) {
+        isConfirmed = true
+        DappDeeplinkReturnTracker.consumeCompletedRequest(update.promiseId)
+        window?.lifecycleScope?.launch {
+            try {
+                WalletCore.call(
+                    ApiMethod.DApp.CancelDappRequest(
+                        promiseId = update.promiseId,
+                        reason = LocaleController.getString("Canceled by the user")
+                    )
+                )
+            } catch (err: JSWebViewBridge.ApiError) {
+                Logger.e(Logger.LogTag.TON_CONNECT, "createMultichainWallet cancel: $err")
+            }
+        }
+
+        val window = window ?: return
+        val network = MBlockchainNetwork.ofAccountId(update.accountId)
+        val addAccountVC = WalletContextManager.delegate?.get()
+            ?.getAddAccountVC(network) as? WViewController ?: return
+        window.dismissLastNav {
+            val nav = WNavigationController(
+                window,
+                WNavigationController.PresentationConfig(
+                    style = WNavigationController.PresentationStyle.BottomSheet
+                )
+            )
+            nav.setRoot(addAccountVC)
+            window.present(nav)
+        }
+    }
+
+    private fun connectReject() {
+        val update = update ?: return
+        val window = window ?: return
+        WalletCore.recordTonConnectEvent("wallet-connect-rejected", update.promiseId)
+        window.lifecycleScope.launch {
+            try {
+                WalletCore.call(
+                    ApiMethod.DApp.CancelDappRequest(
+                        promiseId = update.promiseId,
+                        reason = "user reject"
+                    )
+                )
+            } catch (err: JSWebViewBridge.ApiError) {
+                Logger.e(Logger.LogTag.TON_CONNECT, "cancelConnect: $err")
+            }
+            returnToDappIfNeeded(update.promiseId)
+        }
+    }
+
+    private fun returnToDappIfNeeded(promiseId: String) {
+        if (DappDeeplinkReturnTracker.consumeCompletedRequest(promiseId)) {
+            window?.moveTaskToBack(true)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        if (!isConfirmed) connectReject()
+    }
+
+    fun setDappUpdate(update: ApiUpdate.ApiUpdateDappConnect) {
+        this.update = update
+        normalizeSelectedAccount()
+        requestView.configure(update.dapp, update.needsNewMultichainWallet)
+        updateButtonState()
+        updateHeaderView()
+        updateAccountView()
+        headerView.fadeIn()
+        accountView.fadeIn()
+    }
+
+    // When the requested account can't serve the required chains (and we're not
+    // creating a new multichain wallet), fall back to the active account instead
+    // of the dapp-provided one.
+    private fun normalizeSelectedAccount() {
+        val update = update ?: return
+        if (update.needsNewMultichainWallet) return
+        if (isSelectedAccountCompatible()) return
+        val activeAccountId = AccountStore.activeAccount?.accountId ?: return
+        if (activeAccountId == update.accountId) return
+        this.update = update.copy(accountId = activeAccountId)
+    }
+
+    private fun requiredChains(): List<ApiDappSessionChain> = update?.dapp?.chains ?: emptyList()
+
+    private fun isSelectedAccountCompatible(): Boolean {
+        val account = AccountStore.accountById(update?.accountId) ?: return false
+        return account.supports(requiredChains())
+    }
+
+    private fun updateButtonState() {
+        if (update?.needsNewMultichainWallet == true) {
+            buttonView.isEnabled = true
+            buttonView.alpha = 1.0f
+            buttonView.type = WButton.Type.PRIMARY
+            buttonView.text = LocaleController.getString("Create Multichain Wallet")
+            if (warningView.isVisible) {
+                warningView.isVisible = false
+                bottomContainer.post {
+                    navigationController?.onBottomSheetHeightChanged()
+                }
+            }
+            return
+        }
+
+        val shouldShowWarning = update != null && !isSelectedAccountCompatible()
+        if (warningView.isVisible != shouldShowWarning) {
+            warningView.isVisible = shouldShowWarning
+            bottomContainer.post {
+                navigationController?.onBottomSheetHeightChanged()
+            }
+        }
+
+        if (shouldShowWarning) {
+            buttonView.isEnabled = true
+            buttonView.alpha = 1.0f
+            buttonView.type = WButton.Type.PRIMARY
+            buttonView.setText(
+                LocaleController.getString("Select Multichain Wallet"),
+                isAnimated = false
+            )
+            return
+        }
+
+        val isEnabled = isSelectedWalletConnectable()
+        buttonView.isEnabled = isEnabled
+        buttonView.alpha = if (isEnabled) 1.0f else 0.5f
+
+        val isDangerous =
+            update?.dapp?.resolvedUrlTrustStatus == ApiDappUrlTrustStatus.DANGEROUS
+        buttonView.type = if (isDangerous) WButton.Type.DESTRUCTIVE else WButton.Type.PRIMARY
+        buttonView.text = LocaleController.getString(
+            if (isDangerous) "Connect Anyway" else "Connect Wallet"
+        )
+    }
+
+    private fun showTrustStatusWarning() {
+        val dapp = update?.dapp ?: return
+        lateinit var dialog: WDialog
+        val warningContent = DappWarningPopupHelpers.warningContent(
+            dapp.resolvedUrlTrustStatus
+        ) {
+            dialog.dismiss()
+            dapp.url?.let { url ->
+                WalletCore.notifyEvent(WalletEvent.OpenUrl(url))
+            }
+        }
+        @Suppress("AssignedValueIsNeverRead")
+        dialog = showAlert(
+            warningContent.title.toString(),
+            warningContent.text,
+            allowLinkInText = true
+        )
+    }
+
+    private fun updateHeaderView() {
+        headerView.configure(
+            LocaleController.getString("Selected Wallet"),
+            titleColor = WColor.Tint,
+            topRounding = HeaderCell.TopRounding.NORMAL
+        )
+    }
+
+    private fun updateAccountView() {
+        val accountId = update?.accountId ?: return
+        val accountData = WGlobalStorage.getAccount(accountId) ?: return
+        val account = MAccount(accountId, accountData)
+
+        accountView.configure(
+            item = SettingsItem(
+                identifier = SettingsItem.Identifier.ACCOUNT,
+                title = account.name,
+                account = account,
+                hasTintColor = false,
+                icon = null,
+                value = null
+            ),
+            subtitle = null,
+            isFirst = false,
+            isLast = true,
+            isEnabled = true,
+            onTap = {
+                openWalletSelection()
+            }
+        )
+    }
+
+    private fun openWalletSelection() {
+        val dappHost = update?.dapp?.host ?: ""
+        val walletSelectionVC = WalletSelectionVC(
+            context = context,
+            dappHost = dappHost,
+            requiresProof = update?.proof != null,
+            requiredChains = requiredChains()
+        )
+
+        walletSelectionVC.setOnWalletSelectListener { selectedAccount ->
+            update?.let { currentUpdate ->
+                update = currentUpdate.copy(accountId = selectedAccount.accountId)
+            }
+            updateAccountView()
+            updateButtonState()
+        }
+
+        // Open as regular modal (not bottom sheet) so push works inside it
+        val navVC = WNavigationController(
+            window!!,
+            WNavigationController.PresentationConfig.PreferredFullScreen
+        )
+        navVC.setRoot(walletSelectionVC)
+        window!!.present(navVC)
+    }
+
+    private fun isSelectedWalletConnectable(): Boolean {
+        val update = update ?: return false
+        val account = AccountStore.accountById(update.accountId) ?: return false
+        if (!account.supports(requiredChains())) return false
+        val hasTonWallet = account.tonAddress != null
+        if (!hasTonWallet) return false
+        val requiresProof = update.proof != null
+        if (account.isViewOnly && requiresProof) {
+            return false
+        }
+        return true
+    }
+}

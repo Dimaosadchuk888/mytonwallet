@@ -1,0 +1,69 @@
+@use "../../../../styles/mixins";
+
+.row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 4rem;
+  padding: 0.75rem;
+  color: var(--color-black);
+  background: var(--color-background-first);
+  border-bottom: 1px solid var(--color-separator);
+}
+
+.icon {
+  display: flex;
+  flex: 0 0 2.5rem;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-inline-end: 0.625rem;
+  border-radius: 50%;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
+  background: #26a17b;
+}
+
+.primaryCell {
+  flex: 1;
+  min-width: 0;
+  margin-inline-end: 1rem;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9375rem;
+  font-weight: 600;
+
+  @include mixins.is-mobile() {
+    font-size: 1rem;
+  }
+}
+
+.subtitle {
+  overflow: hidden;
+  color: var(--color-gray-2);
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  @include mixins.is-mobile() {
+    font-size: 0.8125rem;
+  }
+}
+
+.amount {
+  flex: 0 0 auto;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-align: end;
+
+  @include mixins.is-mobile() {
+    font-size: 1rem;
+  }
+}

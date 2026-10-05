@@ -1,0 +1,191 @@
+import UIKit
+import WalletContext
+
+final class NftDetailsItem: Sendable {
+    
+    struct Attribute {
+        let traitType: String
+        let value: String
+    }
+
+    struct Collection {
+        let name: String
+    }
+    
+    struct TonDomain {
+        let expirationDays: Int // < 0 means "expired"
+        let canRenew: Bool
+    }
+
+    let id: String
+    let name: String
+    let description: String?
+    let attributes: [Attribute]?
+    let collection: Collection?
+    let tonDomain: TonDomain?
+
+    private let thumbnailUrlString: String?
+    private let imageUrlString: String?
+    private let lottieUrlString: String?
+
+    var imageUrl: URL? {
+        guard let urlString = imageUrlString?.nilIfEmpty, let url = URL(string: urlString) else { return nil }
+        return url
+    }
+    
+    var coverflowImageUrl: URL? {
+        guard let urlString = thumbnailUrlString?.nilIfEmpty, let url = URL(string: urlString) else { return nil }
+        return url
+    }
+    
+    var lottieUrl: URL? {
+        guard let s = lottieUrlString?.nilIfEmpty, let url = URL(string: s) else { return nil }
+        return url
+    }
+
+    init(id: String, name: String, description: String?, thumbnailUrl: String?, imageUrl: String?,
+         lottieUrl: String?, attributes: [Attribute]?, collection: Collection?, tonDomain: TonDomain?) {
+        self.id = id
+        self.name = name
+        self.description = description
+        self.thumbnailUrlString = thumbnailUrl
+        self.imageUrlString = imageUrl
+        self.lottieUrlString = lottieUrl
+        self.attributes = attributes
+        self.collection = collection
+        self.tonDomain = tonDomain
+    }
+}
+
+@MainActor
+protocol NftDetailsDisplayStateProviding: AnyObject {
+    func isOnSale(for model: NftDetailsItemModel) -> Bool
+    func isHiddenByUser(for model: NftDetailsItemModel) -> Bool
+}
+
+extension NftDetailsItem.TonDomain {
+    var expirationText: String {
+        if expirationDays < 0 {
+            return lang("Expired")
+        } else {
+            let daysText = langRelativeDays(expirationDays)
+            return L10n.oneDomainExpiresDays(days: daysText)
+        }
+    }
+}
+
+protocol NftDetailsItemModelDelegate: AnyObject {
+    func modelDidRequestImage(_  model: NftDetailsItemModel)
+}
+
+final class NftDetailsItemModel: Identifiable, Equatable, @unchecked Sendable, CustomStringConvertible {
+
+    enum Action: CaseIterable { case wear, send, share, more, showCollection, renewDomain }
+
+    init(item: NftDetailsItem, index: Int) {
+        self.item = item
+        self.index = index
+    }
+
+    let item: NftDetailsItem
+    
+    /// Current position of the model in the (mutable) list. Maintained by `NftDetailsManager`
+    /// and reassigned after a removal so positional math (scroll offsets, prefetch, eviction) stays valid.
+    /// Identity is `id` (stable NFT id), not this position.
+    var index: Int
+    var id: String { item.id }
+    var name: String { item.name }
+    
+    /// A flag to not use blurring and overlays for image processing: Lottie will spoil it all.
+    var simplifiedImageProcessing: Bool { item.lottieUrl != nil }
+
+    var processedImageState: NftDetailsImage.ProcessedState = .idle
+
+    var isSelected: Bool = false {
+        didSet {
+            if isSelected != oldValue {
+                notify(.selectionStatusChanged)
+            }
+        }
+    }
+
+    weak var delegate: NftDetailsItemModelDelegate?
+    @MainActor weak var displayStateProvider: NftDetailsDisplayStateProviding?
+
+    @MainActor
+    var isOnSale: Bool {
+        displayStateProvider?.isOnSale(for: self) ?? false
+    }
+
+    @MainActor
+    var isHiddenByUser: Bool {
+        displayStateProvider?.isHiddenByUser(for: self) ?? false
+    }
+
+    func requestImage() {
+        delegate?.modelDidRequestImage(self)
+    }
+    
+    var description: String {  return "<Model \(shortDescription) \(processedImageState)>" }
+    
+    var shortDescription: String { "\(name)[\(index)]" }
+
+    static func == (lhs: NftDetailsItemModel, rhs: NftDetailsItemModel) -> Bool { lhs === rhs } // Reference equality only
+    
+    // MARK: - Event Subscription
+
+    enum Event: Hashable {
+        case processedImageUpdated
+        case selectionStatusChanged
+        case displayStateChanged
+    }
+    
+    @MainActor
+    final class Subscription {
+        let model: NftDetailsItemModel
+        let event: Event
+        let token: Int
+        let tag: String
+        
+        init(model: NftDetailsItemModel, event: Event, tag: String, onChange: @escaping () -> Void) {
+            self.event = event
+            self.model = model
+            self.tag = tag
+            self.token = model.addObserver(for: event, onChange: onChange)
+        }
+        
+        deinit {
+            let model = model
+            let token = token
+            let event = event
+            Task { @MainActor in
+                model.removeObserver(token, for: event)
+            }
+        }
+    }
+    
+    func subcriberCountForEvent(_ event: Event) -> Int {
+        guard let subscriptions = observers[event] else { return 0 }
+        return subscriptions.count
+    }
+
+    private var observers: [Event: [Int: () -> Void]] = [:]
+    @MainActor private static var observerIdCounters: [Event: Int] = [:]
+
+    @MainActor
+    func addObserver(for event: Event, onChange: @escaping () -> Void) -> Int {
+        let token = Self.observerIdCounters[event, default: 0] + 1
+        Self.observerIdCounters[event] = token
+        observers[event, default: [:]][token] = onChange
+        return token
+    }
+
+    @MainActor
+    func removeObserver(_ token: Int, for event: Event) {
+        observers[event]?[token] = nil
+    }
+
+    func notify(_ event: Event) {
+        observers[event]?.values.forEach { $0() }
+    }
+}

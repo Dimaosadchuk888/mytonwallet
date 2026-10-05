@@ -1,0 +1,1334 @@
+import { Address } from '@ton/core/dist/address/Address';
+import { getActions, getGlobal } from '../../global';
+
+import type { ApiChain, ApiNetwork } from '../../api/types';
+import type { ActionPayloads, GlobalState } from '../../global/types';
+import type { OpenUrlOptions } from '../openUrl';
+import { DappProtocolType } from '../../api/dappProtocols/types';
+import { ContentTab, SettingsState } from '../../global/types';
+
+import {
+  DEFAULT_SWAP_AMOUNT,
+  DEFAULT_SWAP_FIRST_TOKEN_SLUG,
+  DEFAULT_SWAP_SECOND_TOKEN_SLUG,
+  IS_EXPLORER,
+  TONCOIN,
+  TRC20_USDT_MAINNET,
+  TRX,
+} from '../../config';
+import {
+  selectAccountTokenBySlug,
+  selectCurrentAccount,
+  selectCurrentAccountId,
+  selectCurrentAccountNftByAddress,
+  selectIsCurrentAccountViewMode,
+  selectIsHardwareAccount,
+  selectTokenByMinterAddress,
+} from '../../global/selectors';
+import { callApi } from '../../api';
+import {
+  getChainConfig,
+  getEvmChains,
+  getIsSupportedChain,
+  getSupportedChains,
+  VIEW_ACCOUNT_EVM_PARAM,
+} from '../chain';
+import { fromDecimal } from '../decimals';
+import { splitAttributionDeeplink } from '../installAttribution';
+import { isValidAddressOrDomain } from '../isValidAddress';
+import { omitUndefined } from '../iteratees';
+import { logDebug, logDebugError } from '../logs';
+import { isSubproject, openUrl } from '../openUrl';
+import { waitRender } from '../renderPromise';
+import { waitFor } from '../schedulers';
+import { isTelegramUrl } from '../url';
+import {
+  CHECKIN_URL,
+  SELF_PROTOCOL,
+  SELF_UNIVERSAL_URLS,
+  TON_PROTOCOL,
+  TONCONNECT_PROTOCOL,
+  TONCONNECT_PROTOCOL_SELF,
+  TONCONNECT_UNIVERSAL_URL,
+  WALLETCONNECT_DEEPLINK,
+  WALLETCONNECT_PROTOCOL,
+  WALLETCONNECT_UNIVERSAL_URLS,
+} from './constants';
+
+export const enum DeeplinkCommand {
+  CheckinWithR = 'r',
+  Swap = 'swap',
+  BuyWithCrypto = 'buy-with-crypto',
+  BuyWithCard = 'buy-with-card',
+  SellOnCard = 'sell-on-card',
+  Offramp = 'offramp',
+  Stake = 'stake',
+  Transfer = 'transfer',
+  Send = 'send',
+  Explore = 'explore',
+  Receive = 'receive',
+  View = 'view',
+  Token = 'token',
+  Transaction = 'tx',
+  Nft = 'nft',
+  Portfolio = 'portfolio',
+  Market = 'market',
+  Agent = 'agent',
+  Settings = 'settings',
+}
+
+const EXPLORER_ALLOWED_COMMANDS = new Set([
+  DeeplinkCommand.View,
+  DeeplinkCommand.Transaction,
+  DeeplinkCommand.Nft,
+  DeeplinkCommand.Portfolio,
+]);
+
+const SETTINGS_SECTION_MAP: Record<string, SettingsState> = {
+  appearance: SettingsState.Appearance,
+  assets: SettingsState.Assets,
+  language: SettingsState.Language,
+  notifications: SettingsState.PushNotifications,
+  dapps: SettingsState.Dapps,
+  'wallet-versions': SettingsState.WalletVersions,
+  disclaimer: SettingsState.Disclaimer,
+  about: SettingsState.About,
+  'hidden-nfts': SettingsState.HiddenNfts,
+};
+
+const VIEW_MODE_ALLOWED_COMMANDS = new Set([
+  DeeplinkCommand.CheckinWithR,
+  DeeplinkCommand.Explore,
+  DeeplinkCommand.View,
+  DeeplinkCommand.Token,
+  DeeplinkCommand.Transaction,
+  DeeplinkCommand.Nft,
+  DeeplinkCommand.Portfolio,
+  DeeplinkCommand.Market,
+  DeeplinkCommand.Agent,
+]);
+
+const OPEN_IN_NATIVE_DELAY_MS = 2000;
+
+let urlAfterSignIn: string | undefined;
+let urlAfterInit: string | undefined;
+
+export function processDeeplinkAfterSignIn() {
+  if (!urlAfterSignIn) return;
+
+  void processDeeplink(urlAfterSignIn);
+
+  urlAfterSignIn = undefined;
+}
+
+export function processDeeplinkAfterInit() {
+  if (!urlAfterInit) return;
+
+  const url = urlAfterInit;
+  urlAfterInit = undefined;
+
+  void processDeeplink(url);
+}
+
+// Local function from walletKit
+// https://github.com/reown-com/reown-walletkit-js/blob/main/packages/walletkit/src/utils/pay.ts
+function isPaymentLink(uri: string): boolean {
+  const lower = uri.toLowerCase();
+  return (
+    lower.includes('pay.')
+    || lower.includes('pay=')
+    || lower.includes('pay_')
+    || lower.includes('pay%2e') // encoded "pay."
+    || lower.includes('pay%3d') // encoded "pay="
+    || lower.includes('pay%5f') // encoded "pay_"
+  );
+}
+
+export async function openDeeplinkOrUrl(
+  url: string,
+  { isFromInAppBrowser, ...urlOptions }: OpenUrlOptions & { isFromInAppBrowser?: boolean } = {},
+) {
+  if (
+    isTonDeeplink(url)
+    || isTronDeeplink(url)
+    || isTonConnectDeeplink(url)
+    || isWalletConnectDeeplink(url)
+    || isPaymentLink(url)
+    || isSelfDeeplink(url)
+  ) {
+    await processDeeplink(url, isFromInAppBrowser);
+  } else {
+    await openUrl(url, urlOptions);
+  }
+}
+
+// Returns `true` if the link has been processed, ideally resulting to a UI action
+export function processDeeplink(url: string, isFromInAppBrowser = false): Promise<boolean> {
+  url = normalizeWalletConnectDeeplink(url);
+
+  const global = getGlobal();
+
+  if ((global as AnyLiteral).isInited === false) {
+    urlAfterInit = url;
+    return Promise.resolve(true);
+  }
+
+  if (!global.currentAccountId) {
+    urlAfterSignIn = url;
+  }
+
+  const maybeDappProtocol = getDappProtocolForDeeplink(url);
+
+  if (maybeDappProtocol) {
+    return processDappConnectorDeeplink(maybeDappProtocol, url, isFromInAppBrowser);
+  }
+
+  if (isSelfDeeplink(url)) {
+    return processSelfDeeplink(url, isFromInAppBrowser);
+  }
+
+  if (url.startsWith('tether:')) {
+    return processTronTetherDeeplink(url).then((result) => result !== false);
+  }
+
+  if (url.startsWith('tron:')) {
+    return processTronDeeplink(url).then((result) => result !== false);
+  }
+
+  return processTonDeeplink(url).then((result) => result !== false);
+}
+
+export function getDeeplinkFromLocation(): string | undefined {
+  const { pathname, search } = window.location;
+  // Remove leading slash from pathname to avoid double slashes in the deeplink
+  const normalizedPathname = pathname.startsWith('/') ? pathname.slice(1) : pathname;
+  const deeplinkPart = normalizedPathname + search;
+
+  return deeplinkPart ? `${SELF_PROTOCOL}${deeplinkPart}` : undefined;
+}
+
+export function tryOpenNativeApp(fallbackUrl: string) {
+  const deeplinkUrl = getDeeplinkFromLocation() || SELF_PROTOCOL;
+  let pageHidden = false;
+
+  function onHidden() {
+    pageHidden = true;
+  }
+
+  function onVisibilityChange() {
+    if (document.hidden) {
+      onHidden();
+    }
+  }
+
+  // `visibilitychange`: mobile app switch, tab switch, window minimize.
+  // `blur`: desktop native app opens on top (tab stays "visible" but window loses focus).
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('blur', onHidden);
+
+  window.location.href = deeplinkUrl;
+
+  window.setTimeout(() => {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('blur', onHidden);
+
+    if (!pageHidden) {
+      window.open(fallbackUrl, '_blank');
+    }
+  }, OPEN_IN_NATIVE_DELAY_MS);
+}
+
+export function isTonDeeplink(url: string) {
+  return url.startsWith(TON_PROTOCOL);
+}
+
+export function isTronDeeplink(url: string) {
+  return url.startsWith('tron:') || url.startsWith('tether:');
+}
+
+type DeeplinkOpenResult = boolean | 'handledWithoutOpening';
+
+// Generic handler for transfer deeplinks
+async function processTransferDeeplink(
+  parse: (global: GlobalState) =>
+    (NonNullable<ActionPayloads['startTransfer']> & { error?: string }) | undefined,
+): Promise<DeeplinkOpenResult> {
+  await waitRender();
+
+  const actions = getActions();
+  const global = getGlobal();
+  const currentAccountId = selectCurrentAccountId(global);
+  if (!currentAccountId) return false;
+
+  if (selectIsCurrentAccountViewMode(global)) {
+    actions.showError({ error: '$action_not_available_view_mode' });
+    return false;
+  }
+
+  const startTransferParams = parse(global);
+
+  if (!startTransferParams) {
+    return false;
+  }
+
+  if ('error' in startTransferParams) {
+    actions.showError({ error: startTransferParams.error });
+    return 'handledWithoutOpening';
+  }
+
+  actions.startTransfer({
+    ...startTransferParams,
+  });
+
+  return true;
+}
+
+async function processTonDeeplink(url: string): Promise<DeeplinkOpenResult> {
+  if (selectIsCurrentAccountViewMode(getGlobal())) {
+    getActions().showError({ error: '$action_not_available_view_mode' });
+    return false;
+  }
+
+  // Trying to open the transfer modal from a widget using a deeplink
+  if (url === 'ton://transfer') {
+    getActions().startTransfer();
+
+    return true;
+  }
+
+  return processTransferDeeplink((global) => parseTonDeeplink(url, global));
+}
+
+async function processTronDeeplink(url: string): Promise<DeeplinkOpenResult> {
+  return processTransferDeeplink((global) => parseTronDeeplinkForTrx(url, global));
+}
+
+async function processTronTetherDeeplink(url: string): Promise<DeeplinkOpenResult> {
+  return processTransferDeeplink((global) => parseTronTetherDeeplink(url, global));
+}
+
+// Handles mtw://send/{chain}:{address}?amount=...&token=...&text=...
+async function processSendDeeplink(
+  pathname: string,
+  searchParams: URLSearchParams,
+): Promise<DeeplinkOpenResult> {
+  const pathParts = pathname.split('/').filter(Boolean);
+  // pathParts[0] = "send", pathParts[1] = "{chain}:{address}"
+  const target = pathParts[1];
+
+  if (!target) {
+    // mtw://send with no address - open empty transfer modal
+    getActions().startTransfer();
+    return true;
+  }
+
+  const colonIndex = target.indexOf(':');
+  if (colonIndex === -1) {
+    getActions().showError({ error: '$unsupported_deeplink_parameter' });
+    return false;
+  }
+
+  const chain = target.slice(0, colonIndex) as ApiChain;
+  const toAddress = target.slice(colonIndex + 1);
+
+  if (!getIsSupportedChain(chain)) {
+    getActions().showError({ error: '$unsupported_chain' });
+    return false;
+  }
+
+  return processTransferDeeplink((global) => parseSendDeeplink(chain, toAddress, searchParams, global));
+}
+
+function parseSendDeeplink(
+  chain: ApiChain,
+  toAddress: string,
+  searchParams: URLSearchParams,
+  global: GlobalState,
+) {
+  const { nativeToken } = getChainConfig(chain);
+  const verifiedAddress = isValidAddressOrDomain(toAddress, chain) ? toAddress : undefined;
+
+  const amount = searchParams.get('amount') ?? undefined;
+  const comment = searchParams.get('text') ?? undefined;
+  const binPayload = searchParams.get('bin') ?? undefined;
+  const tokenSlugParam = searchParams.get('token') ?? undefined;
+  const stateInit = searchParams.get('init') ?? searchParams.get('stateInit') ?? undefined;
+  const exp = searchParams.get('exp') ?? undefined;
+
+  const transferParams: NonNullable<ActionPayloads['startTransfer']> & { error?: string } = {
+    toAddress: verifiedAddress,
+    tokenSlug: nativeToken.slug,
+    amount: amount ? parseBigInt(amount) : undefined,
+    comment,
+    binPayload: binPayload ? replaceAllSpacesWithPlus(binPayload) : undefined,
+    stateInit: stateInit ? replaceAllSpacesWithPlus(stateInit) : undefined,
+  };
+
+  if (comment && binPayload) {
+    transferParams.error = '$transfer_text_and_bin_exclusive';
+  }
+
+  if (tokenSlugParam) {
+    const tokenInfo = global.tokenInfo.bySlug[tokenSlugParam];
+    if (!tokenInfo) {
+      transferParams.error = '$unknown_token_address';
+    } else {
+      const accountToken = selectAccountTokenBySlug(global, tokenSlugParam);
+      if (!accountToken) {
+        transferParams.error = '$dont_have_required_token';
+      } else {
+        transferParams.tokenSlug = tokenSlugParam;
+      }
+    }
+  }
+
+  if (exp && Math.floor(Date.now() / 1000) > Number(exp)) {
+    transferParams.error = '$transfer_link_expired';
+  }
+
+  return omitUndefined(transferParams);
+}
+
+/**
+ * Parses a TON deeplink and checks whether the transfer can be initiated.
+ * Returns `undefined` if the URL is not a TON deeplink.
+ * If there is `error` in the result, there is a problem with the deeplink (the string is to translate via `lang`).
+ * Otherwise, returned the parsed transfer parameters.
+ */
+export function parseTonDeeplink(url: string, global: GlobalState) {
+  const params = rawParseTonDeeplink(url);
+  if (!params) return undefined;
+
+  if (params.hasUnsupportedParams) {
+    return {
+      error: '$unsupported_deeplink_parameter',
+    };
+  }
+
+  const {
+    toAddress,
+    amount,
+    comment,
+    binPayload,
+    jettonAddress,
+    nftAddress,
+    stateInit,
+    exp,
+  } = params;
+
+  const verifiedAddress = isValidAddressOrDomain(toAddress, 'ton') ? toAddress : undefined;
+
+  const transferParams: NonNullable<ActionPayloads['startTransfer']> & { error?: string } = {
+    toAddress: verifiedAddress,
+    tokenSlug: TONCOIN.slug,
+    amount,
+    comment,
+    binPayload,
+    stateInit,
+  };
+
+  // Check if both text and bin parameters are provided (mutually exclusive)
+  if (comment && binPayload) {
+    transferParams.error = '$transfer_text_and_bin_exclusive';
+  }
+
+  if (jettonAddress) {
+    const globalToken = jettonAddress
+      ? selectTokenByMinterAddress(global, jettonAddress)
+      : undefined;
+
+    if (!globalToken) {
+      transferParams.error = '$unknown_token_address';
+    } else {
+      const accountToken = selectAccountTokenBySlug(global, globalToken.slug);
+
+      if (!accountToken) {
+        transferParams.error = '$dont_have_required_token';
+      } else {
+        transferParams.tokenSlug = globalToken.slug;
+      }
+    }
+  }
+
+  if (nftAddress) {
+    const accountNft = selectCurrentAccountNftByAddress(global, nftAddress);
+
+    if (!accountNft) {
+      transferParams.error = '$dont_have_required_nft';
+    } else {
+      transferParams.nfts = [accountNft];
+    }
+  }
+
+  if (exp && Math.floor(Date.now() / 1000) > exp) {
+    transferParams.error = '$transfer_link_expired';
+  }
+
+  return omitUndefined(transferParams);
+}
+
+function parseTronDeeplink(
+  url: string,
+  global: GlobalState,
+  getTokenSlug: (global: GlobalState) => string | undefined,
+  decimals: number,
+) {
+  const params = rawParseTronDeeplink(url);
+  if (!params) return undefined;
+
+  const {
+    toAddress, amount, hasUnsupportedParams,
+  } = params;
+
+  const verifiedAddress = isValidAddressOrDomain(toAddress, 'tron') ? toAddress : undefined;
+  const tokenSlug = getTokenSlug(global);
+
+  const transferParams: NonNullable<ActionPayloads['startTransfer']> & { error?: string } = {
+    toAddress: verifiedAddress,
+    tokenSlug,
+    amount: amount ? fromDecimal(amount, decimals) : undefined,
+  };
+
+  if (hasUnsupportedParams) {
+    transferParams.error = '$unsupported_deeplink_parameter';
+  }
+
+  return omitUndefined(transferParams);
+}
+
+function parseTronDeeplinkForTrx(url: string, global: GlobalState) {
+  return parseTronDeeplink(url, global, () => TRX.slug, TRX.decimals);
+}
+
+function parseTronTetherDeeplink(url: string, global: GlobalState) {
+  const { isTestnet } = global.settings;
+  const network: ApiNetwork = isTestnet ? 'testnet' : 'mainnet';
+  const { usdtSlug } = getChainConfig('tron');
+  const getTokenSlug = () => usdtSlug[network];
+
+  return parseTronDeeplink(url, global, getTokenSlug, TRC20_USDT_MAINNET.decimals);
+}
+
+function rawParseTronDeeplink(value: string) {
+  try {
+    const withoutScheme = value.replace(/^(tron|tether):/, '');
+    const [addressPart, queryPart] = withoutScheme.split('?');
+    const toAddress = addressPart ?? '';
+
+    const searchParams = new URLSearchParams(queryPart ?? '');
+    const amount = searchParams.get('amount') ?? undefined;
+
+    const urlParams = Array.from(searchParams.keys());
+    const hasUnsupportedParams = urlParams.some((param) => param !== 'amount');
+
+    return {
+      toAddress,
+      amount,
+      hasUnsupportedParams,
+    };
+  } catch (err) {
+    return undefined;
+  }
+}
+
+function rawParseTonDeeplink(value?: string) {
+  if (typeof value !== 'string' || !isTonDeeplink(value) || !value.includes('/transfer/')) {
+    return undefined;
+  }
+
+  try {
+    // In some browsers URL module may handle non-standard protocols incorrectly
+    const adaptedDeeplink = value.replace(TON_PROTOCOL, 'https://');
+    const url = new URL(adaptedDeeplink);
+
+    const toAddress = url.pathname.replace(/\//g, '');
+    const amount = getDeeplinkSearchParam(url, 'amount');
+    const comment = getDeeplinkSearchParam(url, 'text');
+    const binPayload = getDeeplinkSearchParam(url, 'bin');
+    const jettonAddress = getDeeplinkSearchParam(url, 'jetton');
+    const nftAddress = getDeeplinkSearchParam(url, 'nft');
+    const stateInit = getDeeplinkSearchParam(url, 'init') || getDeeplinkSearchParam(url, 'stateInit');
+    const exp = getDeeplinkSearchParam(url, 'exp');
+
+    // Check for unsupported parameters
+    const supportedParams = new Set(['amount', 'text', 'bin', 'jetton', 'nft', 'init', 'stateInit', 'exp']);
+    const urlParams = Array.from(url.searchParams.keys());
+    const hasUnsupportedParams = urlParams.some((param) => !supportedParams.has(param));
+
+    return {
+      hasUnsupportedParams,
+      toAddress,
+      amount: amount ? parseBigInt(amount) : undefined,
+      comment,
+      jettonAddress,
+      nftAddress,
+      binPayload: binPayload ? replaceAllSpacesWithPlus(binPayload) : undefined,
+      stateInit: stateInit ? replaceAllSpacesWithPlus(stateInit) : undefined,
+      exp: exp ? Number(exp) : undefined,
+    };
+  } catch (err) {
+    return undefined;
+  }
+}
+
+function isTonConnectDeeplink(url: string) {
+  return url.startsWith(TONCONNECT_PROTOCOL)
+    || url.startsWith(TONCONNECT_PROTOCOL_SELF)
+    || omitProtocol(url).startsWith(omitProtocol(TONCONNECT_UNIVERSAL_URL));
+}
+
+function isWalletConnectDeeplink(url: string) {
+  return url.startsWith(WALLETCONNECT_PROTOCOL)
+    || url.startsWith(WALLETCONNECT_DEEPLINK)
+    || url.startsWith('https://walletconnect.com/wc')
+    || WALLETCONNECT_UNIVERSAL_URLS.some((prefix) => url.startsWith(prefix));
+}
+
+function normalizeWalletConnectDeeplink(url: string): string {
+  if (url.startsWith(WALLETCONNECT_PROTOCOL)) {
+    return url;
+  }
+
+  if (!isWalletConnectDeeplink(url)) {
+    return url;
+  }
+
+  return extractWalletConnectPairingUri(url) ?? url;
+}
+
+function extractWalletConnectPairingUri(url: string): string | undefined {
+  try {
+    const { search } = new URL(url);
+    const encodedQuery = search.startsWith('?') ? search.slice(1) : search;
+    const encodedUri = extractWalletConnectUriQueryValue(encodedQuery);
+    if (encodedUri) {
+      const requestLink = decodeURIComponent(encodedUri);
+      if (requestLink.toLowerCase().startsWith(WALLETCONNECT_PROTOCOL)) {
+        return requestLink;
+      }
+    }
+
+    const requestLink = new URL(url).searchParams.get('uri');
+    if (requestLink?.toLowerCase().startsWith(WALLETCONNECT_PROTOCOL)) {
+      return requestLink;
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
+}
+
+function extractWalletConnectUriQueryValue(encodedQuery: string): string | undefined {
+  if (encodedQuery.startsWith('uri=')) {
+    return encodedQuery.slice('uri='.length);
+  }
+
+  const uriParamIndex = encodedQuery.indexOf('&uri=');
+  if (uriParamIndex >= 0) {
+    return encodedQuery.slice(uriParamIndex + '&uri='.length);
+  }
+
+  return undefined;
+}
+
+function getDappProtocolForDeeplink(url: string) {
+  switch (true) {
+    case isTonConnectDeeplink(url): {
+      return DappProtocolType.TonConnect;
+    }
+    case isWalletConnectDeeplink(url):
+    case isPaymentLink(url): {
+      return DappProtocolType.WalletConnect;
+    }
+    default:
+      return undefined;
+  }
+}
+
+// Returns `true` if the link has been processed, ideally resulting to a UI action
+async function processDappConnectorDeeplink(
+  protocol: DappProtocolType,
+  url: string,
+  isFromInAppBrowser = false,
+): Promise<boolean> {
+  if (!getDappProtocolForDeeplink(url)) {
+    return false;
+  }
+
+  if (selectIsCurrentAccountViewMode(getGlobal())) {
+    getActions().showError({ error: '$action_not_available_view_mode' });
+    return false;
+  }
+
+  // The wallet shows feedback via the request modal itself: connect/sign/send each open their skeleton on
+  // `dappLoading`, and an SSE wake speculatively opens the Send skeleton while waiting for the request event.
+  const returnUrl = await callApi(`${protocol}_handleDeepLink`,
+    url,
+    isFromInAppBrowser,
+  );
+
+  if (returnUrl) {
+    void openUrl(returnUrl, { isExternal: !isFromInAppBrowser });
+  }
+
+  return true;
+}
+
+export function isSelfDeeplink(url: string) {
+  url = forceHttpsProtocol(url);
+
+  return url.startsWith(SELF_PROTOCOL)
+    || SELF_UNIVERSAL_URLS.some((u) => url.startsWith(u));
+}
+
+// Returns `true` if the link has been processed, ideally resulting to a UI action
+export async function processSelfDeeplink(deeplink: string, isFromInAppBrowser = false): Promise<boolean> {
+  const attribution = splitAttributionDeeplink(deeplink);
+  const result = attribution.isGet ? !IS_EXPLORER
+    : await openSelfDeeplink(attribution.url, isFromInAppBrowser);
+  if (result === true && attribution.candidate) {
+    void callApi('captureInstallAttribution', attribution.candidate).catch(() => {});
+  }
+  return result !== false;
+}
+
+// Some rejected commands historically return true after displaying an error. Keep that public
+// behavior separate from whether navigation actually opened, which permits attribution capture.
+async function openSelfDeeplink(
+  deeplink: string, isFromInAppBrowser: boolean,
+): Promise<DeeplinkOpenResult> {
+  try {
+    deeplink = convertSelfDeeplinkToSelfUrl(deeplink);
+
+    const { pathname, searchParams } = new URL(deeplink);
+    const command = pathname.split('/').find(Boolean);
+    const actions = getActions();
+    const global = getGlobal();
+    const { isTestnet } = global.settings;
+    const currentNetwork: ApiNetwork = isTestnet ? 'testnet' : 'mainnet';
+    const isLedger = selectIsHardwareAccount(global);
+
+    logDebug('Processing deeplink', deeplink);
+
+    // In explorer mode, only allow `View`, `Nft`, `Portfolio` and `Transaction` commands
+    if (IS_EXPLORER && !EXPLORER_ALLOWED_COMMANDS.has(command as DeeplinkCommand)) {
+      actions.showError({ error: 'This action is not supported in explorer mode.' });
+      return false;
+    }
+
+    if (selectIsCurrentAccountViewMode(global) && !VIEW_MODE_ALLOWED_COMMANDS.has(command as DeeplinkCommand)) {
+      actions.showError({ error: '$action_not_available_view_mode' });
+      return false;
+    }
+
+    switch (command) {
+      case DeeplinkCommand.CheckinWithR: {
+        const r = pathname.match(/r\/(.*)$/)?.[1];
+        const url = `${CHECKIN_URL}${r ? `?r=${r}` : ''}`;
+        void openUrl(url);
+        return true;
+      }
+
+      case DeeplinkCommand.Swap: {
+        if (isTestnet) {
+          actions.showError({ error: 'Swap is not supported in Testnet.' });
+          return 'handledWithoutOpening';
+        } else if (isLedger) {
+          actions.showError({ error: 'Swap is not yet supported by Ledger.' });
+          return 'handledWithoutOpening';
+        } else {
+          const swapBySlug = global.swapTokenInfo?.bySlug;
+          const rawIn = searchParams.get('in');
+          const rawOut = searchParams.get('out');
+          let tokenInSlug = (rawIn && swapBySlug?.[rawIn]) ? rawIn : DEFAULT_SWAP_FIRST_TOKEN_SLUG;
+          let tokenOutSlug = (rawOut && swapBySlug?.[rawOut]) ? rawOut : DEFAULT_SWAP_SECOND_TOKEN_SLUG;
+
+          if (tokenInSlug === tokenOutSlug) {
+            tokenInSlug = DEFAULT_SWAP_FIRST_TOKEN_SLUG;
+            tokenOutSlug = DEFAULT_SWAP_SECOND_TOKEN_SLUG;
+          }
+
+          if ((rawIn && tokenInSlug !== rawIn) || (rawOut && tokenOutSlug !== rawOut)) {
+            actions.showError({ error: '$unknown_swap_token' });
+            return 'handledWithoutOpening';
+          }
+
+          actions.startSwap({
+            tokenInSlug,
+            tokenOutSlug,
+            amountIn: toNumberOrEmptyString(searchParams.get('amount')) || DEFAULT_SWAP_AMOUNT,
+          });
+        }
+        return true;
+      }
+
+      case DeeplinkCommand.BuyWithCrypto: {
+        if (isTestnet) {
+          actions.showError({ error: 'Swap is not supported in Testnet.' });
+          return 'handledWithoutOpening';
+        } else if (isLedger) {
+          actions.showError({ error: 'Swap is not yet supported by Ledger.' });
+          return 'handledWithoutOpening';
+        } else {
+          const { nativeToken, buySwap: defaultBuySwap } = getChainConfig('ton');
+          actions.startSwap({
+            tokenInSlug: searchParams.get('in') || defaultBuySwap!.tokenInSlug,
+            tokenOutSlug: searchParams.get('out') || nativeToken.slug,
+            amountIn: toNumberOrEmptyString(searchParams.get('amount')) || defaultBuySwap!.amountIn,
+          });
+        }
+        return true;
+      }
+
+      case DeeplinkCommand.BuyWithCard: {
+        if (isTestnet) {
+          actions.showError({ error: 'Buying with card is not supported in Testnet.' });
+          return 'handledWithoutOpening';
+        } else {
+          actions.openOnRampWidgetModal({ chain: 'ton' });
+        }
+        return true;
+      }
+
+      case DeeplinkCommand.SellOnCard: {
+        if (isTestnet) {
+          actions.showError({ error: 'Selling to card is not supported in Testnet.' });
+          return 'handledWithoutOpening';
+        } else {
+          actions.openOffRampWidgetModal();
+        }
+        return true;
+      }
+
+      case DeeplinkCommand.Offramp: {
+        if (isFromInAppBrowser) {
+          actions.showError({ error: '$unsupported_deeplink_parameter' });
+          return 'handledWithoutOpening';
+        }
+
+        const transactionId = searchParams.get('transactionId') ?? undefined;
+        const baseCurrencyCode = searchParams.get('baseCurrencyCode') ?? undefined;
+        const baseCurrencyAmount = searchParams.get('baseCurrencyAmount') ?? undefined;
+        const depositWalletAddress = searchParams.get('depositWalletAddress') ?? undefined;
+        const depositWalletAddressTag = searchParams.get('depositWalletAddressTag') ?? undefined;
+
+        logDebug('Processing offramp deeplink', {
+          transactionId,
+          baseCurrencyCode,
+          baseCurrencyAmount,
+          depositWalletAddress,
+          depositWalletAddressTag,
+        });
+
+        if (!depositWalletAddress) {
+          actions.showError({ error: '$missing_offramp_deposit_address' });
+          return false;
+        }
+
+        const mapping = getOfframpTokenMapping(baseCurrencyCode, global);
+
+        if (!mapping) {
+          actions.showError({ error: '$unsupported_deeplink_parameter' });
+          return false;
+        }
+
+        let amount: bigint | undefined;
+
+        if (baseCurrencyAmount) {
+          try {
+            const tokenInfo = global.tokenInfo.bySlug[mapping.tokenSlug];
+            const decimals = tokenInfo?.decimals;
+
+            if (decimals !== undefined) {
+              amount = fromDecimal(baseCurrencyAmount, decimals);
+            }
+          } catch (err) {
+            logDebugError('processSelfDeeplinkOfframpAmount', err);
+          }
+        }
+
+        actions.addSavedAddress({
+          address: depositWalletAddress,
+          name: 'MoonPay Off-Ramp',
+          chain: mapping.chain,
+        });
+
+        actions.startTransfer({
+          tokenSlug: mapping.tokenSlug,
+          toAddress: depositWalletAddress,
+          comment: depositWalletAddressTag ?? undefined,
+          amount,
+          isTransferReadonly: true,
+          isOfframp: true,
+        });
+
+        return true;
+      }
+
+      case DeeplinkCommand.Stake: {
+        if (isTestnet) {
+          actions.showError({ error: 'Staking is not supported in Testnet.' });
+          return 'handledWithoutOpening';
+        }
+
+        const productId = searchParams.get('product') ?? undefined;
+        const tokenSlug = searchParams.get('asset') ?? undefined;
+        const amountValue = searchParams.get('amount') ?? undefined;
+        if (!productId && !tokenSlug && !amountValue) {
+          actions.startStaking();
+          return true;
+        }
+        const token = tokenSlug ? global.tokenInfo.bySlug[tokenSlug] : undefined;
+        if (
+          !productId
+          || !tokenSlug
+          || !token
+          || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(productId)
+        ) {
+          actions.showError({ error: '$unsupported_deeplink_parameter' });
+          return 'handledWithoutOpening';
+        }
+
+        let initialAmount: bigint | 'all' | undefined;
+        if (amountValue === 'all') {
+          initialAmount = 'all';
+        } else if (amountValue !== undefined) {
+          const match = /^(?:0|[1-9]\d*)(?:\.(\d+))?$/u.exec(amountValue);
+          if (!match || (match[1]?.length ?? 0) > token.decimals) {
+            actions.showError({ error: '$unsupported_deeplink_parameter' });
+            return 'handledWithoutOpening';
+          }
+          try {
+            initialAmount = fromDecimal(amountValue, token.decimals);
+          } catch {
+            actions.showError({ error: '$unsupported_deeplink_parameter' });
+            return 'handledWithoutOpening';
+          }
+          if (initialAmount <= 0n) {
+            actions.showError({ error: '$unsupported_deeplink_parameter' });
+            return 'handledWithoutOpening';
+          }
+        }
+        actions.startStaking({
+          stakingId: productId,
+          tokenSlug,
+          ...(initialAmount !== undefined ? { initialAmount } : {}),
+        });
+        return true;
+      }
+
+      case DeeplinkCommand.Transfer: {
+        return await processTonDeeplink(convertSelfUrlToTonDeeplink(deeplink));
+      }
+
+      case DeeplinkCommand.Send: {
+        return await processSendDeeplink(pathname, searchParams);
+      }
+
+      case DeeplinkCommand.Explore: {
+        actions.closeSettings();
+        actions.openExplore();
+        actions.setActiveContentTab({ tab: ContentTab.Explore });
+
+        const host = pathname.split('/').filter(Boolean)[1];
+        if (host) {
+          const hostWithProtocol = `http${!host.startsWith('localhost:') ? 's' : ''}://${host}`;
+          const matchingUrl = isSubproject(hostWithProtocol)
+            ? hostWithProtocol
+            : getGlobal().exploreData?.sites.find(({ url }) => {
+              const siteHost = isTelegramUrl(url)
+                ? new URL(url).pathname.split('/').filter(Boolean)[0]
+                : new URL(url).hostname;
+
+              return siteHost === host;
+            })?.url;
+
+          if (matchingUrl) {
+            void openUrl(matchingUrl);
+          }
+        }
+
+        return true;
+      }
+
+      case DeeplinkCommand.Receive: {
+        actions.openReceiveModal();
+        return true;
+      }
+
+      case DeeplinkCommand.View: {
+        const addressByChain: Partial<Record<ApiChain, string>> = {};
+        const chains = getSupportedChains();
+        const evmAddress = searchParams.get(VIEW_ACCOUNT_EVM_PARAM);
+
+        chains.forEach((chain) => {
+          const address = searchParams.get(chain);
+          if (address && isValidAddressOrDomain(address, chain)) {
+            addressByChain[chain] = address;
+          }
+        });
+
+        if (evmAddress && isValidAddressOrDomain(evmAddress, 'ethereum')) {
+          getEvmChains().forEach((chain) => {
+            addressByChain[chain] ??= evmAddress;
+          });
+        }
+
+        if (!Object.keys(addressByChain).length) {
+          actions.showError({ error: '$no_valid_view_addresses' });
+          return false;
+        }
+
+        ensureNetwork(searchParams, currentNetwork);
+
+        actions.openTemporaryViewAccount({ addressByChain });
+        return true;
+      }
+
+      case DeeplinkCommand.Token: {
+        const pathParts = pathname.split('/').filter(Boolean);
+
+        if (pathParts.length < 2) {
+          return false;
+        }
+
+        let tokenSlug: string | undefined;
+
+        if (pathParts.length === 2) {
+          // Format: mtw://token/{slug}
+          tokenSlug = pathParts[1];
+        } else if (pathParts.length === 3) {
+          // Format: mtw://token/{chain}/{tokenAddress}
+          const chain = pathParts[1];
+          const tokenAddress = pathParts[2];
+
+          tokenSlug = await callApi('buildTokenSlug', chain as ApiChain, tokenAddress);
+        }
+
+        if (!tokenSlug || !global.tokenInfo.bySlug[tokenSlug]) {
+          actions.showError({ error: '$unknown_token_address' });
+          return false;
+        }
+
+        actions.showTokenActivity({ slug: tokenSlug });
+        return true;
+      }
+
+      case DeeplinkCommand.Transaction: {
+        // Format: mtw://tx/{chain}/{txId}
+        const pathParts = pathname.split('/');
+
+        if (pathParts.length < 3) {
+          return false;
+        }
+
+        const [, , chainPart, ...txIdParts] = pathParts;
+        const txId = decodeURIComponent(txIdParts.join('/'));
+        const chain = chainPart as ApiChain;
+
+        if (!chain || !txId) {
+          return false;
+        }
+
+        if (!getSupportedChains().includes(chain)) {
+          actions.showError({ error: '$unsupported_chain' });
+          return false;
+        }
+
+        const { network } = ensureNetwork(searchParams, currentNetwork);
+        const shouldOpenViewAccount = IS_EXPLORER || network !== currentNetwork;
+
+        const activities = await callApi('fetchTransactionById', {
+          chain,
+          network,
+          txId,
+          walletAddress: '',
+        });
+
+        if (!activities?.length) {
+          actions.showError({ error: '$transaction_not_found' });
+          return 'handledWithoutOpening';
+        }
+
+        // Get address from the first activity (toAddress for transactions, fromAddress for swaps)
+        const activity = activities[0];
+        const viewAddress = activity.kind === 'transaction'
+          ? activity.toAddress
+          : activity.kind === 'swap'
+            ? activity.fromAddress
+            : undefined;
+
+        if (!viewAddress) {
+          actions.showError({ error: '$could_not_determine_address' });
+          return 'handledWithoutOpening';
+        }
+
+        if (shouldOpenViewAccount && !await openViewAccount(chain, viewAddress)) return false;
+
+        // Pass activities to avoid duplicate API call
+        actions.openTransactionInfo({ txId, chain, activities });
+        return true;
+      }
+
+      case DeeplinkCommand.Agent: {
+        actions.switchToAgent();
+        return true;
+      }
+
+      case DeeplinkCommand.Settings: {
+        const currentAccountId = selectCurrentAccountId(global);
+        if (!currentAccountId) return false;
+
+        const section = pathname.split('/').filter(Boolean)[1];
+
+        if (!section) {
+          actions.openSettings();
+          return true;
+        }
+
+        const settingsState = SETTINGS_SECTION_MAP[section];
+        if (settingsState === undefined) return false;
+
+        const isViewMode = selectIsCurrentAccountViewMode(global);
+
+        if (settingsState === SettingsState.Dapps && isViewMode) {
+          return false;
+        }
+
+        if (settingsState === SettingsState.WalletVersions) {
+          if (selectIsHardwareAccount(global)) return false;
+          const versions = global.walletVersions?.byId?.[currentAccountId];
+          if (!versions?.length) return false;
+        }
+
+        actions.openSettingsWithState({ state: settingsState });
+        return true;
+      }
+
+      case DeeplinkCommand.Portfolio: {
+        actions.switchToPortfolio();
+        return true;
+      }
+
+      case DeeplinkCommand.Market: {
+        actions.switchToMarket();
+        return true;
+      }
+
+      case DeeplinkCommand.Nft: {
+        // Format: mtw://nft/{nftAddress}
+        const pathParts = pathname.split('/');
+        const nftAddress = pathParts[2];
+
+        if (!nftAddress) return false;
+
+        const { network } = ensureNetwork(searchParams, currentNetwork);
+        const shouldOpenViewAccount = IS_EXPLORER || network !== currentNetwork;
+
+        const nft = await callApi('fetchNftByAddress', 'ton', network, nftAddress);
+
+        if (!nft) {
+          actions.showError({ error: '$nft_not_found' });
+          return false;
+        }
+
+        if (shouldOpenViewAccount) {
+          const ownerAddress = nft.ownerAddress;
+
+          if (!ownerAddress) {
+            actions.showError({ error: '$could_not_determine_address' });
+            return false;
+          }
+
+          if (!await openViewAccount('ton', ownerAddress)) {
+            return false;
+          }
+        }
+
+        actions.openNftAttributesModal({ nft, withOwner: true });
+        return true;
+      }
+    }
+  } catch (err) {
+    logDebugError('processSelfDeeplink', err);
+  }
+
+  return false;
+}
+
+async function openViewAccount(
+  chain: ApiChain,
+  address: string,
+): Promise<boolean> {
+  const actions = getActions();
+  let normalizedAddress: string | undefined;
+  try {
+    if (chain === 'ton') {
+      const parsedAddress = Address.parse(address);
+      if (parsedAddress) {
+        normalizedAddress = parsedAddress.toRawString();
+      }
+    } else {
+      normalizedAddress = address;
+    }
+  } catch (err: any) {
+    actions.showError({ error: err.message || 'Unable to parse address' });
+    logDebugError('openViewAccount', err);
+
+    return false;
+  }
+
+  actions.openTemporaryViewAccount({ addressByChain: { [chain]: normalizedAddress } });
+
+  const isReady = await waitFor(() => {
+    const account = selectCurrentAccount(getGlobal());
+    const currentAddress = account?.byChain[chain]?.address;
+    if (!currentAddress) return false;
+
+    return chain === 'ton'
+      ? Address.parse(currentAddress).toRawString() === normalizedAddress
+      : currentAddress === normalizedAddress;
+  }, 100, 100);
+
+  if (!isReady) {
+    actions.showError({ error: 'Timed out waiting for account to be ready' });
+  }
+
+  return isReady;
+}
+
+function ensureNetwork(searchParams: URLSearchParams, currentNetwork: ApiNetwork) {
+  const newNetwork: ApiNetwork = searchParams.get('testnet') === 'true' ? 'testnet' : 'mainnet';
+  if (currentNetwork !== newNetwork) {
+    getActions().changeNetwork({ network: newNetwork });
+  }
+
+  return {
+    isTestnet: newNetwork === 'testnet',
+    network: newNetwork,
+  };
+}
+
+function getOfframpTokenMapping(
+  baseCurrencyCode: string | undefined,
+  global: GlobalState,
+) {
+  if (!baseCurrencyCode) {
+    return undefined;
+  }
+
+  const normalizedCode = baseCurrencyCode.toLowerCase();
+
+  if (normalizedCode === 'ton' || normalizedCode === 'toncoin') {
+    return {
+      chain: 'ton' as ApiChain,
+      tokenSlug: TONCOIN.slug,
+    };
+  }
+
+  const tokenBySlug = global.tokenInfo.bySlug[normalizedCode];
+  if (tokenBySlug) {
+    return {
+      chain: tokenBySlug.chain,
+      tokenSlug: tokenBySlug.slug,
+    };
+  }
+
+  return undefined;
+}
+
+/**
+ * Parses a deeplink and checks whether the transfer can be initiated.
+ * See `parseTonDeeplink` for information about the returned values.
+ */
+export function parseDeeplinkTransferParams(url: string, global: GlobalState) {
+  if (isTonDeeplink(url) || isSelfDeeplink(url)) {
+    let tonDeeplink = url;
+
+    if (isSelfDeeplink(url)) {
+      try {
+        url = convertSelfDeeplinkToSelfUrl(url);
+        const { pathname, searchParams } = new URL(url);
+        const command = pathname.split('/').find(Boolean);
+
+        if (command === DeeplinkCommand.Send) {
+          const pathParts = pathname.split('/').filter(Boolean);
+          const target = pathParts[1];
+          if (!target) return undefined;
+          const colonIndex = target.indexOf(':');
+          if (colonIndex === -1) return undefined;
+          const chain = target.slice(0, colonIndex) as ApiChain;
+          if (!getIsSupportedChain(chain)) return undefined;
+          const toAddress = target.slice(colonIndex + 1);
+          return parseSendDeeplink(chain, toAddress, searchParams, global);
+        }
+
+        if (command === DeeplinkCommand.Transfer) {
+          tonDeeplink = convertSelfUrlToTonDeeplink(url);
+        }
+      } catch (err) {
+        logDebugError('parseDeeplinkTransferParams', err);
+      }
+    }
+
+    return parseTonDeeplink(tonDeeplink, global);
+  }
+
+  if (url.startsWith('tron:')) {
+    return parseTronDeeplinkForTrx(url, global);
+  }
+
+  if (url.startsWith('tether:')) {
+    return parseTronTetherDeeplink(url, global);
+  }
+
+  return undefined;
+}
+
+function convertSelfDeeplinkToSelfUrl(deeplink: string) {
+  if (deeplink.startsWith(SELF_PROTOCOL)) {
+    return deeplink.replace(SELF_PROTOCOL, `${SELF_UNIVERSAL_URLS[0]}/`);
+  }
+  return deeplink;
+}
+
+function convertSelfUrlToTonDeeplink(deeplink: string) {
+  deeplink = forceHttpsProtocol(deeplink);
+
+  for (const selfUniversalUrl of SELF_UNIVERSAL_URLS) {
+    if (deeplink.startsWith(selfUniversalUrl)) {
+      return deeplink.replace(`${selfUniversalUrl}/`, TON_PROTOCOL);
+    }
+  }
+
+  return deeplink;
+}
+
+function omitProtocol(url: string) {
+  return url.replace(/^https?:\/\//, '');
+}
+
+function forceHttpsProtocol(url: string) {
+  return url.replace(/^http:\/\//, 'https://');
+}
+
+function toNumberOrEmptyString(input?: string | null) {
+  return String(Number(input) || '');
+}
+
+function replaceAllSpacesWithPlus(value: string) {
+  return value.replace(/ /g, '+');
+}
+
+function getDeeplinkSearchParam(url: URL, param: string) {
+  return url.searchParams.get(param) ?? undefined;
+}
+
+function parseBigInt(value: string): bigint | undefined {
+  try {
+    return BigInt(value);
+  } catch {
+    return undefined;
+  }
+}

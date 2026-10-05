@@ -1,0 +1,281 @@
+
+import Foundation
+
+public let SINGLETON_TABLE_ROW_ID: Int64 = 0
+public var IS_GRAM_WALLET: Bool {
+    Bundle.main.bundleIdentifier?.hasPrefix("io.gramwallet.") == true
+}
+
+// reference: src/config.ts
+
+public var NATIVE_BIOMETRICS_USERNAME: String { IS_GRAM_WALLET ? "GramWallet" : "MyTonWallet" }
+public var NATIVE_BIOMETRICS_SERVER: String { IS_GRAM_WALLET ? "https://gramwallet.io" : "https://mytonwallet.app" }
+
+public let PRICELESS_TOKEN_HASHES: Set<String?> = [
+  "82566ad72b6568fe7276437d3b0c911aab65ed701c13601941b2917305e81c11", // Stonfi V1
+  "ec614ea4aaea3f7768606f1c1632b3374d3de096a1e7c4ba43c8009c487fee9d", // Stonfi V2
+  "c0f9d14fbc8e14f0d72cba2214165eee35836ab174130912baf9dbfa43ead562", // Dedust (for example, EQBkh7Mc411WTYF0o085MtwJpYpvGhZOMBphhIFzEpzlVODp)
+  "1275095b6da3911292406f4f4386f9e780099b854c6dee9ee2895ddce70927c1", // Dedust (for example, EQCm92zFBkLe_qcFDp7WBvI6JFSDsm4WbDPvZ7xNd7nPL_6M)
+  "5d01684bdf1d5c9be2682c4e36074202432628bd3477d77518d66b0976b78cca", // USDT Storm LP (for example, EQAzm06UMMsnFQrNKEubV1myIR-mm2ZOCnoic36frCgD8MLR)
+]
+
+public let STAKED_TOKEN_SLUGS: Set<String> = [
+  STAKED_TON_SLUG,
+  STAKED_MYCOIN_SLUG,
+  TON_TSUSDE_SLUG,
+]
+
+public let MYTONWALLET_MULTISEND_DAPP_URL = "https://multisend.mywallet.io/";
+
+public let NFT_MARKETPLACE_URL = "https://opensea.io/"
+public let NFT_MARKETPLACE_TITLE = "OpenSea"
+public let TON_NFT_MARKETPLACE_URL = "https://fragment.com/"
+public let TON_NFT_MARKETPLACE_TITLE = "Fragment"
+
+public let MAX_PUSH_NOTIFICATIONS_ACCOUNT_COUNT = 3
+
+public let LIQUID_POOL = "EQD2_4d91M4TVbEBVyBF8J1UwpMJc361LKVCz6bBlffMW05o"
+public let NOMINATORS_STAKING_POOL = "Ef84o4VJRnlp1wsqSHov1QttqSTQda2Z1vGK-b7EaPQoeJMx"
+public let MYCOIN_STAKING_POOL = "EQC3roTiRRsoLzfYVK7yVVoIZjTEqAjQU3ju7aQ7HWTVL5o5"
+
+// Mirrors DEFAULT_STAKING_POOLS + ALL_STAKING_POOLS in src/config.ts; must include every
+// nominators pool the backend can return, or its stake/unstake transactions render as
+// ordinary transfers.
+public let ALL_STAKING_POOLS: Set<String> = [
+  LIQUID_POOL,
+  "Ef8dgIOIRyCLU0NEvF8TD6Me3wrbrkS1z3Gpjk3ppd8m8-s_",
+  "Ef-WMmizoLk4CvqTKs-mDrGJwW4fiH5zVd4SaHih7PObxP_0",
+  "Ef9KkdMtAom9qYE64A_3ZA5sOP3OduRYPdavxGO3DH12fF5g",
+  "Ef9-8keOeXR4Sn-ywrlFgxma4ubJvEFRW3jgP0ib16A-HCiG",
+  NOMINATORS_STAKING_POOL,
+  "Ef_CbvHoa5imR1x_ESkUT_6NJQoONbSGp8MkrAu1xtM6NOxE",
+  "Ef-j7wmnLdy54kZC0gtbVbCrdPA4cFLr3rxLOoDcpzR_SyBX",
+  MYCOIN_STAKING_POOL,
+  "EQChGuD1u0e7KUWHH5FaYh_ygcLXhsdG2nSHPXHW8qqnpZXW", // ETHENA_STAKING_VAULT
+  "EQDQ5UUyPHrLcQJlPAczd_fjxn8SLrlNQwolBznxCdSlfQwr", // TON_TSUSDE.tokenAddress
+]
+
+public let BURN_ADDRESS = "UQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJKZ"
+
+public let TINY_TRANSFER_MAX_COST = 0.01
+
+public let TELEGRAM_GIFTS_SUPER_COLLECTION = "super:telegram-gifts"
+
+public let JVAULT_URL = "https://jvault.xyz"
+
+public let MAX_PRICE_IMPACT_VALUE = 5.0
+
+public let JSBRIDGE_IDENTIFIER = "jsbridge"
+
+public var APP_WEBSITE_URL: String { IS_GRAM_WALLET ? "https://gramwallet.io" : "https://mywallet.io" }
+public let APP_BLOG_URL = "https://mywallet.io/en/blog/"
+public var APP_TERMS_OF_USE_URL: String { IS_GRAM_WALLET ? "https://gramwallet.io/terms-of-use/" : "https://mywallet.io/terms-of-use/" }
+public var APP_PRIVACY_POLICY_URL: String { IS_GRAM_WALLET ? "https://gramwallet.io/privacy-policy/" : "https://mywallet.io/privacy-policy/" }
+public var APP_INSTALL_URL: String { IS_GRAM_WALLET ? "https://apps.apple.com/us/app/gram-wallet/id6763345750" : "https://get.mywallet.io/ios-store?utm_source=app_share" }
+public let BOT_USERNAME = "MyTonWalletBot"
+public let SUPPORT_USERNAME = "mysupport"
+
+public let MTW_TIPS_CHANNEL_NAME = "MyWalletTips"
+public let MTW_TIPS_CHANNEL_NAME_RU = "MyWalletTipsRu"
+public let MFA_BOT_URL = "https://t.me/tgmfabot/auth"
+
+public func buildMfaBotUrl(startApp: String) -> URL? {
+    guard var components = URLComponents(string: MFA_BOT_URL) else {
+        return nil
+    }
+    let appPrefix = IS_GRAM_WALLET ? "g" : "m"
+    components.queryItems = [
+        URLQueryItem(name: "startapp", value: "\(appPrefix)_\(startApp)"),
+    ]
+    return components.url
+}
+
+public let HELP_CENTER_URL = "https://help.mywallet.io"
+public let HELP_CENTER_URL_RU = "https://help.mywallet.io/ru"
+public let HELP_CENTER_DOMAIN_SCAM_URL = "https://help.mywallet.io/intro/scams/.ton-domain-scams"
+public let HELP_CENTER_DOMAIN_SCAM_URL_RU = "https://help.mywallet.io/ru/baza-znanii/moshennichestvo-i-skamy/moshennichestvo-s-ispolzovaniem-domenov-.ton"
+public let HELP_CENTER_SEED_SCAM_URL = "https://help.mywallet.io/intro/scams/leaked-seed-phrases"
+public let HELP_CENTER_SEED_SCAM_URL_RU = "https://help.mywallet.io/ru/baza-znanii/moshennichestvo-i-skamy/slitye-sid-frazy"
+public var DOMAIN_SCAM_REGEX: Regex<Substring> { /^[-\w]{26,}\./ }
+public let MTW_CARDS_COLLECTION = "EQCQE2L9hfwx1V8sgmF9keraHx1rNK9VmgR1ctVvINBGykyM"
+public let MTW_CARDS_MINT_BASE_URL = "https://static.mytonwallet.org/mint-cards/"
+public let MINT_CARD_ADDRESS = "EQBpst3ZWJ9Dqq5gE2YH-yPsFK_BqMOmgi7Z_qK6v7WbrPWv"
+public let MINT_CARD_COMMENT = "Mint card"
+
+public let CARD_RATIO: CGFloat = 208/358
+public let SMALL_CARD_RATIO: CGFloat = 116/80
+public let MEDIUM_CARD_RATIO: CGFloat = 110/75
+public let LARGE_CARD_RATIO: CGFloat = 274/176
+
+public var APP_NAME: String { IS_GRAM_WALLET ? "Gram Wallet" : "My Wallet" }
+
+public enum DebugProductionMode {
+    public static let userDefaultsKey = "debug_forceProductionMode"
+
+    public static var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: userDefaultsKey)
+    }
+}
+
+public enum DebugTokenInfoMock {
+    public enum Preset: String, CaseIterable, Sendable {
+        case disabled
+        case design
+        case localizedDescription
+        case longSparse
+        case loading
+        case missingDescription
+        case missingTokenInfo
+        case error
+    }
+
+    public static let userDefaultsKey = "debug_tokenInfoMockPreset"
+
+    public static var preset: Preset {
+        guard IS_DEBUG_OR_TESTFLIGHT_DEFAULT else { return .disabled }
+        let rawValue = UserDefaults.standard.string(forKey: userDefaultsKey)
+        return rawValue.flatMap(Preset.init(rawValue:)) ?? .disabled
+    }
+
+    public static var isEnabled: Bool {
+        preset != .disabled
+    }
+}
+
+public enum WalletTokenPercentChangeThreshold {
+    public enum Preset: String, CaseIterable, Identifiable, Sendable {
+        case disabled
+        case halfPercent
+        case onePercent
+        case twoPercent
+        case fivePercent
+
+        public var id: Self { self }
+
+        public var title: String {
+            switch self {
+            case .disabled:
+                lang("$settings_token_change_threshold_off")
+            case .halfPercent:
+                "0.5%"
+            case .onePercent:
+                "1%"
+            case .twoPercent:
+                "2%"
+            case .fivePercent:
+                "5%"
+            }
+        }
+
+        public var minimumAbsolutePercentChange: Double? {
+            switch self {
+            case .disabled:
+                nil
+            case .halfPercent:
+                0.5
+            case .onePercent:
+                1
+            case .twoPercent:
+                2
+            case .fivePercent:
+                5
+            }
+        }
+
+        public func shouldShow(percentChange: Double) -> Bool {
+            guard let minimumAbsolutePercentChange else { return true }
+            return abs(percentChange) >= minimumAbsolutePercentChange
+        }
+    }
+
+    public static let userDefaultsKey = "experimental_walletTokenPercentChangeThreshold"
+
+    public static var preset: Preset {
+        let rawValue = UserDefaults.standard.string(forKey: userDefaultsKey)
+        return rawValue.flatMap(Preset.init(rawValue:)) ?? .twoPercent
+    }
+
+    public static var initialPresetRawValue: String {
+        preset.rawValue
+    }
+
+    public static func shouldShow(percentChange: Double) -> Bool {
+        preset.shouldShow(percentChange: percentChange)
+    }
+}
+
+public enum WalletTokenChainAccessoryExperiment {
+    public static let userDefaultsKey = "experimental_hideUnlabeledWalletTokenChainAccessories"
+
+    public static var isEnabled: Bool {
+        guard UserDefaults.standard.object(forKey: userDefaultsKey) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: userDefaultsKey)
+    }
+
+    public static func shouldShow(
+        isMultichain: Bool,
+        showsTokenLabel: Bool,
+        experimentEnabled: Bool = isEnabled
+    ) -> Bool {
+        isMultichain && (!experimentEnabled || showsTokenLabel)
+    }
+}
+
+public enum WalletActionButtonsSettings {
+    public static let hideActionButtonsRowUserDefaultsKey = "experimental_topTabsHideActionButtonsRow"
+    public static let didChangeNotification = Notification.Name("WalletActionButtonsSettingsDidChange")
+
+    public static var showsActionButtonsRow: Bool {
+        !UserDefaults.standard.bool(forKey: hideActionButtonsRowUserDefaultsKey)
+    }
+
+    public static func notifyDidChange() {
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+    }
+}
+
+public enum WalletCardTopLine: String, CaseIterable, Sendable {
+    case walletName = "wallet-name"
+    case topAddress = "top-address"
+
+    public static let defaultValue: Self = .walletName
+
+    public var title: String {
+        switch self {
+        case .walletName:
+            lang("Wallet Name")
+        case .topAddress:
+            lang("Top Address")
+        }
+    }
+}
+
+public enum WalletCardSettings {
+    public static let topLineUserDefaultsKey = "walletCardTopLine"
+
+    public static var topLine: WalletCardTopLine {
+        let rawValue = UserDefaults.standard.string(forKey: topLineUserDefaultsKey)
+        return rawValue.flatMap(WalletCardTopLine.init(rawValue:)) ?? .defaultValue
+    }
+}
+public let APP_ROOT_URL_DOMAINS = [ "gramwallet.io", "mytonwallet.io", "mywallet.io" ]
+
+public var IS_DEBUG_OR_TESTFLIGHT_DEFAULT: Bool {
+    #if DEBUG
+    return true
+    #else
+    return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
+    #endif
+}
+
+public var IS_DEBUG_OR_TESTFLIGHT: Bool {
+    !DebugProductionMode.isEnabled && IS_DEBUG_OR_TESTFLIGHT_DEFAULT
+}
+
+public var SELF_PROTOCOL_SCHEME: String { IS_GRAM_WALLET ? "gramwallet" : "mtw" }
+public var TONCONNECT_PROTOCOL_SCHEME: String { IS_GRAM_WALLET ? "gramwallet-tc" : "mytonwallet-tc" }
+public var SELF_PROTOCOL: String { "\(SELF_PROTOCOL_SCHEME)://" }
+public var TONCONNECT_UNIVERSAL_URL: String { IS_GRAM_WALLET ? "https://connect.gramwallet.io" : "https://connect.mytonwallet.org" }
+public var SHORT_UNIVERSAL_URL: String { IS_GRAM_WALLET ? "https://go.gramwallet.io/" : "https://my.tt/" }
+public var SELF_UNIVERSAL_URLS: [String] { IS_GRAM_WALLET ? [SHORT_UNIVERSAL_URL] : [SHORT_UNIVERSAL_URL, "https://go.mytonwallet.org/"] }
+public var SELF_UNIVERSAL_URL_HOSTS: Set<String> { IS_GRAM_WALLET ? ["go.gramwallet.io"] : ["go.mytonwallet.org", "my.tt"] }

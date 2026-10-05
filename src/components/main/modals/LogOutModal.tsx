@@ -1,0 +1,261 @@
+import React, {
+  memo, useEffect, useMemo, useState,
+} from '../../../lib/teact/teact';
+import { getActions, withGlobal } from '../../../global';
+
+import type { Account, AccountState } from '../../../global/types';
+
+import renderText from '../../../global/helpers/renderText';
+import {
+  selectCurrentAccountId,
+  selectNetworkAccounts,
+  selectOrderedAccounts,
+} from '../../../global/selectors';
+import { getAccountTitle } from '../../../util/account';
+import buildClassName from '../../../util/buildClassName';
+import isViewAccount from '../../../util/isViewAccount';
+
+import useLang from '../../../hooks/useLang';
+import useLastCallback from '../../../hooks/useLastCallback';
+
+import Button from '../../ui/Button';
+import Checkbox from '../../ui/Checkbox';
+import Modal from '../../ui/Modal';
+
+import modalStyles from '../../ui/Modal.module.scss';
+import styles from './LogOutModal.module.scss';
+
+interface OwnProps {
+  isOpen?: boolean;
+  onClose: (shouldCloseSettings: boolean) => void;
+  isInAppLock?: boolean;
+  // If provided, logout will be performed for this account instead of current
+  targetAccountId?: string;
+}
+
+interface StateProps {
+  accountId: string;
+  hasManyAccounts: boolean;
+  accounts: Record<string, Account>;
+  orderedAccounts: Array<[string, Account]>;
+  accountStates: Record<string, AccountState>;
+  isBackupRequired?: boolean;
+  isViewMode: boolean;
+  isRecoveryRequired?: true;
+}
+
+interface LinkAccount {
+  id: string;
+  title: string;
+}
+
+function LogOutModal({
+  isOpen,
+  accountId,
+  hasManyAccounts,
+  orderedAccounts,
+  accountStates,
+  isBackupRequired,
+  isViewMode,
+  isRecoveryRequired,
+  isInAppLock,
+  onClose,
+}: OwnProps & StateProps) {
+  const { signOut, switchAccount } = getActions();
+
+  const lang = useLang();
+  const [isLogOutFromAllAccounts, setIsLogOutFromAllAccounts] = useState<boolean>(!!isInAppLock);
+
+  const accountsWithoutBackups = useMemo(() => {
+    if (!hasManyAccounts) {
+      return [];
+    }
+
+    return orderedAccounts.reduce<LinkAccount[]>((acc, [id, account]) => {
+      if (id !== accountId && accountStates[id]?.isBackupRequired) {
+        acc.push({
+          id,
+          title: getAccountTitle(account) ?? '',
+        });
+      }
+
+      return acc;
+    }, []);
+  }, [orderedAccounts, accountStates, accountId, hasManyAccounts]);
+
+  const recoveryRequiredAccounts = useMemo(() => {
+    if (!hasManyAccounts) {
+      return [];
+    }
+
+    return orderedAccounts.reduce<LinkAccount[]>((acc, [id, account]) => {
+      if (id !== accountId && account.isRecoveryRequired) {
+        acc.push({
+          id,
+          title: getAccountTitle(account) ?? '',
+        });
+      }
+
+      return acc;
+    }, []);
+  }, [orderedAccounts, accountId, hasManyAccounts]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setIsLogOutFromAllAccounts(!!isInAppLock);
+    }
+  }, [isOpen, isInAppLock]);
+
+  const handleSwitchAccount = (accountId: string) => {
+    onClose(false);
+    switchAccount({ accountId });
+  };
+
+  const handleLogOut = useLastCallback(() => {
+    onClose(!isLogOutFromAllAccounts && hasManyAccounts);
+    const level = isLogOutFromAllAccounts ? 'network' : 'account';
+    signOut({ level, accountId: level === 'account' ? accountId : undefined });
+  });
+
+  const handleClose = useLastCallback(() => {
+    onClose(false);
+  });
+
+  function renderAccountLink(account: LinkAccount, idx: number, list: LinkAccount[]) {
+    const { id, title } = account;
+
+    const fullClassName = buildClassName(
+      !isInAppLock && styles.accountLink,
+      idx + 2 === list.length && styles.penultimate,
+    );
+
+    if (isInAppLock) {
+      return (
+        <span key={id} className={fullClassName}>
+          <strong>{title}</strong>
+        </span>
+      );
+    }
+
+    return (
+      <span key={id} className={fullClassName}>
+        <a
+          href="#"
+          className={styles.accountLink_inner}
+          onClick={(e: React.MouseEvent) => {
+            e.preventDefault();
+            handleSwitchAccount(id);
+          }}
+        >
+          {title}
+        </a>
+      </span>
+    );
+  }
+
+  function renderBackupWarning() {
+    return (
+      <p className={modalStyles.text}>
+        <b className={styles.warning}>{lang('Warning!')}</b> {lang('$logout_without_backup_warning')}
+      </p>
+    );
+  }
+
+  function renderBackupForAccountsWarning() {
+    return (
+      <p className={modalStyles.text}>
+        <b className={styles.warning}>{lang('Warning!')}</b>{' '}
+        {lang('$logout_accounts_without_backup_warning', {
+          links: <>{accountsWithoutBackups.map(renderAccountLink)}</>,
+        })}
+      </p>
+    );
+  }
+
+  function renderRecoveryRequiredWarning() {
+    return (
+      <p className={modalStyles.text}>
+        <b className={styles.warning}>{lang('Warning!')}</b> {lang('$logout_recovery_required_warning')}
+      </p>
+    );
+  }
+
+  function renderRecoveryRequiredForAccountsWarning() {
+    return (
+      <p className={modalStyles.text}>
+        <b className={styles.warning}>{lang('Warning!')}</b>{' '}
+        {lang('$logout_recovery_required_accounts_warning', {
+          links: <>{recoveryRequiredAccounts.map(renderAccountLink)}</>,
+        })}
+      </p>
+    );
+  }
+
+  const shouldRenderWarningForAnotherAccounts = isLogOutFromAllAccounts && accountsWithoutBackups.length > 0;
+  const shouldRenderWarningForCurrentAccount = isBackupRequired && !shouldRenderWarningForAnotherAccounts;
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      isCompact
+      title={lang('Remove')}
+      onClose={handleClose}
+      isInAppLock={isInAppLock}
+    >
+      <p className={buildClassName(modalStyles.text, modalStyles.text_noExtraMargin)}>
+        {renderText(isViewMode || isRecoveryRequired
+          ? lang('$logout_current_wallet_warning')
+          : `${lang('$logout_current_wallet_warning')} ${lang('$secret_words_backup_reminder')}`)}
+      </p>
+      {!isInAppLock && hasManyAccounts && (
+        <Checkbox
+          id="logount_all_accounts"
+          className={styles.checkbox}
+          checked={isLogOutFromAllAccounts}
+          onChange={setIsLogOutFromAllAccounts}
+        >
+          {renderText(lang('$logout_confirm'))}
+        </Checkbox>
+      )}
+
+      {shouldRenderWarningForCurrentAccount && renderBackupWarning()}
+      {shouldRenderWarningForAnotherAccounts && renderBackupForAccountsWarning()}
+      {isRecoveryRequired && renderRecoveryRequiredWarning()}
+      {isLogOutFromAllAccounts && recoveryRequiredAccounts.length > 0 && renderRecoveryRequiredForAccountsWarning()}
+
+      <div className={modalStyles.buttons}>
+        <Button className={modalStyles.button} onClick={handleClose}>
+          {lang('Cancel')}
+        </Button>
+        <Button isDestructive onClick={handleLogOut} className={modalStyles.button}>
+          {lang('Exit')}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+export default memo(
+  withGlobal<OwnProps>((global, ownProps): StateProps => {
+    const accounts = selectNetworkAccounts(global) || {};
+    const orderedAccounts = selectOrderedAccounts(global);
+    const fallbackAccountId = selectCurrentAccountId(global);
+    const accountId = ownProps.targetAccountId ?? fallbackAccountId!;
+    const targetAccountState = global.byAccountId[accountId];
+    const accountIds = Object.keys(accounts);
+    const hasManyAccounts = accountIds.length > 1;
+    const targetAccount = accounts[accountId];
+    const isViewMode = targetAccount && isViewAccount(targetAccount.type);
+
+    return {
+      accountId,
+      hasManyAccounts,
+      accounts,
+      orderedAccounts,
+      accountStates: global.byAccountId,
+      isBackupRequired: targetAccountState?.isBackupRequired,
+      isViewMode,
+      isRecoveryRequired: targetAccount?.isRecoveryRequired,
+    };
+  })(LogOutModal),
+);

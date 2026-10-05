@@ -1,0 +1,34 @@
+.tokenTitle {
+  overflow: hidden;
+
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-black);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disabled {
+  color: var(--color-gray-2);
+}
+
+.labelContainer {
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+
+  max-width: 100%;
+
+  text-overflow: ellipsis
+}
+
+.tokenName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pinIcon {
+  margin-inline-end: 0.25rem;
+  color: var(--color-gray-2);
+  vertical-align: middle;
+}

@@ -1,0 +1,405 @@
+import type {
+  ApiAccountWithChain,
+  ApiActivity,
+  ApiActivityTimestamps,
+  OnApiUpdate,
+  OnUpdatingStatusChange,
+} from '../../types';
+
+import { parseAccountId } from '../../../util/account';
+import { getChainConfig } from '../../../util/chain';
+import { focusAwareDelay } from '../../../util/focusAwareDelay';
+import { compact } from '../../../util/iteratees';
+import { logDebugError } from '../../../util/logs';
+import { throttle } from '../../../util/schedulers';
+import { NftStream } from './util/nftStream';
+import { getHeliusSocket } from './util/socket';
+import { fetchStoredWallet } from '../../common/accounts';
+import { getConcurrencyLimiter } from '../../common/polling/setupInactiveChainPolling';
+import {
+  activeNftTiming, activeWalletTiming, inactiveNftTiming, inactiveWalletTiming, periodToMs,
+} from '../../common/polling/utils';
+import { swapReplaceActivities } from '../../common/swap';
+import { sendUpdateTokens } from '../../common/tokens';
+import { txCallbacks } from '../../common/txCallbacks';
+import { BalanceStream } from '../../common/websocket/balanceStream';
+import { FIRST_TRANSACTIONS_LIMIT, MINUTE } from '../../constants';
+import { getTokenActivitySlice } from './activities';
+import { fetchAccountAssets, getIsWalletActive } from './wallet';
+
+const activeSolanaWalletTiming = {
+  ...activeWalletTiming,
+  forcedPollingPeriod: { focused: 3 * MINUTE, notFocused: 10 * MINUTE },
+};
+
+const inactiveSolanaWalletTiming = {
+  ...inactiveWalletTiming,
+  forcedPollingPeriod: { focused: 10 * MINUTE, notFocused: 10 * MINUTE },
+};
+
+export function setupActivePolling(
+  accountId: string,
+  account: ApiAccountWithChain<'solana'>,
+  onUpdate: OnApiUpdate,
+  onUpdatingStatusChange: OnUpdatingStatusChange,
+  newestActivityTimestamps: ApiActivityTimestamps,
+  shouldResetBalances?: boolean,
+): NoneToVoidFunction {
+  const { address } = account.byChain.solana;
+  let markWalletActiveForBalancePolling: NoneToVoidFunction = () => {};
+
+  const activityPolling = setupActivityPolling(
+    accountId,
+    newestActivityTimestamps,
+    onUpdate,
+    onUpdatingStatusChange.bind(undefined, 'activities'),
+    () => markWalletActiveForBalancePolling(),
+  );
+
+  const nftPolling = setupNftPolling(
+    accountId,
+    address,
+    true,
+    activityPolling.update,
+    onUpdate,
+    () => markWalletActiveForBalancePolling(),
+  );
+
+  const balancePolling = setupBalancePolling(
+    accountId,
+    address,
+    true,
+    activityPolling.update,
+    onUpdate,
+    onUpdatingStatusChange.bind(undefined, 'balance'),
+    shouldResetBalances,
+  );
+  markWalletActiveForBalancePolling = balancePolling.markWalletActiveAndForcePoll;
+
+  return () => {
+    nftPolling.stop();
+    balancePolling.stop();
+  };
+}
+
+function setupBalancePolling(
+  accountId: string,
+  address: string,
+  isActive: boolean,
+  activityUpdate: NoneToVoidFunction,
+  onUpdate: OnApiUpdate,
+  onUpdatingStatusChange?: (isUpdating: boolean) => void,
+  shouldResetBalances?: boolean,
+) {
+  const { network } = parseAccountId(accountId);
+
+  const checkIsWalletActive = async () => {
+    return await getIsWalletActive(network, address);
+  };
+
+  if (shouldResetBalances) {
+    onUpdate({
+      type: 'updateBalances',
+      accountId,
+      chain: 'solana',
+      balances: {
+        [getChainConfig('solana').nativeToken.slug]: 0n,
+      },
+    });
+  }
+
+  const balanceStream = new BalanceStream({
+    chain: 'solana',
+    wsClient: getHeliusSocket(network),
+    network,
+    address,
+    sendUpdateTokens: () => sendUpdateTokens(onUpdate),
+    fallbackPollingOptions: isActive ? activeSolanaWalletTiming : inactiveSolanaWalletTiming,
+    fetchBalancesCb: async (...args) => ({ balances: await fetchAccountAssets(...args) }),
+    fetchCrosschainBalancesCb: undefined,
+    importUnknownTokens: undefined,
+    loadingConcurrencyLimiter: isActive ? undefined : getConcurrencyLimiter('solana', network),
+    ensureIsPollingNeeded: checkIsWalletActive,
+  });
+
+  balanceStream.onUpdate((balances) => {
+    onUpdate({
+      type: 'updateBalances',
+      accountId,
+      chain: 'solana',
+      balances,
+    });
+    activityUpdate();
+  });
+
+  if (onUpdatingStatusChange) {
+    balanceStream.onLoadingChange(onUpdatingStatusChange);
+  }
+  balanceStream.start();
+
+  return {
+    stop() {
+      balanceStream.destroy();
+    },
+    getBalances() {
+      return balanceStream.getBalances();
+    },
+    markWalletActiveAndForcePoll() {
+      balanceStream.markWalletActiveAndForcePoll();
+    },
+  };
+}
+
+function setupActivityPolling(
+  accountId: string,
+  newestActivityTimestamps: ApiActivityTimestamps,
+  onUpdate: OnApiUpdate,
+  onUpdatingStatusChange: (isUpdating: boolean) => void,
+  onActivityDetected: NoneToVoidFunction,
+) {
+  const initialTimestamps = compact(Object.values(newestActivityTimestamps));
+  let newestConfirmedActivityTimestamp = initialTimestamps.length ? Math.max(...initialTimestamps) : undefined;
+
+  // Tracks the last timestamp for which the API returned no new activities.
+  // Prevents redundant re-queries (e.g., the throttle's scheduled second run after an empty response).
+  // Reset every time a new external signal arrives via update(), so real transactions are never skipped.
+  let lastEmptyTimestamp: number | undefined;
+
+  async function rawUpdate() {
+    if (newestConfirmedActivityTimestamp !== undefined && newestConfirmedActivityTimestamp === lastEmptyTimestamp) {
+      return;
+    }
+
+    onUpdatingStatusChange(true);
+
+    try {
+      if (newestConfirmedActivityTimestamp === undefined) {
+        const result = await loadInitialActivities(accountId, onUpdate);
+        const timestamps = compact(Object.values(result));
+
+        newestConfirmedActivityTimestamp = timestamps.length ? Math.max(...timestamps) : undefined;
+        if (timestamps.length) {
+          onActivityDetected();
+        }
+      } else {
+        const result = await loadNewActivities(accountId, newestConfirmedActivityTimestamp, onUpdate);
+        const newTimestamps = compact(Object.values(result));
+
+        if (newTimestamps.length && Math.max(...newTimestamps) > newestConfirmedActivityTimestamp) {
+          newestConfirmedActivityTimestamp = Math.max(newestConfirmedActivityTimestamp, Math.max(...newTimestamps));
+          onActivityDetected();
+        } else {
+          lastEmptyTimestamp = newestConfirmedActivityTimestamp;
+        }
+      }
+    } catch (err) {
+      logDebugError('setupActivityPolling update', err);
+    } finally {
+      onUpdatingStatusChange(false);
+    }
+  }
+
+  const throttledUpdate = throttle(rawUpdate, () => focusAwareDelay(...periodToMs(activeWalletTiming.minPollDelay)));
+
+  function update() {
+    lastEmptyTimestamp = undefined;
+    throttledUpdate();
+  }
+
+  // The balance stream skips uninitialized wallets (`ensureIsPollingNeeded`), so its updates -
+  // the only other trigger of `update()` - never fire for a fresh wallet. Without this initial
+  // load the chain never emits `initialActivities`, and the whole multi-chain feed waits for it.
+  if (newestConfirmedActivityTimestamp === undefined) {
+    update();
+  }
+
+  return { update };
+}
+
+function setupNftPolling(
+  accountId: string,
+  address: string,
+  isActive: boolean,
+  activityUpdate: NoneToVoidFunction,
+  onUpdate: OnApiUpdate,
+  onNftActivity?: NoneToVoidFunction,
+) {
+  const nftStream = new NftStream(
+    parseAccountId(accountId).network,
+    address,
+    accountId,
+    isActive ? activeNftTiming : inactiveNftTiming,
+  );
+
+  nftStream.onUpdate((params) => {
+    if (params.direction === 'set') {
+      onUpdate({
+        type: 'updateNfts',
+        accountId,
+        nfts: params.nfts,
+        chain: 'solana',
+        isFullLoading: params.isFullLoading,
+        streamedAddresses: params.streamedAddresses,
+      });
+      if (!params.hasNewNfts) return;
+    }
+    if (params.direction === 'send') {
+      onUpdate({
+        type: 'nftSent',
+        accountId,
+        chain: 'solana',
+        nftAddress: params.nftAddress,
+        newOwnerAddress: params.newOwner,
+      });
+    }
+    if (params.direction === 'receive') {
+      onUpdate({
+        type: 'nftReceived',
+        accountId,
+        nft: params.nft,
+        nftAddress: params.nft.address,
+      });
+    }
+
+    onNftActivity?.();
+    activityUpdate();
+  });
+
+  return {
+    stop() {
+      nftStream.destroy();
+    },
+  };
+}
+
+export function setupInactivePolling(
+  accountId: string,
+  account: ApiAccountWithChain<'solana'>,
+  onUpdate: OnApiUpdate,
+): NoneToVoidFunction {
+  const { address } = account.byChain.solana;
+
+  const balancePolling = setupBalancePolling(accountId, address, false, () => {}, onUpdate);
+
+  return balancePolling.stop;
+}
+
+async function loadInitialActivities(accountId: string, onUpdate: OnApiUpdate) {
+  try {
+    const { network } = parseAccountId(accountId);
+    const { address } = await fetchStoredWallet(accountId, 'solana');
+    const result: ApiActivityTimestamps = {};
+    const bySlug: Record<string, ApiActivity[]> = {};
+
+    const { activities: slice, hasMore: mainHistoryHasMore } = await getTokenActivitySlice(
+      network,
+      address,
+      undefined,
+      undefined,
+      undefined,
+      FIRST_TRANSACTIONS_LIMIT,
+    );
+    const activities = await swapReplaceActivities(accountId, slice, undefined, true);
+
+    for (const tx of activities) {
+      if (tx.kind === 'transaction') {
+        bySlug[tx.slug] = [...(bySlug[tx.slug] || []), tx];
+        result[tx.slug] = bySlug[tx.slug][0].timestamp;
+      } else {
+        bySlug[tx.from] = [...(bySlug[tx.from] || []), tx];
+        bySlug[tx.to] = [...(bySlug[tx.to] || []), tx];
+
+        result[tx.from] = bySlug[tx.from][0].timestamp;
+        result[tx.to] = bySlug[tx.to][0].timestamp;
+      }
+    }
+
+    const mainActivities = activities;
+
+    mainActivities
+      .slice()
+      .reverse()
+      .forEach((transaction) => {
+        txCallbacks.runCallbacks(transaction);
+      });
+
+    onUpdate({
+      type: 'initialActivities',
+      chain: 'solana',
+      accountId,
+      mainActivities,
+      mainHistoryHasMore,
+      bySlug,
+    });
+
+    return result;
+  } catch (err) {
+    // Ensure `areInitialActivitiesLoaded.solana = true` even on failure so
+    // `waitInitialActivityLoading` unblocks and other chains stay visible.
+    onUpdate({
+      type: 'initialActivities',
+      chain: 'solana',
+      accountId,
+      mainActivities: [],
+      bySlug: {},
+    });
+    throw err;
+  }
+}
+
+async function loadNewActivities(
+  accountId: string,
+  newestActivityTimestamp: number,
+  onUpdate: OnApiUpdate,
+) {
+  const { network } = parseAccountId(accountId);
+  const { address } = await fetchStoredWallet(accountId, 'solana');
+  const result: ApiActivityTimestamps = {};
+  const bySlug: Record<string, ApiActivity[]> = {};
+
+  const { activities: slice } = await getTokenActivitySlice(
+    network,
+    address,
+    undefined,
+    undefined,
+    newestActivityTimestamp,
+    FIRST_TRANSACTIONS_LIMIT,
+  );
+
+  const rawActivities = await swapReplaceActivities(accountId, slice, undefined, true);
+
+  for (const tx of rawActivities) {
+    if (tx.kind === 'transaction') {
+      bySlug[tx.slug] = [...(bySlug[tx.slug] || []), tx];
+
+      result[tx.slug] = bySlug[tx.slug][0].timestamp;
+    } else {
+      bySlug[tx.from] = [...(bySlug[tx.from] || []), tx];
+      bySlug[tx.to] = [...(bySlug[tx.to] || []), tx];
+
+      result[tx.from] = bySlug[tx.from][0].timestamp;
+      result[tx.to] = bySlug[tx.to][0].timestamp;
+    }
+  }
+
+  const activities = rawActivities;
+
+  activities
+    .slice()
+    .reverse()
+    .forEach((activity) => {
+      txCallbacks.runCallbacks(activity);
+    });
+
+  if (activities.length > 0) {
+    onUpdate({
+      type: 'newActivities',
+      chain: 'solana',
+      activities,
+      pendingActivities: [],
+      accountId,
+    });
+  }
+
+  return result;
+}

@@ -1,0 +1,1304 @@
+# Terms:
+# "build" - Compile web project using webpack.
+# "package" - Produce a distributive package for a specific platform as a workflow artifact.
+# "publish" - Send a package to corresponding store and GitHub release page.
+# "release" - build + package + publish
+#
+# Jobs in this workflow will skip the "publish" step when `PUBLISH_REPO` is not set.
+
+name: Package and publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      android_variant:
+        description: Android app variant to release
+        required: true
+        type: choice
+        default: both
+        options:
+          - both
+          - none
+          - mytonwallet
+          - gram
+      ios_variant:
+        description: iOS app variant to release
+        required: true
+        type: choice
+        default: both
+        options:
+          - both
+          - none
+          - mytonwallet
+          - gram
+      android_rollout:
+        description: "Android rollout: a fraction between 0 and 1, or `full` for everyone at once"
+        required: false
+        type: string
+        default: "0.1"
+  push:
+    branches:
+      - master
+      - release/**
+
+permissions:
+  contents: write
+  actions: read # read this workflow's own run history to derive the RC ordinal
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # The active run finishes and the newest waiting run supersedes any queued between them, so
+  # frequent pushes cannot starve the pipeline of completed builds. The group deliberately spans
+  # pushes and manual dispatches on a ref (two runs must not publish to the stores concurrently),
+  # so a waiting dispatch can itself be superseded by a later push - re-dispatch if it vanishes
+  cancel-in-progress: false
+
+env:
+  # Base of downloadable artifact filenames (dmg/exe/AppImage/apk). The user-visible
+  # app name is NOT set here - src/config.ts derives it per flavor ('My Wallet',
+  # 'Gram Wallet', 'TON Wallet'), and the TonConnect protocol identity stays
+  # 'MyTonWallet' via the mapping in src/util/tonConnectEnvironment.ts.
+  # Must match `artifactName` in src/electron/config.yml (pinned by config.test.ts).
+  ARTIFACT_NAME_BASE: MyWallet
+  PROXY_HOSTS: ${{ vars.PROXY_HOSTS }}
+  STAKING_POOLS: ${{ vars.STAKING_POOLS }}
+  PUBLISH_REPO: ${{ vars.PUBLISH_REPO }}
+  BRILLIANT_API_BASE_URL: ${{ vars.BRILLIANT_API_BASE_URL }}
+  SWAP_FEE_ADDRESS: ${{ vars.SWAP_FEE_ADDRESS }}
+  DIESEL_ADDRESS: ${{ vars.DIESEL_ADDRESS }}
+  WALLET_CONNECT_PROJECT_ID: ${{ vars.WALLET_CONNECT_PROJECT_ID }}
+  WALLET_CONNECT_PAY_APP_ID: ${{ vars.WALLET_CONNECT_PAY_APP_ID }}
+  AGENT_API_URL: ${{ vars.AGENT_API_URL }}
+
+jobs:
+  detect-changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      android-only: ${{ steps.filter.outputs.android-only }}
+      ios-only: ${{ steps.filter.outputs.ios-only }}
+      electron-changed: ${{ steps.filter.outputs.electron-changed }}
+      android-variants: ${{ steps.filter.outputs.android-variants }}
+      ios-variants: ${{ steps.filter.outputs.ios-variants }}
+      rc-number: ${{ steps.rc.outputs.rc-number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Compute RC ordinal
+        id: rc
+        if: startsWith(github.ref, 'refs/heads/release/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Nth store build cut from this release branch (each push = one run; a re-run keeps
+          # its run, so it never advances N). Feeds the -rc.N version and the build notes.
+          # Emit ONLY a bare integer or nothing: an API failure returns an error body, not a
+          # count, so anything non-numeric is discarded to empty. The Fastfiles then read "no
+          # ordinal" and omit the -rc.N label rather than letting a stray string reach the
+          # Android version name (an unquoted error body once broke the gradle build file).
+          count=$(gh api "repos/${{ github.repository }}/actions/workflows/package-and-publish.yml/runs?branch=${{ github.ref_name }}&per_page=100" --jq '.total_count' 2>/dev/null || true)
+          case "$count" in ''|*[!0-9]*) count= ;; esac
+          echo "rc-number=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Check changed paths
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ANDROID_SELECTED=true
+            IOS_SELECTED=true
+
+            case "${{ inputs.android_variant }}" in
+              none)
+                ANDROID_SELECTED=false
+                echo 'android-variants=[]' >> "$GITHUB_OUTPUT"
+                ;;
+              mytonwallet)
+                echo 'android-variants=["mytonwallet"]' >> "$GITHUB_OUTPUT"
+                ;;
+              gram)
+                echo 'android-variants=["gram"]' >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo 'android-variants=["mytonwallet","gram"]' >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+            case "${{ inputs.ios_variant }}" in
+              none)
+                IOS_SELECTED=false
+                echo 'ios-variants=[]' >> "$GITHUB_OUTPUT"
+                ;;
+              mytonwallet)
+                echo 'ios-variants=["mytonwallet"]' >> "$GITHUB_OUTPUT"
+                ;;
+              gram)
+                echo 'ios-variants=["gram"]' >> "$GITHUB_OUTPUT"
+                ;;
+              *)
+                echo 'ios-variants=["mytonwallet","gram"]' >> "$GITHUB_OUTPUT"
+                ;;
+            esac
+
+            if [ "$ANDROID_SELECTED" = "true" ] && [ "$IOS_SELECTED" = "false" ]; then
+              echo "android-only=true" >> "$GITHUB_OUTPUT"
+              echo "ios-only=false" >> "$GITHUB_OUTPUT"
+              echo "electron-changed=false" >> "$GITHUB_OUTPUT"
+            elif [ "$ANDROID_SELECTED" = "false" ] && [ "$IOS_SELECTED" = "true" ]; then
+              echo "android-only=false" >> "$GITHUB_OUTPUT"
+              echo "ios-only=true" >> "$GITHUB_OUTPUT"
+              echo "electron-changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "android-only=false" >> "$GITHUB_OUTPUT"
+              echo "ios-only=false" >> "$GITHUB_OUTPUT"
+              echo "electron-changed=true" >> "$GITHUB_OUTPUT"
+            fi
+
+            echo "Manual dispatch — using selected variants"
+            exit 0
+          fi
+
+          if [ -n "$PUBLISH_REPO" ]; then
+            echo "android-only=false" >> "$GITHUB_OUTPUT"
+            echo "ios-only=false" >> "$GITHUB_OUTPUT"
+            echo "electron-changed=true" >> "$GITHUB_OUTPUT"
+            echo 'android-variants=["mytonwallet","gram"]' >> "$GITHUB_OUTPUT"
+            echo 'ios-variants=["mytonwallet","gram"]' >> "$GITHUB_OUTPUT"
+            echo "Production release — building automatic platform variants"
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+
+          # Check if ALL changes are exclusively in mobile/android/ or mobile/ios/
+          ANDROID_ONLY="true"
+          IOS_ONLY="true"
+          ELECTRON_CHANGED="false"
+          while IFS= read -r file; do
+            if [[ ! "$file" =~ ^mobile/android/ ]]; then
+              ANDROID_ONLY="false"
+            fi
+            if [[ ! "$file" =~ ^mobile/ios/ ]]; then
+              IOS_ONLY="false"
+            fi
+            if [[ "$file" =~ ^src/electron/ ]]; then
+              ELECTRON_CHANGED="true"
+            fi
+          done <<< "$CHANGED"
+
+          # A release branch is a release candidate, so every push off it owes testers a build of
+          # each mobile platform regardless of what the tip commit happens to touch. The filter
+          # above reads HEAD~1..HEAD, which describes one commit rather than the push: on 26.9 an
+          # Android-only commit landed last and took the whole iOS matrix down with it, leaving the
+          # Agent V1 restoration with no TestFlight build to verify it.
+          if [[ "$GITHUB_REF" == refs/heads/release/* ]]; then
+            ANDROID_ONLY="false"
+            IOS_ONLY="false"
+          fi
+
+          echo "android-only=$ANDROID_ONLY" >> "$GITHUB_OUTPUT"
+          echo "ios-only=$IOS_ONLY" >> "$GITHUB_OUTPUT"
+          echo "electron-changed=$ELECTRON_CHANGED" >> "$GITHUB_OUTPUT"
+          echo 'android-variants=["mytonwallet","gram"]' >> "$GITHUB_OUTPUT"
+          echo 'ios-variants=["mytonwallet","gram"]' >> "$GITHUB_OUTPUT"
+          echo "Changed files:"
+          echo "$CHANGED"
+          echo "android-only=$ANDROID_ONLY, ios-only=$IOS_ONLY, electron-changed=$ELECTRON_CHANGED"
+
+  electron-release:
+    name: Build, package and publish Electron
+    needs: detect-changes
+    if: needs.detect-changes.outputs.electron-changed == 'true'
+    runs-on: macos-15
+    environment: production
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Import MacOS signing certificate
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          KEY_CHAIN=build.keychain
+          CERTIFICATE_P12=certificate.p12
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > $CERTIFICATE_P12
+          security create-keychain -p actions $KEY_CHAIN
+          security default-keychain -s $KEY_CHAIN
+          security unlock-keychain -p actions $KEY_CHAIN
+          security import $CERTIFICATE_P12 -k $KEY_CHAIN -P $APPLE_CERTIFICATE_PASSWORD -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k actions $KEY_CHAIN
+          security find-identity -v -p codesigning $KEY_CHAIN
+
+      - name: Get branch name for current workflow run
+        id: branch-name
+        uses: tj-actions/branch-names@v7
+
+      # Staging has no publish block in config.yml. Mutate the single canonical config in place (rather
+      # than a second file that would duplicate the funds-critical appId/productName) so the generic
+      # provider bakes the feed URL into app-update.yml. This URL must equal BETA_UPDATE_URL in config.ts.
+      - name: Point staging electron-builder at the beta feed
+        if: env.PUBLISH_REPO == ''
+        run: |
+          yq -i '.publish = {"provider":"generic","url":"https://s3.mywallet.io/public/desktop-beta"} | .mac.artifactName = "MyWallet-${version}-${arch}.${ext}"' src/electron/config.yml
+          echo "Effective staging publish/artifactName:"
+          yq '.publish, .mac.artifactName' src/electron/config.yml
+
+      - name: Build, package and publish
+        env:
+          ELECTRON_TONCENTER_MAINNET_KEY: ${{ secrets.ELECTRON_TONCENTER_MAINNET_KEY }}
+          ELECTRON_TONCENTER_TESTNET_KEY: ${{ secrets.ELECTRON_TONCENTER_TESTNET_KEY }}
+
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_URL: ${{ vars.BASE_URL }}
+          IS_PREVIEW: ${{ steps.branch-name.outputs.current_branch != 'master' }}
+        run: |
+          if [ -z "$PUBLISH_REPO" ]; then
+            npm run electron:package:staging
+          else
+            npm run electron:release:production
+          fi
+
+      # electron-builder publishes the draft release itself, so the release exists with an UNSIGNED
+      # Windows installer before signing runs. Signing and the feed recompute used to live in
+      # `publish-release`, which is skipped on manual dispatches and on release branches - both
+      # paths left a draft that looked complete and shipped an unsigned exe once a human pressed
+      # Publish (v26.7.0). Delete the installer as soon as it is published instead: a draft that
+      # never carries an unsigned exe cannot become a release with one, no matter which path
+      # reaches the publish button. `electron-publish-windows` puts the signed one back.
+      - name: Remove the unsigned Windows installer from the draft release
+        if: env.PUBLISH_REPO != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$PUBLISH_REPO/releases?per_page=100" | jq -r 'max_by(.created_at).id')
+
+          for NAME in "${{ env.ARTIFACT_NAME_BASE }}-x64.exe" "${{ env.ARTIFACT_NAME_BASE }}-x64.exe.blockmap"; do
+            ASSET_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID/assets" \
+              | jq -r --arg NAME "$NAME" '.[] | select(.name == $NAME) | .id')
+
+            if [ -z "$ASSET_ID" ] || [ "$ASSET_ID" = "null" ]; then
+              echo "$NAME is not among the release assets - nothing to remove"
+              continue
+            fi
+
+            curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$PUBLISH_REPO/releases/assets/$ASSET_ID"
+            echo "Removed unsigned $NAME"
+          done
+
+      # The mac dmgs are globbed by name here and re-globbed as `mac-*-dmg` by the beta publish job. The
+      # `*` matches both the production fixed name (MyWallet-x64.dmg) and the staging versioned one
+      # (MyWallet-<version>-x64.dmg); the default productName "My Wallet" has a space and would not.
+      - name: Upload macOS x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-x64-dmg
+          path: dist-electron/MyWallet-*x64.dmg
+          if-no-files-found: error
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-arm64-dmg
+          path: dist-electron/MyWallet-*arm64.dmg
+          if-no-files-found: error
+
+      - name: Upload mac feed for beta publish
+        if: env.PUBLISH_REPO == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-feed
+          path: |
+            dist-electron/MyWallet-*.zip
+            dist-electron/MyWallet-*.zip.blockmap
+            dist-electron/latest-mac.yml
+          if-no-files-found: error
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME_BASE }}-x86_64.AppImage
+          path: dist-electron/${{ env.ARTIFACT_NAME_BASE }}-x86_64.AppImage
+          if-no-files-found: error
+
+      - name: Upload Windows x64 artifact (unsigned)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME_BASE }}-x64-unsigned.exe
+          path: dist-electron/${{ env.ARTIFACT_NAME_BASE }}-x64.exe
+          if-no-files-found: error
+
+  electron-sign-for-windows:
+    name: Sign and re-publish Windows package
+    needs: electron-release
+    runs-on: windows-latest
+    environment: production
+    timeout-minutes: 10
+    if: vars.PUBLISH_REPO != ''
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Install DigiCert Client tools
+        uses: digicert/ssm-code-signing@v1.0.1
+
+      - name: Setup certificate
+        shell: bash
+        run: echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 --decode > /d/Certificate_pkcs12.p12
+
+      - name: Set environment variables
+        id: variables
+        shell: bash
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "FILE_NAME_X64=${{ env.ARTIFACT_NAME_BASE }}-x64.exe" >> "$GITHUB_ENV"
+          echo "SM_HOST=${{ secrets.SM_HOST }}" >> "$GITHUB_ENV"
+          echo "SM_API_KEY=${{ secrets.SM_API_KEY }}" >> "$GITHUB_ENV"
+          echo "SM_CLIENT_CERT_FILE=D:\\Certificate_pkcs12.p12" >> "$GITHUB_ENV"
+          echo "SM_CLIENT_CERT_PASSWORD=${{ secrets.SM_CLIENT_CERT_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "C:\Program Files (x86)\Windows Kits\10\App Certification Kit" >> $GITHUB_PATH
+          echo "C:\Program Files (x86)\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.8 Tools" >> $GITHUB_PATH
+          echo "C:\Program Files\DigiCert\DigiCert One Signing Manager Tools" >> $GITHUB_PATH
+
+      - name: Download Windows x64 package
+        id: download-x64
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME_BASE }}-x64-unsigned.exe
+
+      - name: Sign Windows packages
+        env:
+          KEYPAIR_ALIAS: ${{ secrets.KEYPAIR_ALIAS }}
+
+          FILE_PATH_X64: ${{ steps.download-x64.outputs.download-path }}
+        shell: cmd
+        run: |
+          smctl.exe sign --keypair-alias=%KEYPAIR_ALIAS% --input "%FILE_PATH_X64%\%FILE_NAME_X64%"
+
+      - name: Upload signed x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.FILE_NAME_X64 }}
+          path: ${{ steps.download-x64.outputs.download-path }}/${{ env.FILE_NAME_X64 }}
+
+  electron-beta-publish:
+    name: Publish beta desktop feed to MinIO
+    needs: electron-release
+    if: github.ref == 'refs/heads/master' && vars.PUBLISH_REPO == ''
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    # A publish writes several files to one feed in sequence. Serialize runs and never cancel one
+    # mid-way: an interrupted publish leaves the feed half-rewritten, mixing files of two versions.
+    concurrency:
+      group: beta-feed-publish
+      cancel-in-progress: false
+    steps:
+      - name: Download mac feed
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-feed
+          path: feed
+      - name: Download mac DMGs
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mac-*-dmg
+          path: feed
+          merge-multiple: true
+      - name: Prepare MinIO client
+        uses: mytonwallet-org/shared-actions/prepare_minio@master
+        with:
+          endpoint: ${{ secrets.S3_ENDPOINT }}
+          access-key: ${{ vars.S3_ACCESS_KEY }}
+          secret-key: ${{ secrets.S3_SECRET_KEY }}
+          mc-version: ${{ vars.MC_VERSION }}
+      - name: Skip if this version is already published
+        id: guard
+        run: |
+          set -euo pipefail
+          BUILD_VER=$(yq '.version' feed/latest-mac.yml)
+          GATE=$(mc cat s3/public/desktop-beta/electronVersion.txt 2>/dev/null || echo "0.0.0")
+          HIGHEST=$(printf '%s\n%s\n' "$GATE" "$BUILD_VER" | sort -V | tail -1)
+          echo "build=$BUILD_VER gate=$GATE highest=$HIGHEST"
+          # electronVersion.txt is the gate the client polls before it downloads, so a build no newer than
+          # the gate can never reach a tester - skip it. sort -V compares versions, not strings; the second
+          # branch (highest still the gate) also catches an out-of-order run trying to roll the feed back.
+          if [ "$GATE" = "$BUILD_VER" ] || [ "$HIGHEST" = "$GATE" ]; then
+            echo "::warning::gate ($GATE) >= build ($BUILD_VER); the build cannot reach testers - skipping publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "build_ver=$BUILD_VER" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish feed
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          D=s3/public/desktop-beta
+          # Order is load-bearing: payloads and manifest first, the gate (electronVersion.txt) LAST. The
+          # client polls the gate every few minutes; raising it before its files are up sends a client that
+          # polls in the gap to fetch a version the feed cannot serve yet.
+          mc cp feed/MyWallet-*.zip feed/MyWallet-*.zip.blockmap "$D/"
+          mc cp feed/MyWallet-*x64.dmg   "$D/MyWallet-x64.dmg"
+          mc cp feed/MyWallet-*arm64.dmg "$D/MyWallet-arm64.dmg"
+          mc cp feed/latest-mac.yml "$D/latest-mac.yml"
+          printf '%s' "${{ steps.guard.outputs.build_ver }}" | mc pipe "$D/electronVersion.txt"
+      - name: Prune old beta payloads
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          D=s3/public/desktop-beta
+          for arch in x64 arm64; do
+            mc ls "$D/" | awk '{print $NF}' | grep -E "^MyWallet-.*-${arch}\.zip$" | sort -V | head -n -3 | while read -r f; do
+              mc rm "$D/$f" "$D/$f.blockmap" || true
+            done
+          done
+
+  # Runs on every path that creates a draft release (the same `PUBLISH_REPO` condition that makes
+  # electron-builder publish one), not only on the master push that `publish-release` is gated to.
+  # The draft has no Windows installer until this job lands the signed one.
+  electron-publish-windows:
+    name: Publish signed Windows package
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 15
+    needs: electron-sign-for-windows
+    if: vars.PUBLISH_REPO != ''
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Set environment variables
+        run: |
+          echo "WINDOWS_X64_FILE_NAME=${{ env.ARTIFACT_NAME_BASE }}-x64.exe" >> "$GITHUB_ENV"
+
+      - name: Download signed Windows x64 package
+        id: dl_win_x64
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME_BASE }}-x64.exe
+
+      - name: Publish the signed installer and its feed
+        env:
+          FILE_PATH_X64: ${{ steps.dl_win_x64.outputs.download-path }}
+        run: |
+          set -e
+
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$PUBLISH_REPO/releases?per_page=100" | jq -r 'max_by(.created_at).id')
+
+          upload () {
+            local FILE_PATH="$1"
+            local FILE_NAME="$2"
+            local PUBLISH_FILE_NAME="${FILE_NAME// /-}"
+
+            ASSET_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID/assets" \
+              | jq -r --arg PUBLISH_FILE_NAME "$PUBLISH_FILE_NAME" '.[] | select(.name == $PUBLISH_FILE_NAME) | .id')
+
+            if [ "$ASSET_ID" != "null" ] && [ -n "$ASSET_ID" ]; then
+              curl -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/$PUBLISH_REPO/releases/assets/$ASSET_ID"
+            fi
+
+            curl -X POST -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$FILE_PATH/$FILE_NAME" \
+              "https://uploads.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID/assets?name=$PUBLISH_FILE_NAME"
+
+            echo "Uploaded $FILE_NAME"
+          }
+
+          upload "$FILE_PATH_X64" "$WINDOWS_X64_FILE_NAME"
+
+          # electron-builder published latest.yml before the exe was signed, so the feed still
+          # describes the unsigned bytes and electron-updater rejects the download on sha512
+          # mismatch. Recompute the metadata from the signed exe with the same tool
+          # electron-builder uses and republish the feed together with its blockmap.
+          npm install --no-save --no-audit --no-fund app-builder-bin@5.0.0-alpha.12
+          APP_BUILDER=node_modules/app-builder-bin/linux/x64/app-builder
+
+          YML_ASSET_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID/assets" \
+            | jq -r '.[] | select(.name == "latest.yml") | .id')
+          curl -sL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+            "https://api.github.com/repos/$PUBLISH_REPO/releases/assets/$YML_ASSET_ID" -o latest.yml
+
+          BLOCKMAP_NAME="${WINDOWS_X64_FILE_NAME// /-}.blockmap"
+          META=$("$APP_BUILDER" blockmap --input "$FILE_PATH_X64/$WINDOWS_X64_FILE_NAME" --output "$BLOCKMAP_NAME")
+          NEW_SHA512=$(echo "$META" | jq -r '.sha512')
+          NEW_SIZE=$(echo "$META" | jq -r '.size')
+          OLD_SHA512=$(grep -m1 'sha512:' latest.yml | awk '{print $2}')
+          OLD_SIZE=$(grep -m1 'size:' latest.yml | awk '{print $2}')
+
+          if [ -z "$OLD_SHA512" ] || [ -z "$OLD_SIZE" ]; then
+            echo "latest.yml carries no sha512/size - refusing to publish an inconsistent feed"
+            exit 1
+          fi
+
+          # base64 uses only [A-Za-z0-9+/=], so "|" is a safe sed delimiter and the
+          # replacement cannot contain "&" or "\".
+          sed -i "s|$OLD_SHA512|$NEW_SHA512|g; s|size: $OLD_SIZE|size: $NEW_SIZE|" latest.yml
+
+          upload "." "latest.yml"
+          upload "." "$BLOCKMAP_NAME"
+
+  extensions-package:
+    name: Build and package extensions
+    needs: detect-changes
+    if: needs.detect-changes.outputs.android-only != 'true' && needs.detect-changes.outputs.ios-only != 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Build and package
+        run: |
+          export APP_COMMIT_HASH=${{ github.sha }}
+          if [ -z "$PUBLISH_REPO" ]; then
+            npm run extension-chrome:package:staging
+            npm run extension-firefox:package:staging
+          else
+            npm run extension-chrome:package:production
+            npm run extension-firefox:package:production
+          fi
+
+      - name: Upload Chrome extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME_BASE }}-chrome.zip
+          path: ${{ env.ARTIFACT_NAME_BASE }}-chrome.zip
+
+      - name: Upload Firefox extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME_BASE }}-firefox.zip
+          path: ${{ env.ARTIFACT_NAME_BASE }}-firefox.zip
+
+  chrome-publish:
+    name: Publish Chrome extension
+    needs: extensions-package
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    if: vars.PUBLISH_REPO != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          dont-install-npm-packages: true
+          node-version: ${{ vars.NODE_VERSION }}
+      - name: Set environment variables
+        id: variables
+        run: |
+          echo "CHROME_FILE_NAME=${{ env.ARTIFACT_NAME_BASE }}-chrome.zip" >> "$GITHUB_ENV"
+          echo "FIREFOX_FILE_NAME=${{ env.ARTIFACT_NAME_BASE }}-firefox.zip" >> "$GITHUB_ENV"
+
+      - name: Download Chrome extension artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CHROME_FILE_NAME }}
+
+      - name: Publish to Chrome store
+        env:
+          EXTENSION_ID: ${{ vars.CHROME_EXTENSION_ID }}
+          CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+        run: npx --yes chrome-webstore-upload-cli@2 upload --auto-publish --source ${{ env.CHROME_FILE_NAME }}
+
+  firefox-publish:
+    name: Publish Firefox extension
+    needs: extensions-package
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    if: vars.PUBLISH_REPO != ''
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          dont-install-npm-packages: true
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Set environment variables
+        id: variables
+        run: |
+          echo "FIREFOX_FILE_NAME=${{ env.ARTIFACT_NAME_BASE }}-firefox.zip" >> "$GITHUB_ENV"
+
+      - name: Download Firefox extension artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.FIREFOX_FILE_NAME }}
+
+      - name: Publish to Firefox addons
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.FIREFOX_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.FIREFOX_API_SECRET }}
+          FIREFOX_EXTENSION_ID: ${{ vars.FIREFOX_EXTENSION_ID }}
+        run: |
+          npm i jsonwebtoken@9 web-ext-submit@7
+          UNZIP_DIR=/tmp/${{ env.ARTIFACT_NAME_BASE }}-firefox
+          mkdir $UNZIP_DIR
+          unzip ${{ env.FIREFOX_FILE_NAME }} -d $UNZIP_DIR
+          npx web-ext-submit --source-dir=$UNZIP_DIR
+          echo "APP_NAME=\"${APP_NAME}\"
+          APP_COMMIT_HASH=${{ github.sha }}
+          PROXY_HOSTS=\"${PROXY_HOSTS}\"
+          AGENT_API_URL=\"${AGENT_API_URL}\"
+          STAKING_POOLS=\"${STAKING_POOLS}\"" >.env
+          bash deploy/firefox_pack_sources.sh
+          node deploy/firefoxPatchVersion.js
+
+  edge-publish:
+    name: Publish Edge extension
+    needs: extensions-package
+    runs-on: ubuntu-latest
+    environment: production
+    if: vars.PUBLISH_REPO != ''
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          dont-install-npm-packages: true
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Set environment variables
+        id: variables
+        run: |
+          echo "CHROME_FILE_NAME=${{ env.ARTIFACT_NAME_BASE }}-chrome.zip" >> "$GITHUB_ENV"
+
+      - name: Download Chrome extension artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.CHROME_FILE_NAME }}
+
+      - name: Publish to Edge store
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          npm i @plasmohq/edge-addons-api@2.0.0
+          export EDGE_FILE_PATH="./$CHROME_FILE_NAME"
+          node deploy/edgePublish.js
+
+  calculate-hash:
+    name: Calculate sha256 hashes
+    env:
+      HASH_FILENAME: checksum.sha256
+    needs:
+      - electron-sign-for-windows
+      - extensions-package
+      - android-release
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Calculate sha256 hashes
+        run: |
+          mkdir release
+          mv */*.dmg */*.AppImage */*.apk release/
+          mv ${{ env.ARTIFACT_NAME_BASE }}-x64.exe/${{ env.ARTIFACT_NAME_BASE }}-x64.exe release/
+          sha256sum release/* >${{ env.HASH_FILENAME }}
+
+      - name: Upload hash artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.HASH_FILENAME }}
+          path: ${{ env.HASH_FILENAME }}
+
+  android-release:
+    name: Release Android app (${{ matrix.app_variant }})
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    environment: production
+    # A cold Gradle cache pushes the gram variant past 30 minutes, and the cache is only written by
+    # setup-gradle's Post step, which a job killed by the cap never reaches - so the cap kept feeding
+    # the cold build that made the job slow. The warm variant finishes the same work in 25.
+    timeout-minutes: 45
+    if: (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master' || (startsWith(github.ref, 'refs/heads/release/') && vars.PUBLISH_REPO == '')) && needs.detect-changes.outputs.ios-only != 'true' && needs.detect-changes.outputs.android-variants != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        app_variant: ${{ fromJSON(needs.detect-changes.outputs.android-variants) }}
+    env:
+      APP_VARIANT: ${{ matrix.app_variant }}
+      IS_RELEASE_CANDIDATE: ${{ startsWith(github.ref, 'refs/heads/release/') && '1' || '' }}
+      RC_NUMBER: ${{ needs.detect-changes.outputs.rc-number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Android variant
+        run: |
+          case "$APP_VARIANT" in
+            mytonwallet)
+              echo "ANDROID_APP_NAME=MyTonWallet" >> "$GITHUB_ENV"
+              echo "ANDROID_PACKAGE_NAME=org.mytonwallet.app" >> "$GITHUB_ENV"
+              echo "ANDROID_ARTIFACT_NAME=${{ env.ARTIFACT_NAME_BASE }}.apk" >> "$GITHUB_ENV"
+              ;;
+            gram)
+              echo "ANDROID_APP_NAME=Gram Wallet" >> "$GITHUB_ENV"
+              echo "ANDROID_PACKAGE_NAME=io.gramwallet.app" >> "$GITHUB_ENV"
+              echo "ANDROID_ARTIFACT_NAME=GramWallet.apk" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::Unknown APP_VARIANT: $APP_VARIANT"
+              exit 1
+              ;;
+          esac
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Build and sync mobile project
+        run: |
+          if [ -z "$PUBLISH_REPO" ]; then
+            npm run mobile:build:staging
+          else
+            npm run mobile:build:production
+          fi
+
+      - name: Use Ruby and install dependencies
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.2
+          bundler-cache: true
+          working-directory: mobile
+
+      - name: Set up JDK 21 (release)
+        if: env.PUBLISH_REPO != ''
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+          cache: gradle
+
+      - name: Set up JDK 21 (staging)
+        if: env.PUBLISH_REPO == ''
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Set up Gradle with build cache (staging only)
+        if: env.PUBLISH_REPO == ''
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run Android JVM tests
+        working-directory: mobile/android
+        run: ./gradlew testDebugUnitTest
+
+      - name: Package and publish
+        env:
+          ANDROID_API_KEY_BASE64: ${{ secrets.ANDROID_API_KEY_BASE64 }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          FIREBASE_SERVICE_ACCOUNT_BASE64: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_BASE64 }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Empty on a push, where there are no inputs - the lane then falls back to its own default.
+          ANDROID_ROLLOUT: ${{ inputs.android_rollout || vars.ANDROID_ROLLOUT }}
+        run: |
+          cd mobile/android
+
+          echo -n "$ANDROID_API_KEY_BASE64" | base64 --decode > ./api-key.json
+          echo -n "$ANDROID_KEYSTORE_BASE64" | base64 --decode > ./android.keystore
+          echo -n "$FIREBASE_SERVICE_ACCOUNT_BASE64" | base64 --decode > ./firebase-service-account.json
+
+          if [ -z "$PUBLISH_REPO" ]; then
+            bundle exec fastlane beta
+          else
+            bundle exec fastlane release
+          fi
+
+      # Fastlane leaves the Gradle and Kotlin daemons resident with a 4 GB heap each, and the next step
+      # runs two more unminified webpack builds on the same 7 GB runner. That overlap is what killed the
+      # gram job on every run since 2026-08-29: the runner is shot down mid-webpack, so setup-gradle's
+      # Post step never runs, so the Gradle cache is never refreshed, so the next run compiles cold, holds
+      # even more heap and dies the same way. Reclaiming the JVM memory here breaks that loop; the
+      # following step starts a fresh daemon in a few seconds and reads the same on-disk build cache.
+      - name: Stop the JVM daemons before the second web build
+        run: |
+          (cd mobile/android && ./gradlew --stop) || true
+          pkill -f KotlinCompileDaemon || true
+          free -m
+
+      - name: Build project for direct apk
+        env:
+          IS_ANDROID_DIRECT: 1
+        run: |
+          if [ -z "$PUBLISH_REPO" ]; then
+            npm run mobile:build:staging
+          else
+            npm run mobile:build:production
+          fi
+
+      - name: Build direct apk
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          export ANDROID_APK_OUTPUT_PATH_FILE="$RUNNER_TEMP/android-apk-path.txt"
+          rm -f "$ANDROID_APK_OUTPUT_PATH_FILE"
+          cd mobile/android
+          bundle exec fastlane direct
+          cd ../../
+          APK_PATH=$(cat "$ANDROID_APK_OUTPUT_PATH_FILE")
+          cp "$APK_PATH" "$ANDROID_ARTIFACT_NAME"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ANDROID_ARTIFACT_NAME }}
+          path: ${{ env.ANDROID_ARTIFACT_NAME }}
+
+  ios-release:
+    name: Release iOS app (${{ matrix.app_variant }})
+    needs: detect-changes
+    runs-on: macos-26
+    environment: production
+    # The mytonwallet variant takes 30+ minutes on slow runners; v26.7.1 needed 3 attempts against a 30-minute cap
+    timeout-minutes: 45
+    if: (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master' || (startsWith(github.ref, 'refs/heads/release/') && vars.PUBLISH_REPO == '')) && needs.detect-changes.outputs.android-only != 'true' && needs.detect-changes.outputs.ios-variants != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        app_variant: ${{ fromJSON(needs.detect-changes.outputs.ios-variants) }}
+    env:
+      APP_VARIANT: ${{ matrix.app_variant }}
+      IOS_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      IOS_EXTERNAL_BETA_ENABLED: "true"
+      IS_RELEASE_CANDIDATE: ${{ startsWith(github.ref, 'refs/heads/release/') && '1' || '' }}
+      RC_NUMBER: ${{ needs.detect-changes.outputs.rc-number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure iOS variant
+        env:
+          IOS_TESTFLIGHT_GROUP: ${{ vars.IOS_TESTFLIGHT_GROUP }}
+          IOS_GRAM_TESTFLIGHT_GROUP: ${{ vars.IOS_GRAM_TESTFLIGHT_GROUP }}
+        run: |
+          case "$APP_VARIANT" in
+            mytonwallet)
+              echo "IOS_APP_NAME=MyTonWallet" >> "$GITHUB_ENV"
+              echo "IOS_APP_IDENTIFIER=org.mytonwallet.app" >> "$GITHUB_ENV"
+              echo "IOS_APP_IDENTIFIER_WIDGET=org.mytonwallet.app.AirWidget" >> "$GITHUB_ENV"
+              echo "IOS_APP_IDENTIFIER_NOTIFICATION=org.mytonwallet.app.notification-service" >> "$GITHUB_ENV"
+              echo "IOS_SCHEME=MyTonWallet" >> "$GITHUB_ENV"
+              echo "IOS_WIDGET_SCHEME=AirWidgetExtension" >> "$GITHUB_ENV"
+              echo "IOS_NOTIFICATION_SCHEME=MyTonWalletNotificationServiceExtension" >> "$GITHUB_ENV"
+              echo "IOS_PLIST_PATH=../../App/App/Resources/MyTonWallet/Info.plist" >> "$GITHUB_ENV"
+              echo "IOS_TESTFLIGHT_GROUP=${IOS_TESTFLIGHT_GROUP:-MTW external group}" >> "$GITHUB_ENV"
+              ;;
+            gram)
+              echo "IOS_APP_NAME=Gram Wallet" >> "$GITHUB_ENV"
+              echo "IOS_APP_IDENTIFIER=io.gramwallet.app" >> "$GITHUB_ENV"
+              echo "IOS_APP_IDENTIFIER_WIDGET=io.gramwallet.app.widget" >> "$GITHUB_ENV"
+              echo "IOS_APP_IDENTIFIER_NOTIFICATION=io.gramwallet.app.notification-service" >> "$GITHUB_ENV"
+              echo "IOS_SCHEME=GramWallet" >> "$GITHUB_ENV"
+              echo "IOS_WIDGET_SCHEME=GramWalletWidgetExtension" >> "$GITHUB_ENV"
+              echo "IOS_NOTIFICATION_SCHEME=GramWalletNotificationServiceExtension" >> "$GITHUB_ENV"
+              echo "IOS_PLIST_PATH=../../App/App/Resources/GramWallet/Info.plist" >> "$GITHUB_ENV"
+              echo "IOS_TESTFLIGHT_GROUP=${IOS_GRAM_TESTFLIGHT_GROUP:-Gram Wallet external group}" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::Unknown APP_VARIANT: $APP_VARIANT"
+              exit 1
+              ;;
+          esac
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Build and sync mobile project
+        run: |
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
+
+          if [ "$APP_VARIANT" = "gram" ]; then
+            if [ -z "$PUBLISH_REPO" ]; then
+              APP_ENV=staging npm run mobile:build:sdk
+            else
+              APP_ENV=production npm run mobile:build:sdk
+            fi
+          elif [ -z "$PUBLISH_REPO" ]; then
+            npm run mobile:build:staging
+          else
+            npm run mobile:build:production
+          fi
+
+      - name: Use Ruby and install dependencies
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.2
+          bundler-cache: true
+          working-directory: mobile
+
+      - name: Install the Apple certificate and provisioning profile
+        env:
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_BASE64 }}
+          IOS_PROVISION_PROFILE_WIDGET_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_WIDGET_BASE64 }}
+          IOS_PROVISION_PROFILE_NOTIFICATION_BASE64: ${{ secrets.IOS_PROVISION_PROFILE_NOTIFICATION_BASE64 }}
+          IOS_GRAM_CERTIFICATE_BASE64: ${{ secrets.IOS_GRAM_CERTIFICATE_BASE64 }}
+          IOS_GRAM_CERTIFICATE_PASSWORD: ${{ secrets.IOS_GRAM_CERTIFICATE_PASSWORD }}
+          IOS_GRAM_PROVISION_PROFILE_BASE64: ${{ secrets.IOS_GRAM_PROVISION_PROFILE_BASE64 }}
+          IOS_GRAM_PROVISION_PROFILE_WIDGET_BASE64: ${{ secrets.IOS_GRAM_PROVISION_PROFILE_WIDGET_BASE64 }}
+          IOS_GRAM_PROVISION_PROFILE_NOTIFICATION_BASE64: ${{ secrets.IOS_GRAM_PROVISION_PROFILE_NOTIFICATION_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERTIFICATE_BASE64="$IOS_CERTIFICATE_BASE64"
+          CERTIFICATE_PASSWORD="$IOS_CERTIFICATE_PASSWORD"
+          PROVISION_PROFILE_BASE64="$IOS_PROVISION_PROFILE_BASE64"
+          PROVISION_PROFILE_WIDGET_BASE64="$IOS_PROVISION_PROFILE_WIDGET_BASE64"
+          PROVISION_PROFILE_NOTIFICATION_BASE64="$IOS_PROVISION_PROFILE_NOTIFICATION_BASE64"
+
+          if [ "$APP_VARIANT" = "gram" ]; then
+            CERTIFICATE_BASE64="${IOS_GRAM_CERTIFICATE_BASE64:-$IOS_CERTIFICATE_BASE64}"
+            CERTIFICATE_PASSWORD="${IOS_GRAM_CERTIFICATE_PASSWORD:-$IOS_CERTIFICATE_PASSWORD}"
+            PROVISION_PROFILE_BASE64="$IOS_GRAM_PROVISION_PROFILE_BASE64"
+            PROVISION_PROFILE_WIDGET_BASE64="$IOS_GRAM_PROVISION_PROFILE_WIDGET_BASE64"
+            PROVISION_PROFILE_NOTIFICATION_BASE64="$IOS_GRAM_PROVISION_PROFILE_NOTIFICATION_BASE64"
+          fi
+
+          if [ -z "$CERTIFICATE_BASE64" ]; then
+            echo "::error::Missing iOS distribution certificate for $APP_VARIANT"
+            exit 1
+          fi
+          if [ -z "$CERTIFICATE_PASSWORD" ]; then
+            echo "::error::Missing iOS distribution certificate password for $APP_VARIANT"
+            exit 1
+          fi
+          if [ -z "$PROVISION_PROFILE_BASE64" ] || [ -z "$PROVISION_PROFILE_WIDGET_BASE64" ] || [ -z "$PROVISION_PROFILE_NOTIFICATION_BASE64" ]; then
+            echo "::error::Missing iOS provisioning profiles for $APP_VARIANT"
+            exit 1
+          fi
+
+          # create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+          PP_WIDGET_PATH=$RUNNER_TEMP/build_pp_widget.mobileprovision
+          PP_NOTIFICATION_PATH=$RUNNER_TEMP/build_pp_notification.mobileprovision
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # import certificate and provisioning profile from secrets
+          echo -n "$CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          echo -n "$PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+          echo -n "$PROVISION_PROFILE_WIDGET_BASE64" | base64 --decode -o $PP_WIDGET_PATH
+          echo -n "$PROVISION_PROFILE_NOTIFICATION_BASE64" | base64 --decode -o $PP_NOTIFICATION_PATH
+
+          # create temporary keychain
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_WIDGET_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_NOTIFICATION_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+
+          # print keychain contents
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+          security cms -D -i "$PP_PATH" > /tmp/app_profile.plist
+          security cms -D -i "$PP_WIDGET_PATH" > /tmp/widget_profile.plist
+          security cms -D -i "$PP_NOTIFICATION_PATH" > /tmp/notification_profile.plist
+          APP_PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/app_profile.plist)
+          WIDGET_PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/widget_profile.plist)
+          NOTIFICATION_PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' /tmp/notification_profile.plist)
+          echo "IOS_PROFILE_NAME=$APP_PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "IOS_PROFILE_NAME_WIDGET=$WIDGET_PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "IOS_PROFILE_NAME_NOTIFICATION=$NOTIFICATION_PROFILE_NAME" >> "$GITHUB_ENV"
+          /usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' /tmp/app_profile.plist
+          /usr/libexec/PlistBuddy -c 'Print :Name' /tmp/app_profile.plist
+          /usr/libexec/PlistBuddy -c 'Print :Name' /tmp/widget_profile.plist
+          /usr/libexec/PlistBuddy -c 'Print :Name' /tmp/notification_profile.plist
+
+      - name: "iOS: Package and publish"
+        env:
+          IOS_AUTH_KEY_BASE64: ${{ secrets.IOS_AUTH_KEY_BASE64 }}
+          IOS_GRAM_AUTH_KEY_BASE64: ${{ secrets.IOS_GRAM_AUTH_KEY_BASE64 }}
+          IOS_AUTH_KEY_ID: ${{ vars.IOS_AUTH_KEY_ID }}
+          IOS_AUTH_KEY_ISSUER_ID: ${{ vars.IOS_AUTH_KEY_ISSUER_ID }}
+          IOS_GRAM_AUTH_KEY_ID: ${{ vars.IOS_GRAM_AUTH_KEY_ID }}
+          IOS_GRAM_AUTH_KEY_ISSUER_ID: ${{ vars.IOS_GRAM_AUTH_KEY_ISSUER_ID }}
+          IOS_METADATA_PATH: ${{ vars.IOS_METADATA_PATH }}
+          IOS_GRAM_METADATA_PATH: ${{ vars.IOS_GRAM_METADATA_PATH }}
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 300
+        run: |
+          set -euo pipefail
+
+          sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+          export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcodebuild -downloadPlatform iOS || true
+          sudo xcodebuild -runFirstLaunch || true
+          xcodebuild -showsdks | grep iphoneos
+
+          cd mobile/ios/App
+          AUTH_KEY_BASE64="$IOS_AUTH_KEY_BASE64"
+          ASC_KEY_ID="${IOS_AUTH_KEY_ID:-}"
+          ASC_ISSUER_ID="${IOS_AUTH_KEY_ISSUER_ID:-}"
+          METADATA_PATH="${IOS_METADATA_PATH:-}"
+
+          if [ "$APP_VARIANT" = "gram" ]; then
+            AUTH_KEY_BASE64="${IOS_GRAM_AUTH_KEY_BASE64:-$IOS_AUTH_KEY_BASE64}"
+            ASC_KEY_ID="${IOS_GRAM_AUTH_KEY_ID:-$ASC_KEY_ID}"
+            ASC_ISSUER_ID="${IOS_GRAM_AUTH_KEY_ISSUER_ID:-$ASC_ISSUER_ID}"
+            METADATA_PATH="${IOS_GRAM_METADATA_PATH:-$METADATA_PATH}"
+          fi
+
+          if [ -z "$AUTH_KEY_BASE64" ]; then
+            echo "::error::Missing App Store Connect auth key for $APP_VARIANT"
+            exit 1
+          fi
+
+          echo -n "$AUTH_KEY_BASE64" | base64 --decode -o ./AuthKey.p8
+          if [ -n "$ASC_KEY_ID" ]; then
+            export APP_STORE_CONNECT_KEY_ID="$ASC_KEY_ID"
+          fi
+          if [ -n "$ASC_ISSUER_ID" ]; then
+            export APP_STORE_CONNECT_ISSUER_ID="$ASC_ISSUER_ID"
+          fi
+          if [ -n "$METADATA_PATH" ]; then
+            export IOS_METADATA_PATH="$METADATA_PATH"
+          fi
+
+          if [ -z "$PUBLISH_REPO" ]; then
+            bundle exec fastlane beta
+          else
+            bundle exec fastlane release
+          fi
+
+  publish-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    needs:
+      - android-release
+      - electron-publish-windows
+    if: github.event_name != 'workflow_dispatch' && github.ref == 'refs/heads/master' && vars.PUBLISH_REPO != ''
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Download Android packages
+        id: download-android
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*.apk"
+          path: android-release
+          merge-multiple: true
+
+      - name: Get latest release ID
+        id: release-id
+        run: |
+          RELEASE_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$PUBLISH_REPO/releases?per_page=100" | jq -r 'max_by(.created_at).id')
+          echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+
+      - name: Replace Android assets
+        env:
+          RELEASE_ID: ${{ steps.release-id.outputs.release_id }}
+        run: |
+          set -e
+          shopt -s nullglob
+
+          APK_FILES=(android-release/*.apk)
+          if [ ${#APK_FILES[@]} -eq 0 ]; then
+            echo "No Android APK artifacts were downloaded"
+            exit 1
+          fi
+
+          upload_apk () {
+            local FILE_PATH="$1"
+            local PUBLISH_FILE_NAME="$2"
+
+            ASSET_ID=$(curl -s -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID/assets" \
+              | jq -r --arg PUBLISH_FILE_NAME "$PUBLISH_FILE_NAME" '.[] | select(.name == $PUBLISH_FILE_NAME) | .id')
+
+            if [ "$ASSET_ID" != "null" ] && [ -n "$ASSET_ID" ]; then
+              curl -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/$PUBLISH_REPO/releases/assets/$ASSET_ID"
+            fi
+
+            curl -X POST -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@$FILE_PATH" \
+              "https://uploads.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID/assets?name=$PUBLISH_FILE_NAME"
+
+            echo "Uploaded $PUBLISH_FILE_NAME"
+          }
+
+          for FILE_PATH in "${APK_FILES[@]}"; do
+            FILE_NAME=$(basename "$FILE_PATH")
+            upload_apk "$FILE_PATH" "${FILE_NAME// /-}"
+
+            # Installed sideload clients fetch the APK by a name baked into the app
+            # (app_direct_apk_version_url_template), so every release must also carry
+            # the pre-rename filename until those clients rotate out.
+            if [ "$FILE_NAME" = "${{ env.ARTIFACT_NAME_BASE }}.apk" ]; then
+              upload_apk "$FILE_PATH" "MyTonWallet.apk"
+            fi
+          done
+
+      - name: Publish release
+        env:
+          RELEASE_ID: ${{ steps.release-id.outputs.release_id }}
+        run: |
+          curl -X PATCH -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$PUBLISH_REPO/releases/$RELEASE_ID" -d '{"draft": false}'
+
+  # Release assets are mutated after electron-builder publishes the feeds that describe them
+  # (the Windows exe is swapped for a signed one), so feed and asset can silently diverge and
+  # every electron-updater client then fails the download on sha512 mismatch. This job re-reads
+  # what was actually published and fails the run on any divergence.
+  #
+  # It checks the release whether or not it is still a draft, because a draft is what a human
+  # presses Publish on. Gating it to the master push (as it was) left exactly the paths that
+  # skip `publish-release` unverified - which is how v26.7.0 shipped unsigned.
+  verify-release:
+    name: Verify release feed integrity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - electron-publish-windows
+      - publish-release
+    if: ${{ !cancelled() && needs.electron-publish-windows.result == 'success' }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # The feed check below compares the feed against the asset, so it passes just as happily on a
+      # release whose exe was never signed at all (v26.7.0: consistent feed, unsigned installer,
+      # SmartScreen for every user). Signedness is a property of the bytes alone, so it needs its
+      # own check: `verify` exits non-zero when the installer carries no Authenticode signature, or
+      # one that does not match its bytes.
+      - name: Check that every Windows installer is signed
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq osslsigncode
+
+          # The releases API lists draft releases before published ones regardless of date, so `.[0]`
+          # can land on a stale leftover draft; take the newest by created_at, which is the release
+          # this run just published.
+          RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$PUBLISH_REPO/releases?per_page=100" | jq 'max_by(.created_at)')
+
+          INSTALLERS=$(echo "$RELEASE_JSON" | jq -r '.assets[] | select(.name | endswith(".exe")) | "\(.id) \(.name)"')
+          if [ -z "$INSTALLERS" ]; then
+            echo "The release carries no Windows installer - the signed one was never uploaded"
+            exit 1
+          fi
+
+          # Fed by a here-string rather than a pipe: a piped `while` runs in a subshell, where the
+          # `exit 1` below would end the subshell and leave the step green.
+          while read -r ASSET_ID NAME; do
+            curl -sL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+              "https://api.github.com/repos/$PUBLISH_REPO/releases/assets/$ASSET_ID" -o installer.exe
+
+            if ! osslsigncode verify installer.exe; then
+              echo "$NAME is not signed. Windows would greet every user with a SmartScreen warning."
+              exit 1
+            fi
+
+            echo "OK       $NAME is signed"
+            rm -f installer.exe
+          done <<< "$INSTALLERS"
+
+      - name: Check every update feed against the published assets
+        run: |
+          set -e
+
+          RELEASE_JSON=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/$PUBLISH_REPO/releases?per_page=100" | jq 'max_by(.created_at)')
+          echo "Verifying release $(echo "$RELEASE_JSON" | jq -r '.tag_name')"
+
+          # Download through the assets API rather than browser_download_url: the CDN links can
+          # lag right after the release leaves draft, and a missing asset surfaces as an explicit
+          # failure instead of a hashed 404 page.
+          download () {
+            local NAME="$1"
+            local ASSET_ID
+            ASSET_ID=$(echo "$RELEASE_JSON" | jq -r --arg NAME "$NAME" '.assets[] | select(.name == $NAME) | .id')
+            if [ -z "$ASSET_ID" ]; then
+              echo "Asset $NAME is referenced by a feed but missing from the release"
+              return 1
+            fi
+            curl -sL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/octet-stream" \
+              "https://api.github.com/repos/$PUBLISH_REPO/releases/assets/$ASSET_ID" -o "$2"
+          }
+
+          FAILED=0
+          for FEED in $(echo "$RELEASE_JSON" | jq -r '.assets[].name | select(test("^latest.*\\.yml$"))'); do
+            download "$FEED" "$FEED"
+            COUNT=$(yq '.files | length' "$FEED")
+            for i in $(seq 0 $((COUNT - 1))); do
+              URL=$(yq ".files[$i].url" "$FEED")
+              WANT_SHA=$(yq ".files[$i].sha512" "$FEED")
+              WANT_SIZE=$(yq ".files[$i].size" "$FEED")
+              if ! download "$URL" asset.bin; then
+                FAILED=1
+                continue
+              fi
+              GOT_SHA=$(openssl dgst -sha512 -binary asset.bin | base64 -w0)
+              GOT_SIZE=$(stat -c %s asset.bin)
+              if [ "$GOT_SHA" = "$WANT_SHA" ] && [ "$GOT_SIZE" = "$WANT_SIZE" ]; then
+                echo "OK       $FEED -> $URL"
+              else
+                echo "MISMATCH $FEED -> $URL"
+                echo "  feed:  size=$WANT_SIZE sha512=$WANT_SHA"
+                echo "  asset: size=$GOT_SIZE sha512=$GOT_SHA"
+                FAILED=1
+              fi
+              rm -f asset.bin
+            done
+          done
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo "A feed describes different bytes than the published asset. Auto-update would fail on sha512."
+            exit 1
+          fi

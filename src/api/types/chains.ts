@@ -1,0 +1,414 @@
+/*
+ * This file is meant to describe the interface of the chains exported from `src/api/chains`.
+ */
+
+import type * as tonAuth from '../chains/ton/auth';
+import type * as tonDomains from '../chains/ton/domains';
+import type * as tonMfa from '../chains/ton/mfa';
+import type * as tonStaking from '../chains/ton/staking';
+import type { ChainDappSupport } from '../dappProtocols/types';
+import type {
+  ApiActivity,
+  ApiDecryptCommentOptions,
+  ApiFetchActivitySliceOptions,
+  ApiFetchTransactionByIdOptions,
+} from './activities';
+import type { ApiAnyDisplayError } from './errors';
+import type {
+  ApiActivityTimestamps,
+  ApiBalanceBySlug,
+  ApiChain,
+  ApiDerivation,
+  ApiNetwork,
+  ApiNft,
+  ApiRevokeWalletPermissionOptions,
+  ApiToken,
+  ApiTonPlugin,
+  ApiWalletPermission,
+  OnUpdatingStatusChange,
+} from './misc';
+import type { ApiAccountWithChain, ApiWalletByChain } from './storage';
+import type {
+  ApiBuildOnchainSwapTransferOptions,
+  ApiBuildOnchainSwapTransferResult,
+  ApiSubmitOnchainSwapTransferOptions,
+  ApiSubmitOnchainSwapTransferResult,
+} from './swap';
+import type {
+  ApiCheckTransactionDraftOptions,
+  ApiCheckTransactionDraftResult,
+  ApiFetchEstimateDieselResult,
+  ApiSubmitGasfullTransferOptions,
+  ApiSubmitGasfullTransferResult,
+  ApiSubmitGaslessTransferOptions,
+  ApiSubmitGaslessTransferResult,
+  ApiSubmitNftTransferResult,
+} from './transfer';
+import type { OnApiUpdate } from './updates';
+import type { ApiAddressInfo } from './wallet';
+
+/**
+ * Optional per-chain staking support. A chain that supports staking exposes this group; chains that don't
+ * omit it, and the universal staking controller (`methods/staking.ts`) throws for them. Method types mirror
+ * the TON implementation contract (the only chain implementing staking so far).
+ */
+export interface ChainStakingSupport {
+  checkStakeDraft: typeof tonStaking.checkStakeDraft;
+  checkUnstakeDraft: typeof tonStaking.checkUnstakeDraft;
+  submitStake: typeof tonStaking.submitStake;
+  submitUnstake: typeof tonStaking.submitUnstake;
+  submitTokenStakingClaim: typeof tonStaking.submitTokenStakingClaim;
+  submitUnstakeEthenaLocked: typeof tonStaking.submitUnstakeEthenaLocked;
+  getCommonData: typeof tonStaking.getStakingCommonData;
+}
+
+/**
+ * Optional per-chain on-chain naming (DNS) support. Exposed by chains that support a name service; omitted
+ * by the rest. Method types mirror the TON implementation contract.
+ */
+export interface ChainDnsSupport {
+  checkDnsRenewalDraft: typeof tonDomains.checkDnsRenewalDraft;
+  submitDnsRenewal: typeof tonDomains.submitDnsRenewal;
+  checkDnsChangeWalletDraft: typeof tonDomains.checkDnsChangeWalletDraft;
+  submitDnsChangeWallet: typeof tonDomains.submitDnsChangeWallet;
+}
+
+/**
+ * Optional per-chain multi-factor (Telegram MFA) support. Exposed by chains that support the MFA
+ * extension; omitted by the rest. Method types mirror the TON implementation contract.
+ */
+export interface ChainMfaSupport {
+  installMfaExtension: typeof tonMfa.installMfaExtension;
+  createRemoveMfaExtensionPayload: typeof tonMfa.createRemoveMfaExtensionPayload;
+  resolveExtensionAddress: typeof tonMfa.resolveExtensionAddress;
+}
+
+/**
+ * Optional per-chain native (non-BIP39) mnemonic scheme. Exposed by chains with their own legacy mnemonic
+ * format (TON's 24-word scheme); chains using only BIP39 omit it. Method types mirror the TON contract.
+ */
+export interface ChainNativeMnemonicSupport {
+  generateMnemonic: typeof tonAuth.generateMnemonic;
+  validateMnemonic: typeof tonAuth.validateMnemonic;
+  getWalletFromMnemonic: typeof tonAuth.getWalletFromMnemonic;
+}
+
+export interface ChainSdk<T extends ApiChain> {
+  //
+  // Activity history
+  //
+
+  /** Must return activities sorted in accordance with `sortActivities` */
+  fetchActivitySlice(options: ApiFetchActivitySliceOptions): Promise<ApiActivity[]>;
+
+  /** SDK submodule responsible for cross-chain API requests.
+   * Passed if multiple instances of the same chain-SDK are used (EVM chains case).
+  */
+  crosschain?: {
+    /**
+   * Must return activities sorted in accordance with `sortActivities`
+   * Used in case of cross-chain activity fetching by one API call (EVM chains case).
+   *  */
+    fetchCrossChainActivitySlice(options: ApiFetchActivitySliceOptions): Promise<ApiActivity[]>;
+
+    /**
+     * Fetches the assets of the given wallet address on the cross-chain (EVM chains case).
+     */
+    fetchCrosschainAccountAssets(
+      network: ApiNetwork,
+      address: string,
+      sendUpdateTokens: NoneToVoidFunction,
+      options?: { signal?: AbortSignal },
+    ): Promise<ApiBalanceBySlug>;
+  };
+
+  /** May return `undefined` if the activity doesn't change and there are no unexpected errors */
+  fetchActivityDetails(
+    accountId: string,
+    activity: ApiActivity,
+    signal?: AbortSignal,
+  ): MaybePromise<ApiActivity | undefined>;
+
+  decryptComment(options: ApiDecryptCommentOptions): Promise<string | { error: ApiAnyDisplayError }>;
+
+  //
+  // Address
+  //
+
+  /**
+   * Converts an address to the normalized form (to fill the `normalizedAddress` field of `ApiTransactionActivity`).
+   */
+  normalizeAddress(address: string, network?: ApiNetwork): string;
+
+  //
+  // Authentication
+  //
+
+  /**
+   * Returns the chain-owned default BIP-39 derivation used for newly generated mnemonic wallets.
+   * The returned path is a template and may contain `{index}`; callers should pass it back to
+   * `getWalletFromBip39Mnemonic` with `index: 0` for the first wallet. `label`, when present, must match
+   * the chain's own derivation variant name.
+   */
+  getDefaultDerivation(): ApiDerivation;
+
+  /**
+   * Derives one or more wallets from a BIP-39 mnemonic for this chain.
+   *
+   * When `derivation` is provided, the result is limited to that derivation. When it is omitted, chain
+   * implementations may inspect known derivation variants and on-chain activity to find import candidates.
+   * `shouldSkipDiscovery` is only for freshly generated words: implementations should skip discovery/network
+   * lookups that exist to restore old wallets, including version/balance selection such as TON's
+   * `pickBestWalletVersion`, and return the deterministic offline wallet for the supplied derivation.
+   * Results are ordered by chain preference/discovery result and never return display errors;
+   * unexpected failures are thrown.
+   */
+  getWalletFromBip39Mnemonic(
+    network: ApiNetwork,
+    mnemonic: string[],
+    derivation?: ApiDerivation,
+    shouldSkipDiscovery?: boolean,
+  ): MaybePromise<ApiWalletByChain[T][]>;
+
+  getWalletFromPrivateKey(network: ApiNetwork, privateKey: string): MaybePromise<ApiWalletByChain[T]>;
+
+  getWalletFromAddress(
+    network: ApiNetwork,
+    addressOrDomain: string,
+  ): MaybePromise<{ title?: string; wallet: ApiWalletByChain[T] } | { error: ApiAnyDisplayError }>;
+
+  /**
+   * Loads wallets with the given indices from the Ledger device and fetches their balances.
+   * Should run the actions in parallel and/or batches to achieve the smallest latency.
+   */
+  getWalletsFromLedgerAndLoadBalance(
+    network: ApiNetwork,
+    accountIndices: number[],
+  ): Promise<{ wallet: ApiWalletByChain[T]; balance: bigint }[] | { error: ApiAnyDisplayError }>;
+
+  //
+  // Realtime updates
+  //
+
+  /**
+   * Starts continuously updating the data of the given account. That includes but not limited to:
+   *  - activity history
+   *  - balance
+   *  - staking
+   *  - NFT
+   *  - is multisig
+   *  - etc...
+   *
+   * Returns a function that permanently stops updating the data when called.
+   */
+  setupActivePolling(
+    accountId: string,
+    account: ApiAccountWithChain<T>,
+    onUpdate: OnApiUpdate,
+    onUpdatingStatusChange: OnUpdatingStatusChange,
+    newestActivityTimestamps: ApiActivityTimestamps,
+    shouldResetBalances?: boolean,
+  ): NoneToVoidFunction;
+
+  /**
+   * Starts continuously updating the balance of the given account. It may update other data but only if it doesn't
+   * require extra API calls or CPU load.
+   *
+   * Returns a function that permanently stops updating the data when called.
+   */
+  setupInactivePolling(accountId: string, account: ApiAccountWithChain<T>, onUpdate: OnApiUpdate): NoneToVoidFunction;
+
+  //
+  // Tokens
+  //
+
+  /** Fetches the token info and only returns it */
+  fetchToken(network: ApiNetwork, tokenAddress: string): Promise<ApiToken | { error: ApiAnyDisplayError }>;
+
+  /** Fetches the token info, puts it into the SDK cache and calls `sendTokensUpdate` if the token list changes */
+  importToken(network: ApiNetwork, tokenAddress: string, sendTokensUpdate: NoneToVoidFunction): Promise<void>;
+
+  //
+  // Sending transfers
+  //
+
+  checkTransactionDraft(
+    options: ApiCheckTransactionDraftOptions,
+    signal?: AbortSignal,
+  ): Promise<ApiCheckTransactionDraftResult>;
+
+  /** The goal of the function is acting like `checkTransactionDraft` but return only the diesel information */
+  fetchEstimateDiesel(accountId: string, tokenAddress: string): MaybePromise<ApiFetchEstimateDieselResult>;
+
+  /** Builds, signs and sends a transfer with the fee paid from the current wallet */
+  submitGasfullTransfer(
+    options: ApiSubmitGasfullTransferOptions,
+  ): Promise<ApiSubmitGasfullTransferResult | { error: string }>;
+
+  /**
+   * Builds, signs and sends a transfer with the fee paid by My Wallet in exchange to diesel, i.e. a small amount
+   * of the transferred token. If the chain doesn't support gasless transfers, it mustn't add `diesel` to the
+   * `checkTransactionDraft` result.
+   */
+  submitGaslessTransfer(
+    options: ApiSubmitGaslessTransferOptions,
+  ): Promise<ApiSubmitGaslessTransferResult | { error: string }>;
+
+  //
+  // Onchain swap (DEX)
+  //
+
+  buildOnchainSwapTransfer(
+    options: ApiBuildOnchainSwapTransferOptions,
+  ): Promise<ApiBuildOnchainSwapTransferResult | { error: string }>;
+
+  submitOnchainSwapTransfer(
+    options: ApiSubmitOnchainSwapTransferOptions,
+    onUpdate: OnApiUpdate,
+  ): Promise<ApiSubmitOnchainSwapTransferResult>;
+
+  //
+  // Wallet info
+  //
+
+  /** Validates the given address and fetches information about it */
+  getAddressInfo(
+    network: ApiNetwork,
+    addressOrDomain: string,
+  ): MaybePromise<ApiAddressInfo | { error: ApiAnyDisplayError }>;
+
+  /** Native token balance in smallest units for the given wallet address. */
+  getWalletBalance(network: ApiNetwork, address: string): Promise<bigint>;
+
+  /** Fetches the assets of the given wallet address (eg. Jettons, SPL tokens, ERC-20 tokens, etc.) */
+  getWalletAssets(
+    network: ApiNetwork,
+    address: string,
+    sendUpdateTokens: NoneToVoidFunction,
+    options?: { signal?: AbortSignal },
+  ): Promise<ApiBalanceBySlug>;
+
+  /**
+   * Opens the verification screen of the chain's app on the Ledger device.
+   * Returns the wallet address if the user accepts the verification.
+   */
+  verifyLedgerWalletAddress(accountId: string): Promise<string | { error: ApiAnyDisplayError }>;
+
+  /**
+   * Returns the private key of the given account in the format used by `getWalletFromPrivateKey`, even if it's a
+   * mnemonic account. Returns `undefined` if the account doesn't exist.
+   */
+  fetchPrivateKeyString(accountId: string, enclaveToken: string): Promise<string | undefined>;
+
+  //
+  // Other
+  //
+
+  /**
+   * Checks once whether this chain's app is open on the Ledger device.
+   * Should return an error if the connection with Ledger is broken.
+   */
+  getIsLedgerAppOpen(): Promise<boolean | { error: ApiAnyDisplayError }>;
+
+  /**
+   * Fetches transaction/trace info by hash or trace ID for deeplink viewing.
+   * Returns all activities from a transaction, regardless of which wallet initiated it.
+   * `walletAddress` is only used for determining the isIncoming perspective.
+   * For TON, `txId` can be either a trace_id or msg_hash. For TRON, `txId` is a transaction hash.
+   */
+  fetchTransactionById(options: ApiFetchTransactionByIdOptions): Promise<ApiActivity[]>;
+
+  /**
+   * SDK submodule responsible for unified dApp workflow. Omitted if no dApp connection expected (TRON)
+   */
+  dapp?: ChainDappSupport<T>;
+
+  /** SDK submodule responsible for staking. Omitted by chains that don't support staking. */
+  staking?: ChainStakingSupport;
+
+  /** SDK submodule responsible for on-chain naming (DNS). Omitted by chains without a name service. */
+  dns?: ChainDnsSupport;
+
+  /** SDK submodule responsible for multi-factor (Telegram MFA) support. Omitted by chains without MFA. */
+  mfa?: ChainMfaSupport;
+
+  /** SDK submodule for a chain's native (non-BIP39) mnemonic scheme. Omitted by BIP39-only chains. */
+  nativeMnemonic?: ChainNativeMnemonicSupport;
+
+  /** Derives the same wallet at a different on-chain version. Only chains with wallet versions (TON) expose it. */
+  getOtherVersionWallet?: typeof tonAuth.getOtherVersionWallet;
+
+  //
+  // NFT
+  //
+
+  /** Synchronous fetch for UI pagination and collection filtering. No streaming. */
+  getAccountNfts: (
+    accountId: string,
+    options?: {
+      collectionAddress?: string;
+      offset?: number;
+      limit?: number;
+    }) => Promise<ApiNft[]>;
+
+  /**
+   * Streaming full load of all account NFTs. Data arrives via `onBatch` callbacks.
+   * The returned `Promise<void>` resolves when loading is complete.
+   * Supports cooperative cancellation via `signal`.
+   */
+  streamAllAccountNfts: (
+    accountId: string,
+    options: {
+      signal?: AbortSignal;
+      ignorePreCheck?: boolean;
+      onBatch: (nfts: ApiNft[]) => void;
+    }) => Promise<void>;
+
+  /**
+   * Emulates NFT transfer transaction to show preview with tx fee, etc
+   */
+  checkNftTransferDraft: (options: {
+    accountId: string;
+    nfts: ApiNft[];
+    toAddress: string;
+    comment?: string;
+    isNftBurn?: boolean;
+  }) => Promise<ApiCheckTransactionDraftResult>;
+
+  submitNftTransfers: (options: {
+    accountId: string;
+    enclaveToken: string | undefined;
+    nfts: ApiNft[];
+    toAddress: string;
+    comment?: string;
+    isNftBurn?: boolean;
+  }) => Promise<ApiSubmitNftTransferResult>;
+
+  /**
+   * Checks ownership of NFT, currently used in MW NFT-cards flow
+   */
+  checkNftOwnership: (accountId: string, nftAddress: string) => Promise<boolean>;
+
+  /**
+   * Returns active wallet permissions: ERC-20 allowances and EIP-7702 code delegations.
+   * Returns an empty array for chains that do not support these permission types.
+   */
+  fetchWalletPermissions(network: ApiNetwork, address: string): Promise<ApiWalletPermission[]>;
+
+  /**
+   * Revokes an active wallet permission: ERC-20 approval or EIP-7702 code delegation.
+   * Returns the transaction hash on success. Unsupported chains must throw.
+   */
+  revokeWalletPermission(
+    options: ApiRevokeWalletPermissionOptions,
+  ): Promise<{ txId: string } | { error: ApiAnyDisplayError }>;
+
+  /**
+   * Returns the list of smart-contract plugins installed on the given wallet.
+   * Only supported for TON v4R2 and W5 wallets; returns an empty array for all other chains/versions.
+   */
+  fetchWalletPlugins(network: ApiNetwork, address: string): Promise<ApiTonPlugin[]>;
+
+  /** Fetches and parses a single NFT by its address (e.g. for deeplink viewing). Omitted by chains that lack it. */
+  fetchNftByAddress?: (network: ApiNetwork, nftAddress: string) => Promise<ApiNft | undefined>;
+}

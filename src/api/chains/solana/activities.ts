@@ -1,0 +1,685 @@
+import type {
+  ApiActivity,
+  ApiFetchActivitySliceOptions,
+  ApiNetwork,
+  ApiNft,
+} from '../../types';
+import type { SolanaParsedTransaction } from './types';
+
+import { SOLANA } from '../../../config';
+import { throwIfAborted } from '../../../util/abortSignal';
+import { parseAccountId } from '../../../util/account';
+import { mergeSortedActivities, sortActivities } from '../../../util/activities/order';
+import { fromDecimal, toDecimal } from '../../../util/decimals';
+import { fetchJson } from '../../../util/fetch';
+import isEmptyObject from '../../../util/isEmptyObject';
+import { logDebug } from '../../../util/logs';
+import { updateTokensMetadataByAddress } from './util/metadata';
+import { parseTxComment } from './util/programParsers';
+import { fetchStoredWallet } from '../../common/accounts';
+import { updateActivityMetadata } from '../../common/helpers';
+import { buildTokenSlug, getTokenBySlug } from '../../common/tokens';
+import { SEC } from '../../constants';
+import { getEnvironment } from '../../environment';
+import { NETWORK_CONFIG, SOLANA_PROGRAM_IDS, WSOL_MINT } from './constants';
+import { fetchNftsByAddresses } from './nfts';
+
+enum MplCoreInstructionType {
+  NFT_TRANSFER_V1 = '24o',
+  BURN_V1 = 'uy',
+}
+
+export async function fetchActivitySlice({
+  accountId,
+  tokenSlug,
+  toTimestamp,
+  fromTimestamp,
+  limit,
+  signal,
+}: ApiFetchActivitySliceOptions): Promise<ApiActivity[]> {
+  const { network } = parseAccountId(accountId);
+  const { address } = await fetchStoredWallet(accountId, 'solana');
+
+  if (tokenSlug) {
+    const { activities } = await getTokenActivitySlice(
+      network, address, tokenSlug, toTimestamp, fromTimestamp, limit, signal,
+    );
+    return activities;
+  } else {
+    return getAllActivitySlice(network, address, toTimestamp, fromTimestamp, limit, signal);
+  }
+}
+
+export async function getTokenActivitySlice(
+  network: ApiNetwork,
+  address: string,
+  slug?: string,
+  toTimestamp?: number,
+  fromTimestamp?: number,
+  limit?: number,
+  signal?: AbortSignal,
+): Promise<{ activities: ApiActivity[]; hasMore: boolean }> {
+  let activities: ApiActivity[] = [];
+
+  let rawTransactions: SolanaParsedTransaction[] = [];
+
+  const options = {
+    min_timestamp: fromTimestamp ? fromTimestamp + SEC : undefined,
+    max_timestamp: toTimestamp ? toTimestamp - SEC : undefined,
+    limit,
+    search_internal: false,
+  };
+
+  if (!slug) {
+    rawTransactions = await fetchSolTxs(network, address, true, options, signal);
+  }
+
+  if (slug === SOLANA.slug) {
+    rawTransactions = await fetchSolTxs(network, address, false, options, signal);
+  }
+
+  if (slug && slug !== SOLANA.slug) {
+    const token = getTokenBySlug(slug);
+
+    if (token?.tokenWalletAddress && token.tokenAddress) {
+      rawTransactions = await fetchSolTxs(network, token.tokenWalletAddress, false, options, signal);
+    }
+  }
+
+  // hasMore is computed from the raw API response length, not the post-transform `activities`.
+  // `transformSolanaTxToUnified` returns undefined for unsupported tx shapes, and `.filter(Boolean)`
+  // drops those - so a length check on the returned activities would underreport remaining pages.
+  const hasMore = limit !== undefined && rawTransactions.length >= limit;
+
+  const [, nfts] = await Promise.all([
+    collectTokensFromTransactions(network, address, rawTransactions, signal),
+    collectNftsFromTransactions(network, address, rawTransactions, signal),
+  ]);
+
+  activities = rawTransactions
+    .map((e) => transformSolanaTxToUnified(address, e, nfts))
+    .filter(Boolean);
+
+  return { activities: sortActivities(activities), hasMore };
+}
+
+async function getAllActivitySlice(
+  network: ApiNetwork,
+  address: string,
+  toTimestamp?: number,
+  fromTimestamp?: number,
+  limit?: number,
+  signal?: AbortSignal,
+) {
+  const txsBySlug: Record<string, ApiActivity[]> = {};
+
+  const { activities: txs } = await getTokenActivitySlice(
+    network, address, undefined, toTimestamp, fromTimestamp, limit, signal,
+  );
+
+  for (const tx of txs) {
+    if (tx.kind === 'transaction') {
+      txsBySlug[tx.slug] = [...(txsBySlug[tx.slug] || []), tx];
+    } else {
+      txsBySlug[tx.from] = [...(txsBySlug[tx.from] || []), tx];
+      txsBySlug[tx.to] = [...(txsBySlug[tx.to] || []), tx];
+    }
+  }
+
+  if (isEmptyObject(txsBySlug)) {
+    return [];
+  }
+
+  return mergeSortedActivities(...Object.values(txsBySlug));
+}
+
+async function fetchSolTxs(
+  network: ApiNetwork,
+  address: string,
+  withTokens?: boolean,
+  queryParams: {
+    only_confirmed?: boolean;
+    only_unconfirmed?: boolean;
+    only_to?: boolean;
+    only_from?: boolean;
+    limit?: number;
+    fingerprint?: string;
+    order_by?: 'block_timestamp,asc' | 'block_timestamp,desc';
+    min_timestamp?: number;
+    max_timestamp?: number;
+    search_internal?: boolean;
+  } = {},
+  signal?: AbortSignal,
+) {
+  const params = {
+    'sort-order': queryParams.order_by === 'block_timestamp,asc'
+      ? 'asc'
+      : queryParams.order_by === 'block_timestamp,desc'
+        ? 'desc'
+        : undefined,
+    limit: queryParams.limit,
+    commitment: 'confirmed',
+    'token-accounts': withTokens ? 'balanceChanged' : undefined,
+    'gte-time': queryParams.min_timestamp ? Math.floor(queryParams.min_timestamp / 1000) : undefined,
+    'lte-time': queryParams.max_timestamp ? Math.ceil(queryParams.max_timestamp / 1000) : undefined,
+  };
+
+  // Use non-standard Helius API to retrieve parsed txs by 1 call and with timestamp filtering
+  const response = await fetchJson<SolanaParsedTransaction[]>(
+    NETWORK_CONFIG[network].getApiUrl(`/v0/addresses/${address}/transactions`),
+    params,
+    {
+      headers: {
+        ...getEnvironment().apiHeaders,
+      },
+      signal,
+    },
+  );
+
+  return response;
+}
+
+export async function parseSolTx(
+  network: ApiNetwork,
+  signature: string,
+): Promise<SolanaParsedTransaction | undefined> {
+  const url = NETWORK_CONFIG[network].getApiUrl('/v0/transactions');
+
+  const options = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      transactions: [signature],
+    }),
+  };
+
+  const response = await fetchJson<SolanaParsedTransaction[]>(url, undefined, options);
+
+  return response[0];
+}
+
+export async function collectTokensFromTransactions(
+  network: ApiNetwork,
+  address: string,
+  rawTxs: SolanaParsedTransaction[],
+  signal?: AbortSignal,
+) {
+  const addresses = new Set<string>();
+
+  for (const tx of rawTxs) {
+    if (tx.tokenTransfers && tx.tokenTransfers.length) {
+      for (const transfer of tx.tokenTransfers) {
+        if ([transfer.fromUserAccount, transfer.toUserAccount].includes(address)) {
+          addresses.add(transfer.mint);
+        }
+      }
+    }
+  }
+
+  await updateTokensMetadataByAddress(network, [...addresses], signal);
+}
+
+export async function collectNftsFromTransactions(
+  network: ApiNetwork,
+  address: string,
+  rawTxs: SolanaParsedTransaction[],
+  signal?: AbortSignal,
+) {
+  const addresses = new Set<string>();
+
+  for (const tx of rawTxs) {
+    if (tx.events.compressed) {
+      for (const event of tx.events.compressed) {
+        if ([event.oldLeafOwner, event.newLeafOwner].includes(address)) {
+          addresses.add(event.assetId);
+        }
+      }
+    }
+    if (tx.events.nft?.nfts.length) {
+      for (const nft of tx.events.nft.nfts) {
+        addresses.add(nft.mint);
+      }
+    }
+    if (tx.tokenTransfers.length) {
+      for (const transfer of tx.tokenTransfers) {
+        if (transfer.tokenStandard !== 'Fungible'
+          && [transfer.fromUserAccount, transfer.toUserAccount].includes(address)
+        ) {
+          addresses.add(transfer.mint);
+        }
+      }
+    }
+
+    // Find most common MPLCore NFT TransferV1 or BurnV1 instruction and get asset from accounts list
+    const mplCoreInstruction = tx.instructions.find((e) => e.programId === SOLANA_PROGRAM_IDS.nft[1]);
+    if (mplCoreInstruction
+      && Object.values(MplCoreInstructionType).includes(mplCoreInstruction.data as any)
+    ) {
+      addresses.add(mplCoreInstruction.accounts[0]);
+    }
+  }
+  if (addresses.size) {
+    const nfts = await fetchNftsByAddresses(network, [...addresses], signal);
+    throwIfAborted(signal);
+    return nfts;
+  }
+  return [];
+}
+
+function transformParsedSwap(
+  address: string,
+  tx: SolanaParsedTransaction,
+  comment: string | undefined,
+) {
+  const { tokenInputs, nativeInput, tokenOutputs, nativeOutput } = tx.events.swap!;
+
+  const canonicalTokenInput = tokenInputs[0];
+  const canonicalTokenOutput = tokenOutputs[0];
+
+  const fromAsset = tokenInputs.length
+    ? {
+      asset: buildTokenSlug('solana', canonicalTokenInput.mint),
+      amount: toDecimal(
+        tokenInputs
+          .filter((e) => e.mint === canonicalTokenInput.mint)
+          .reduce((acc, e) => acc + BigInt(e.rawTokenAmount.tokenAmount), 0n),
+        canonicalTokenInput.rawTokenAmount.decimals,
+      ),
+    }
+    : {
+      asset: SOLANA.slug,
+      amount: toDecimal(BigInt(nativeInput?.amount || 0), SOLANA.decimals),
+    };
+
+  const toAsset = tokenOutputs.length
+    ? {
+      asset: buildTokenSlug('solana', canonicalTokenOutput.mint),
+      amount: toDecimal(
+        tokenOutputs
+          .filter((e) => e.mint === canonicalTokenOutput.mint)
+          .reduce((acc, e) => acc + BigInt(e.rawTokenAmount.tokenAmount), 0n),
+        canonicalTokenOutput.rawTokenAmount.decimals,
+      ),
+    }
+    : {
+      asset: SOLANA.slug,
+      amount: toDecimal(BigInt(nativeOutput?.amount || 0), SOLANA.decimals),
+    };
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'swap',
+    comment,
+    fromAddress: address,
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    from: fromAsset.asset,
+    fromAmount: fromAsset.amount,
+    to: toAsset.asset,
+    toAmount: toAsset.amount,
+    networkFee: toDecimal(BigInt(tx.fee), SOLANA.decimals),
+    swapFee: '0',
+    status: 'completed',
+    hashes: [],
+    transactionIds: {},
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+function transformParsedCNFTOperation(
+  address: string,
+  tx: SolanaParsedTransaction,
+  nfts: ApiNft[],
+  comment: string | undefined,
+) {
+  const { newLeafOwner, oldLeafOwner, assetId } = tx.events.compressed![0];
+
+  const nft: ApiNft | undefined = nfts.find((e) => e.address === assetId);
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    // These fields are nullish in case of NFT burn
+    fromAddress: oldLeafOwner || '',
+    toAddress: newLeafOwner || '',
+    amount: 0n,
+    slug: SOLANA.slug,
+    isIncoming: newLeafOwner === address,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    nft,
+    type: tx.type === 'COMPRESSED_NFT_BURN' ? 'burn' : undefined,
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+function transformUnparsedSwap(
+  address: string,
+  tx: SolanaParsedTransaction,
+  comment: string | undefined,
+) {
+  const resultAssets = new Map<string, number>();
+
+  tx.tokenTransfers
+    .filter((e) => e.toUserAccount === address)
+    .forEach((e) => {
+      e.mint = e.mint === WSOL_MINT ? SOLANA.slug : buildTokenSlug('solana', e.mint);
+      if (!resultAssets.has(e.mint)) {
+        resultAssets.set(e.mint, 0);
+      }
+      const current = resultAssets.get(e.mint)!;
+      resultAssets.set(e.mint, current + e.tokenAmount);
+    });
+
+  tx.tokenTransfers
+    .filter((e) => e.fromUserAccount === address)
+    .forEach((e) => {
+      e.mint = e.mint === WSOL_MINT ? SOLANA.slug : buildTokenSlug('solana', e.mint);
+      if (!resultAssets.has(e.mint)) {
+        resultAssets.set(e.mint, 0);
+      }
+      const current = resultAssets.get(e.mint)!;
+      resultAssets.set(e.mint, current - e.tokenAmount);
+    });
+
+  const sent = [...resultAssets].find((e) => e[1] < 0)!;
+  const received = [...resultAssets].find((e) => e[1] > 0)!;
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'swap',
+    comment,
+    fromAddress: address,
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    from: sent[0],
+    fromAmount: String(-sent[1]),
+    to: received[0],
+    toAmount: String(received[1]),
+    networkFee: toDecimal(BigInt(tx.fee), SOLANA.decimals),
+    swapFee: '0',
+    status: 'completed',
+    hashes: [],
+    transactionIds: {},
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+function transformSimpleTransfer(
+  address: string,
+  tx: SolanaParsedTransaction,
+  comment: string | undefined,
+) {
+  const inTransfer = tx.nativeTransfers.find((e) => e.toUserAccount === address);
+  const outTransfer = tx.nativeTransfers.find((e) => e.fromUserAccount === address);
+
+  const fromAddress = inTransfer ? inTransfer.fromUserAccount : outTransfer!.fromUserAccount;
+  const toAddress = inTransfer ? inTransfer.toUserAccount : outTransfer!.toUserAccount;
+
+  const isIncoming = toAddress === address;
+  const amount = BigInt(inTransfer?.amount || outTransfer?.amount || 0);
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    fromAddress,
+    toAddress,
+    amount: isIncoming ? amount : -amount,
+    slug: SOLANA.slug,
+    isIncoming,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    nft: undefined,
+    type: undefined,
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+function transformTokenTransfer(
+  address: string,
+  tx: SolanaParsedTransaction,
+  comment: string | undefined,
+) {
+  const inTransfer = tx.tokenTransfers.find((e) => e.toUserAccount === address);
+  const outTransfer = tx.tokenTransfers.find((e) => e.fromUserAccount === address);
+
+  const fromAddress = inTransfer ? inTransfer.fromUserAccount : outTransfer!.fromUserAccount;
+  const toAddress = inTransfer ? inTransfer.toUserAccount : outTransfer!.toUserAccount;
+
+  const asset = getTokenBySlug(buildTokenSlug('solana', inTransfer?.mint || outTransfer?.mint || '')) || SOLANA;
+
+  const isIncoming = toAddress === address;
+  const amount = fromDecimal(inTransfer?.tokenAmount || outTransfer?.tokenAmount || 0, asset.decimals);
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    fromAddress,
+    toAddress,
+    amount: isIncoming ? amount : -amount,
+    slug: asset.slug,
+    isIncoming,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    nft: undefined,
+    type: undefined,
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+function transformUnparsedNFTTransfer(
+  address: string,
+  tx: SolanaParsedTransaction,
+  nfts: ApiNft[],
+  comment: string | undefined,
+) {
+  const inTransfer = tx.tokenTransfers.find((e) => e.toUserAccount === address);
+  const outTransfer = tx.tokenTransfers.find((e) => e.fromUserAccount === address);
+
+  const fromAddress = inTransfer ? inTransfer.fromUserAccount : outTransfer!.fromUserAccount;
+  const toAddress = inTransfer ? inTransfer.toUserAccount : outTransfer!.toUserAccount;
+
+  const nft: ApiNft | undefined = nfts.find((e) => e.address === (inTransfer?.mint || outTransfer?.mint || ''));
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    fromAddress,
+    toAddress,
+    amount: 0n,
+    slug: SOLANA.slug,
+    isIncoming: toAddress === address,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    nft,
+    type: !toAddress ? 'burn' : undefined,
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+function transformUnparsedMPLCoreNFTTransfer(
+  address: string,
+  tx: SolanaParsedTransaction,
+  nfts: ApiNft[],
+  comment: string | undefined,
+) {
+  const targetInstrcution = tx.instructions.find((e) => e.programId === SOLANA_PROGRAM_IDS.nft[1]);
+
+  const fromAddress = targetInstrcution?.accounts[2] || '';
+  const toAddress = targetInstrcution?.accounts[4] || '';
+
+  const nft: ApiNft | undefined = nfts.find((e) => e.address === (targetInstrcution?.accounts[0] || ''));
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    fromAddress,
+    toAddress,
+    amount: 0n,
+    slug: SOLANA.slug,
+    isIncoming: toAddress === address,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    nft,
+    type: targetInstrcution?.data === MplCoreInstructionType.BURN_V1 ? 'burn' : undefined,
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+export function transformParsedNFTSale(
+  address: string,
+  tx: SolanaParsedTransaction,
+  nfts: ApiNft[],
+  comment: string | undefined,
+) {
+  const { buyer, seller, nfts: eventNfts } = tx.events.nft!;
+
+  const fromAddress = seller;
+  const toAddress = buyer;
+
+  const nft: ApiNft | undefined = nfts.find((e) => e.address === (eventNfts[0].mint));
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    fromAddress,
+    toAddress,
+    amount: 0n,
+    slug: SOLANA.slug,
+    // For some reason in TON direction is swapped to opposite, so i just stay in this logic
+    isIncoming: toAddress !== address,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    nft,
+    type: 'nftTrade',
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+export function transformSolanaTxToUnified(
+  address: string,
+  tx: SolanaParsedTransaction,
+  nfts: ApiNft[],
+): ApiActivity {
+  const comment = parseTxComment(tx);
+
+  if (tx.events.swap) {
+    try {
+      return transformParsedSwap(address, tx, comment);
+    } catch (error) {
+      // Fallback
+    }
+  }
+
+  if (tx.events.compressed) {
+    try {
+      return transformParsedCNFTOperation(address, tx, nfts, comment);
+    } catch (error) {
+      // Fallback
+    }
+  }
+
+  if (tx.type === 'NFT_SALE') {
+    try {
+      return transformParsedNFTSale(address, tx, nfts, comment);
+    } catch (error) {
+      // Fallback
+    }
+  }
+
+  if (['UNKNOWN', 'SWAP'].includes(tx.type) && tx.tokenTransfers.length) {
+    try {
+      return transformUnparsedSwap(address, tx, comment);
+    } catch (error) {
+      // Fallback
+    }
+  }
+
+  if (tx.type === 'UNKNOWN'
+    && !tx.tokenTransfers.length
+    && !tx.nativeTransfers.length
+    && tx.accountData.some((e) => e.account === SOLANA_PROGRAM_IDS.nft[1])
+  ) {
+    try {
+      return transformUnparsedMPLCoreNFTTransfer(address, tx, nfts, comment);
+    } catch (error) {
+      // Fallback
+    }
+  }
+
+  if (tx.type === 'TRANSFER') {
+    if (tx.nativeTransfers.length && !tx.tokenTransfers.length) {
+      try {
+        return transformSimpleTransfer(address, tx, comment);
+      } catch (error) {
+        // Fallback
+      }
+    }
+
+    if (tx.tokenTransfers.length && tx.tokenTransfers.find((e) => e.tokenStandard !== 'Fungible')) {
+      try {
+        return transformUnparsedNFTTransfer(address, tx, nfts, comment);
+      } catch (error) {
+        // Fallback
+      }
+    }
+
+    if (tx.tokenTransfers.length) {
+      try {
+        return transformTokenTransfer(address, tx, comment);
+      } catch (error) {
+        // Fallback
+      }
+    }
+  }
+
+  const fromAddress = tx.feePayer;
+
+  logDebug('Unknown transaction type', tx.signature);
+
+  return updateActivityMetadata({
+    id: tx.signature,
+    kind: 'transaction',
+    timestamp: Number(tx.timestamp ?? 0) * 1000,
+    comment,
+    fromAddress,
+    toAddress: fromAddress !== address ? address : tx.instructions.at(-1)!.programId,
+    amount: 0n,
+    slug: SOLANA.slug,
+    isIncoming: fromAddress !== address,
+    normalizedAddress: address,
+    fee: BigInt(tx.fee),
+    type: 'callContract',
+    shouldHide: false,
+    status: 'completed',
+    externalMsgHashNorm: tx.signature,
+  });
+}
+
+export function fetchActivityDetails() {
+  return undefined;
+}

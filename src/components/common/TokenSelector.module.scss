@@ -1,0 +1,338 @@
+@use "../../styles/mixins";
+
+.tokenSelectSearchWrapper {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+
+  margin-bottom: 0.5rem;
+  padding-top: 1.25rem;
+  padding-bottom: 1rem;
+
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 100%);
+
+  :global(html.theme-dark) & {
+    background: linear-gradient(180deg, rgba(14, 14, 15, 0.9) 0%, rgba(14, 14, 15, 0) 100%);
+  }
+}
+
+.tokenSelectInputWrapper {
+  position: relative;
+
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+
+  height: 2.75rem;
+  min-height: 2.75rem;
+  margin: 0 0.75rem;
+  border-radius: 2.75rem;
+
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--color-gray-2);
+
+  background-color: var(--color-background-first-blur);
+  box-shadow: 0 0.25rem 1rem 0 #00000014, 0 0 0.25rem 0 #00000014;
+
+  @supports (backdrop-filter: var(--filter-blur-bar)) {
+    background-color: var(--color-background-first-blur);
+    backdrop-filter: var(--filter-blur-bar);
+  }
+}
+
+.tokenSelectSearchIcon {
+  margin-inline-start: 0.75rem;
+}
+
+.tokenSelectSearchResetWrapper {
+  position: absolute;
+  top: 0.375rem;
+  inset-inline-end: 0.25rem;
+
+  display: flex;
+
+  width: 2rem;
+  height: 2rem;
+}
+
+.tokenSelectSearchReset {
+  cursor: var(--custom-cursor, pointer);
+
+  width: 2rem;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+
+  background-color: transparent;
+}
+
+.tokenSelectSearchResetIcon {
+  cursor: var(--custom-cursor, pointer);
+
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 0.5rem;
+  transform: translateY(-50%);
+
+  width: 1rem;
+  height: 1rem;
+  border: none;
+  border-radius: 50%;
+
+  font-size: 1rem;
+  color: var(--color-close-button-background);
+
+  background-color: var(--color-gray-2);
+}
+
+.tokenSelectInput {
+  display: flex;
+
+  width: 100%;
+  padding-block: 0;
+  padding-inline: 0.25rem 2.125rem;
+  border: none;
+
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-black);
+
+  appearance: none;
+  background: transparent;
+  outline: none;
+
+  &::placeholder {
+    font-weight: 600;
+    color: var(--color-gray-2);
+  }
+
+  &:hover,
+  &:focus {
+    &::placeholder {
+      color: var(--color-interactive-input-text-hover-active);
+    }
+  }
+}
+
+.tokenSelectContent {
+  overflow-y: scroll;
+
+  height: 100%;
+  padding-block: 0;
+  padding-inline: 0 0.25rem;
+
+  background-color: var(--color-background-first);
+
+  @include mixins.adapt-padding-to-scrollbar(0.25rem);
+
+  @include mixins.respond-above(xs) {
+    border-radius: var(--border-radius-default) var(--border-radius-default) 0 0;
+  }
+}
+
+.tokenGroupContainer {
+  display: flex;
+  flex-direction: column;
+}
+
+.tokenGroupHeader {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+}
+
+.tokenGroupTitle,
+.tokenGroupAdditionalTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-gray-2);
+}
+
+.tokenGroupAdditionalTitle {
+  cursor: var(--custom-cursor, pointer);
+}
+
+.tokenContainer {
+  cursor: var(--custom-cursor, pointer);
+
+  position: relative;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  height: 4rem;
+  padding: 0 1rem;
+
+  &:not(:last-of-type) {
+    &::after {
+      content: "";
+
+      position: absolute;
+      bottom: 0;
+      inset-inline-start: 3.625rem;
+      inset-inline-end: 0;
+
+      height: 0.0625rem;
+
+      box-shadow: inset 0 -0.025rem 0 0 var(--color-separator);
+    }
+  }
+
+  @media (hover: hover) {
+    &:hover {
+      background-color: var(--color-interactive-item-hover);
+    }
+  }
+
+  @media (pointer: coarse) {
+    &:active {
+      background-color: var(--color-interactive-item-hover);
+    }
+  }
+}
+
+.tokenContainerDisabled {
+  cursor: auto;
+}
+
+.tokenLogoContainer {
+  overflow: hidden;
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+
+  /* Reserve space for the chain icon that overflows below the logo */
+  margin-bottom: -0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+.logoContainer {
+  position: relative;
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.tokenLogoSkeleton,
+.tokenLogoSymbol {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 100%;
+  font-size: 0;
+}
+
+.tokenLogoDisabled {
+  opacity: 0.5;
+}
+
+.tokenLogoSymbol {
+  position: absolute;
+  top: 0;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 1.0625rem;
+  font-weight: 800;
+  color: var(--color-gray-3);
+
+  background-color: var(--color-background-first);
+  box-shadow: inset 0 0 0 0.0625rem var(--color-gray-4);
+}
+
+.tokenLogoSkeleton {
+  background-color: var(--color-separator-input-stroke);
+}
+
+.tokenNetworkLogoSkeleton {
+  position: absolute;
+  z-index: 1;
+  top: 1.5rem;
+  inset-inline-end: -0.25rem;
+
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 100%;
+
+  background-color: var(--color-separator-input-stroke);
+  box-shadow: 0 0 0 0.0938rem var(--color-background-drop-down);
+}
+
+.nameContainer {
+  overflow: hidden;
+}
+
+.nameContainer,
+.tokenPriceContainer {
+  unicode-bidi: plaintext;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3125rem;
+}
+
+.tokenPriceContainer {
+  align-items: end;
+  text-align: end;
+}
+
+.tokenName,
+.tokenAmount {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-black);
+}
+
+.tokenNetwork,
+.tokenValue {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-gray-2);
+}
+
+.tokenValue {
+  unicode-bidi: plaintext;
+}
+
+.tokenNameSkeleton {
+  width: 5rem;
+  height: 0.875rem;
+  border-radius: var(--border-radius-tiny);
+  background-color: var(--color-separator-input-stroke);
+}
+
+.tokenValueSkeleton {
+  width: 3rem;
+  height: 0.6875rem;
+  border-radius: var(--border-radius-tiny);
+  background-color: var(--color-separator-input-stroke);
+}
+
+.tokenNotFound {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  align-items: center;
+  justify-content: center;
+
+  padding: 2rem 1rem 0;
+
+  text-align: center;
+}
+
+.tokenNotFoundTitle {
+  font-size: 1.0625rem;
+  font-weight: 700;
+}
+
+.tokenNotFoundDesc {
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: var(--color-gray-2);
+}
+
+.tokenTextDisabled {
+  color: var(--color-gray-2);
+}

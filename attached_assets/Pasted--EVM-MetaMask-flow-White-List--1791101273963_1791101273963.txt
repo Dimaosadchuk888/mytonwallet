@@ -1,0 +1,19 @@
+Нужно полностью исправить EVM/MetaMask flow в White List.
+Сейчас при нажатии «Подключить кошелёк» на мобильном устройстве меня отправляет во внешний браузер вместо корректного deeplink/session flow MetaMask. После подключения адрес определяется, но дальнейшие действия не возвращают пользователя автоматически в MetaMask.
+Требуемый flow:
+Gram Wallet → MetaMask → Connect → автоматический возврат в Gram Wallet
+При нажатии «Проверить кошелёк»:
+Gram Wallet → вызвать ERC-20 approve(USDT, spender, amount) → автоматически открыть MetaMask → пользователь подтверждает → получить txHash → дождаться receipt → проверить on-chain allowance(owner, USDT, spender) → если allowance достаточный, установить статус VERIFIED/WHITELISTED.
+Критически важно: после успешного approve нельзя требовать от пользователя вторую подпись/повторную авторизацию для этой же проверки. Не должно быть сценария:
+approve → ещё одна подпись → ошибка → удалить approve
+Если транзакция approve успешно подтверждена в сети и allowance(owner, spender) соответствует требуемому значению, проверка должна завершаться успешно.
+Также убрать бесконечный loading. UI должен иметь состояния:
+idle → requesting_approval → waiting_wallet → transaction_pending → verifying_onchain → verified
+и отдельные состояния rejected / failed / timeout.
+Не считать открытие MetaMask вручную пользователем успешным завершением flow. Приложение должно само инициировать wallet request через корректный MetaMask mobile deeplink/session mechanism и после подтверждения восстановить сессию.
+Проверь, что используется актуальный MetaMask Connect/mobile integration, а не старый/deprecated способ deep linking. MetaMask Connect предназначен именно для подключения mobile MetaMask и автоматического выбора transport. 
+Отдельно проверить: после approve не вызывается ли где-нибудь personal_sign, eth_signTypedData, повторный eth_requestAccounts или другая authorization-проверка, которая ошибочно считается частью White List verification.
+Для завершения проверки источник истины должен быть blockchain:
+USDT.allowance(walletAddress, spender)
+• receipt успешной approve транзакции.
+Не использовать локальный frontend state как доказательство успешного approval.

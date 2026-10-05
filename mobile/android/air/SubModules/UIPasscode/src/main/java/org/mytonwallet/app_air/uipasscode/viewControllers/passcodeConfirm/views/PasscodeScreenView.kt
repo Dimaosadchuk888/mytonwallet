@@ -1,0 +1,971 @@
+package org.mytonwallet.app_air.uipasscode.viewControllers.passcodeConfirm.views
+
+import android.animation.ValueAnimator
+import android.annotation.SuppressLint
+import android.graphics.Color
+import android.graphics.drawable.InsetDrawable
+import android.os.Handler
+import android.os.Looper
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.LinearLayout
+import androidx.appcompat.widget.AppCompatTextView
+import androidx.constraintlayout.widget.ConstraintSet
+import androidx.constraintlayout.widget.Guideline
+import androidx.core.animation.doOnEnd
+import androidx.core.view.children
+import androidx.fragment.app.FragmentActivity
+import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Runnable
+import me.vkryl.android.AnimatorUtils
+import me.vkryl.android.animatorx.BoolAnimator
+import org.mytonwallet.app_air.uicomponents.AnimationConstants
+import org.mytonwallet.app_air.uicomponents.base.WViewController
+import org.mytonwallet.app_air.uicomponents.base.WWindow
+import org.mytonwallet.app_air.uicomponents.drawable.RoundProgressDrawable
+import org.mytonwallet.app_air.uicomponents.drawable.SeparatorBackgroundDrawable
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.setPaddingLocalized
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.helpers.typeface
+import org.mytonwallet.app_air.uicomponents.widgets.WBaseView
+import org.mytonwallet.app_air.uicomponents.widgets.WImageView
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.fadeInObjectAnimator
+import org.mytonwallet.app_air.uicomponents.widgets.fadeOut
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.uipasscode.commonViews.PasscodeInputView
+import org.mytonwallet.app_air.uipasscode.viewControllers.passcodeConfirm.PasscodeViewState
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.logger.Logger
+import org.mytonwallet.app_air.walletbasecontext.theme.NftAccentColors
+import org.mytonwallet.app_air.walletbasecontext.theme.ThemeManager
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.getDrawableCompat
+import org.mytonwallet.app_air.walletcontext.globalStorage.WGlobalStorage
+import org.mytonwallet.app_air.walletcontext.helpers.BiometricHelpers
+import org.mytonwallet.app_air.walletcontext.secureStorage.WSecureStorage
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.stores.AuthStore
+
+@SuppressLint("ViewConstructor")
+class PasscodeScreenView(
+    private val containerVC: WViewController,
+    private val passcodeViewState: PasscodeViewState,
+    ignoreBiometry: Boolean
+) : WView(containerVC.context),
+    WThemedView,
+    PasscodeKeyboardView.PasscodeListener {
+
+    companion object {
+        const val TOP_HEADER_MAX_HEIGHT_RATIO = 0.25f
+        const val ANIMATE_PINPAD = false
+    }
+
+    val allowBiometry =
+        WGlobalStorage.isAnyBiometricActivated() && BiometricHelpers.canAuthenticate(context) &&
+            !ignoreBiometry
+    private val passcodeLength = WSecureStorage.getPasscodeLength()
+
+    private val showAnimation = WGlobalStorage.getAreAnimationsActive() &&
+        passcodeViewState is PasscodeViewState.Default &&
+        passcodeViewState.animated &&
+        containerVC.window?.isWideLayout != true
+
+    private val subtitle = when (passcodeViewState) {
+        is PasscodeViewState.Default -> {
+            passcodeViewState.subtitle
+        }
+
+        is PasscodeViewState.CustomHeader -> {
+            if (allowBiometry) {
+                LocaleController.getString("Enter passcode or use fingerprint")
+            } else {
+                LocaleController.getString("Enter Passcode")
+            }
+        }
+    }
+
+    private val gapDrawable = SeparatorBackgroundDrawable().apply {
+        backgroundWColor = WColor.SecondaryBackground
+        isTop = true
+    }
+
+    private val topImageView = WImageView(context)
+
+    private val titleTextView = AppCompatTextView(context).apply {
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, 28f)
+        setLineHeight(TypedValue.COMPLEX_UNIT_SP, 32f)
+        typeface = WFont.Medium.typeface
+        gravity = Gravity.CENTER
+    }
+
+    private val subTitleTextView = WLabel(context).apply {
+        setStyle(adaptiveFontSize())
+        text = subtitle
+        gravity = Gravity.CENTER
+    }
+
+    private val passcodeInputView = PasscodeInputView(
+        context,
+        null,
+        forceLightScreen = if (passcodeViewState is PasscodeViewState.Default) {
+            passcodeViewState.light ==
+                true
+        } else {
+            false
+        },
+        forceDarkScreen = if (passcodeViewState is PasscodeViewState.Default &&
+            passcodeViewState.isUnlockScreen
+        ) {
+            NftAccentColors.veryBrightColors.contains(WColor.Tint.color)
+        } else {
+            false
+        },
+        margins = 8,
+        showKeyboardOnFocus = false
+    ).apply {
+        passLength = passcodeLength
+    }
+    private val gapView1: WBaseView by lazy {
+        WBaseView(context)
+    }
+    private val gapView2 = WBaseView(context)
+    private var updatingProgressDrawable: RoundProgressDrawable? = null
+    private var updatingLabel: WLabel? = null
+    private var updatingLabelFadeInAnimator: ValueAnimator? = null
+    private val passcodeKeyboardView = PasscodeKeyboardView(
+        context,
+        light = if (passcodeViewState is PasscodeViewState.Default) {
+            passcodeViewState.light
+        } else {
+            null
+        },
+        showMotionBackgroundDrawable =
+            passcodeViewState is PasscodeViewState.Default &&
+                passcodeViewState.showMotionBackgroundDrawable,
+        ignoreBiometry = ignoreBiometry
+    ).apply {
+        setPadding(
+            0,
+            0,
+            0,
+            4.dp + (containerVC.navigationController?.getSystemBars()?.bottom ?: 0)
+        )
+    }
+
+    val topLinearLayout = object : LinearLayout(context) {
+        var desiredHeight: Int = 0
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+
+            if (desiredHeight == 0) desiredHeight = measuredHeight
+            if (measuredHeight < desiredHeight) {
+                clipChildren = false
+                clipToPadding = false
+                val child = children.firstOrNull() as? ViewGroup
+                child?.apply {
+                    pivotX = measuredWidth / 2f
+                    pivotY = (desiredHeight - measuredHeight) / 4f
+                    clipChildren = false
+                    clipToPadding = false
+                    val scale = measuredHeight / desiredHeight.toFloat()
+                    scaleX = scale
+                    scaleY = scale
+                }
+            }
+        }
+    }.apply {
+        id = generateViewId()
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER
+    }
+    private val bottomLayout = WView(context)
+    private val centerGuideline = Guideline(context).apply {
+        id = generateViewId()
+        layoutParams = LayoutParams(
+            WRAP_CONTENT,
+            WRAP_CONTENT
+        ).apply { orientation = LayoutParams.VERTICAL }
+    }
+
+    private var isConfigured = false
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+
+        if (isConfigured) {
+            return
+        }
+        isConfigured = true
+
+        passcodeKeyboardView.listener = this
+
+        setupContent()
+
+        updateTheme()
+        if (showAnimation) animateViews()
+        passcodeKeyboardView.updateButtons(isEmpty = true)
+    }
+
+    private fun setupContent() {
+        addView(topLinearLayout, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        addView(
+            bottomLayout,
+            LayoutParams(
+                MATCH_PARENT,
+                if (passcodeViewState is PasscodeViewState.Default) WRAP_CONTENT else 0
+            )
+        )
+
+        if (passcodeViewState is PasscodeViewState.Default) {
+            setupAsDefaultPasscodeView()
+        } else if (passcodeViewState is PasscodeViewState.CustomHeader) {
+            setupAsCustomHeader()
+        }
+    }
+
+    private fun createUpdatingLabel(): WLabel {
+        updatingLabel?.let { return it }
+
+        val progressDrawable = RoundProgressDrawable(sizeDp = 13f, strokeWidthDp = 1f)
+        val progressContainer = InsetDrawable(progressDrawable, 1.dp).apply {
+            setBounds(0, 0, 15.dp, 15.dp)
+        }
+        val label = WLabel(context).apply {
+            setStyle(13f)
+            text = LocaleController.getString("Updating")
+            gravity = Gravity.CENTER
+            compoundDrawablePadding = 8.dp
+            setCompoundDrawablesRelative(progressContainer, null, null, null)
+            visibility = INVISIBLE
+        }
+        updatingProgressDrawable = progressDrawable
+        updatingLabel = label
+        bottomLayout.addView(label, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        bottomLayout.setConstraints {
+            centerXToCenterX(label, passcodeKeyboardView)
+            topToTop(label, passcodeKeyboardView)
+            bottomToBottom(label, passcodeKeyboardView, 64f)
+        }
+        updateUpdatingLabelTheme()
+        return label
+    }
+
+    private fun showUpdatingLabel() {
+        val label = createUpdatingLabel()
+        updatingLabelFadeInAnimator?.cancel()
+        label.animate().cancel()
+        label.alpha = 0f
+        updatingLabelFadeInAnimator = label.fadeInObjectAnimator()?.apply {
+            startDelay = if (showAnimation) 750L else 0L
+            duration = AnimationConstants.SLOW_ANIMATION
+            doOnEnd {
+                updatingLabelFadeInAnimator = null
+            }
+            start()
+        }
+    }
+
+    private fun hideUpdatingLabel() {
+        updatingLabelFadeInAnimator?.cancel()
+        updatingLabelFadeInAnimator = null
+        updatingLabel?.let { label ->
+            if (label.alpha > 0f) {
+                label.fadeOut {
+                    label.visibility = INVISIBLE
+                }
+            } else {
+                label.visibility = INVISIBLE
+            }
+        }
+    }
+
+    private fun setupAsDefaultPasscodeView() {
+        val defaultState = passcodeViewState as PasscodeViewState.Default
+
+        addView(gapView1, LayoutParams(WRAP_CONTENT, 0))
+        addView(gapView2, LayoutParams(WRAP_CONTENT, 0))
+
+        if (showAnimation) {
+            if (ANIMATE_PINPAD) {
+                passcodeKeyboardView.apply {
+                    alpha = 0f
+                    scaleX = 0f
+                    scaleY = 0f
+                }
+            }
+            passcodeInputView.apply {
+                scaleX = 0f
+                scaleY = 0f
+            }
+            titleTextView.alpha = 0f
+            subTitleTextView.alpha = 0f
+        }
+
+        titleTextView.text = defaultState.title
+
+        topLinearLayout.apply {
+            addView(
+                topImageView,
+                LinearLayout.LayoutParams(48.dp, 48.dp).apply {
+                    gravity = Gravity.CENTER
+                }
+            )
+            addView(
+                titleTextView,
+                LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                    leftMargin = 20.dp
+                    topMargin = (30.dp * defaultScaleFactor()).roundToInt()
+                    rightMargin = 20.dp
+                }
+            )
+        }
+
+        bottomLayout.addView(passcodeKeyboardView, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        applyDefaultLayout()
+    }
+
+    // Layout metrics are derived from the current insets / parent height, so they
+    // are recomputed on demand (also keeps them correct across rotation).
+    private fun defaultTopInset() =
+        if ((passcodeViewState as PasscodeViewState.Default).showNavBar) {
+            0
+        } else {
+            containerVC.navigationController?.getSystemBars()?.top ?: 0
+        }
+
+    private fun defaultScaleFactor(): Float {
+        val parentHeight = (containerVC.navigationController?.parent as? ViewGroup)?.height ?: 0
+        return if (parentHeight <= 2280) 0.2f + max(0, parentHeight - 1280) / 1000 else 1f
+    }
+
+    private var isWideDefaultLayout: Boolean? = null
+
+    private fun applyDefaultLayout() {
+        val isWide = containerVC.window?.isWideLayout == true
+        if (isWideDefaultLayout == isWide) return
+        isWideDefaultLayout = isWide
+
+        val defaultState = passcodeViewState as PasscodeViewState.Default
+        val scaleFactor = defaultScaleFactor()
+        val imageMargin = (16.dp * scaleFactor).roundToInt()
+        val inputMarginTop = (28.dp * scaleFactor).roundToInt()
+
+        if (isWide) {
+            // Wide screens: header on the left, passcode input + pinpad on the right.
+            if (defaultState.isUnlockScreen) {
+                titleTextView.text = LocaleController.getString("Locked")
+            }
+            val bottomInset =
+                4.dp + (containerVC.navigationController?.getSystemBars()?.bottom ?: 0)
+            // No status-bar top inset here, so the header column stays vertically
+            // centered instead of being pushed down.
+            (topImageView.layoutParams as LinearLayout.LayoutParams).topMargin =
+                imageMargin
+            passcodeKeyboardView.setPadding(0, 0, 0, 0)
+            setPaddingLocalized(horizontalStartPadding, 0, horizontalEndPadding, bottomInset)
+            topLinearLayout.layoutParams =
+                LayoutParams(0, WRAP_CONTENT)
+            bottomLayout.layoutParams =
+                LayoutParams(0, WRAP_CONTENT)
+            // Move the subtitle ("Enter passcode") and the passcode input out of
+            // the header column and place them above the pinpad in the right column.
+            (subTitleTextView.parent as? ViewGroup)?.removeView(subTitleTextView)
+            (passcodeInputView.parent as? ViewGroup)?.removeView(passcodeInputView)
+            bottomLayout.addView(
+                subTitleTextView,
+                LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            )
+            bottomLayout.addView(
+                passcodeInputView,
+                LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
+            )
+            if (centerGuideline.parent == null) addView(centerGuideline)
+            bottomLayout.setConstraints {
+                constrainedHeight(passcodeKeyboardView.id, true)
+                setVerticalBias(subTitleTextView.id, 0f)
+                setVerticalBias(passcodeInputView.id, 0f)
+                setVerticalBias(passcodeKeyboardView.id, 1f)
+                toTop(subTitleTextView, 24f)
+                topToBottom(passcodeInputView, subTitleTextView, 16.5f)
+                toCenterX(passcodeInputView)
+                topToBottom(passcodeKeyboardView, passcodeInputView, 32f)
+                toBottom(passcodeKeyboardView)
+            }
+            setConstraints {
+                guidelinePercent(centerGuideline, 0.5f)
+                // Header column (left)
+                toStart(topLinearLayout)
+                endToStart(topLinearLayout, centerGuideline)
+                toTop(topLinearLayout)
+                toBottom(topLinearLayout, 40f)
+                // Input + pinpad column (right)
+                startToEnd(bottomLayout, centerGuideline)
+                toEnd(bottomLayout)
+                toTop(bottomLayout)
+                toBottom(bottomLayout)
+            }
+        } else {
+            // Phone / narrow: original layout, unchanged.
+            titleTextView.text = defaultState.title
+            (topImageView.layoutParams as LinearLayout.LayoutParams).topMargin =
+                imageMargin + defaultTopInset()
+            setPaddingLocalized(horizontalStartPadding, 0, horizontalEndPadding, 0)
+            passcodeKeyboardView.setPadding(
+                0,
+                0,
+                0,
+                4.dp + (containerVC.navigationController?.getSystemBars()?.bottom ?: 0)
+            )
+            topLinearLayout.layoutParams =
+                LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            bottomLayout.layoutParams =
+                LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            // Restore the subtitle and passcode input back into the header column
+            // (after the title, as the last two children).
+            (subTitleTextView.parent as? ViewGroup)?.removeView(subTitleTextView)
+            (passcodeInputView.parent as? ViewGroup)?.removeView(passcodeInputView)
+            topLinearLayout.addView(
+                subTitleTextView,
+                LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                    topMargin = 14.dp
+                    leftMargin = 20.dp
+                    rightMargin = 20.dp
+                }
+            )
+            topLinearLayout.addView(
+                passcodeInputView,
+                LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                    gravity = Gravity.CENTER
+                    topMargin = inputMarginTop
+                    bottomMargin = 12.dp
+                }
+            )
+            if (centerGuideline.parent != null) removeView(centerGuideline)
+            setConstraints {
+                toTop(gapView1)
+                topToBottom(topLinearLayout, gapView1)
+                topToBottom(gapView2, topLinearLayout)
+                topToBottom(bottomLayout, gapView2)
+                toBottom(bottomLayout)
+                createVerticalChain(
+                    ConstraintSet.PARENT_ID,
+                    ConstraintSet.TOP,
+                    ConstraintSet.PARENT_ID,
+                    ConstraintSet.BOTTOM,
+                    intArrayOf(gapView1.id, topLinearLayout.id, gapView2.id, bottomLayout.id),
+                    null,
+                    ConstraintSet.CHAIN_PACKED
+                )
+            }
+        }
+    }
+
+    private val horizontalStartPadding: Int
+        get() = ViewConstants.HORIZONTAL_PADDINGS.dp +
+            containerVC.additionalTabletPadding +
+            containerVC.systemBarStartInset
+    private val horizontalEndPadding: Int
+        get() = ViewConstants.HORIZONTAL_PADDINGS.dp + containerVC.systemBarEndInset
+
+    // Re-pick the wide/narrow layout, e.g. after a tablet rotation. No-op if
+    // the layout mode hasn't changed or the view isn't configured yet.
+    fun relayoutForConfigurationChange() {
+        if (!isConfigured) return
+        when (passcodeViewState) {
+            is PasscodeViewState.Default -> applyDefaultLayout()
+            is PasscodeViewState.CustomHeader -> applyCustomHeaderLayout()
+        }
+    }
+
+    private fun setupAsCustomHeader() {
+        addView(gapView2, LayoutParams(WRAP_CONTENT, ViewConstants.GAP.dp))
+        bottomLayout.addView(
+            subTitleTextView,
+            LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+        )
+        bottomLayout.addView(
+            passcodeInputView,
+            LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
+        )
+        bottomLayout.addView(passcodeKeyboardView, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        applyCustomHeaderLayout()
+    }
+
+    private fun applyCustomHeaderBottomConstraints(isWide: Boolean) {
+        if (isWide) {
+            bottomLayout.setConstraints {
+                constrainedHeight(passcodeKeyboardView.id, true)
+                topToBottom(passcodeInputView, subTitleTextView, 16.5f)
+                toCenterX(passcodeInputView)
+                topToBottom(passcodeKeyboardView, passcodeInputView, 32f)
+                createVerticalChain(
+                    ConstraintSet.PARENT_ID,
+                    ConstraintSet.TOP,
+                    ConstraintSet.PARENT_ID,
+                    ConstraintSet.BOTTOM,
+                    intArrayOf(subTitleTextView.id, passcodeInputView.id, passcodeKeyboardView.id),
+                    null,
+                    ConstraintSet.CHAIN_PACKED
+                )
+            }
+        } else {
+            bottomLayout.setConstraints {
+                constrainedHeight(passcodeKeyboardView.id, true)
+                setVerticalBias(subTitleTextView.id, 0f)
+                setVerticalBias(passcodeInputView.id, 0f)
+                setVerticalBias(passcodeKeyboardView.id, 1f)
+                toTop(subTitleTextView, 24f)
+                topToBottom(passcodeInputView, subTitleTextView, 16.5f)
+                toCenterX(passcodeInputView)
+                topToBottom(passcodeKeyboardView, passcodeInputView, 12f)
+                toBottom(passcodeKeyboardView)
+            }
+        }
+    }
+
+    private var isWideCustomHeaderLayout: Boolean? = null
+
+    private fun applyCustomHeaderLayout() {
+        val isWide = containerVC.window?.isWideLayout == true
+        if (isWideCustomHeaderLayout == isWide) return
+        isWideCustomHeaderLayout = isWide
+
+        if (isWide) {
+            // Wide screens: custom header on the left, input + pinpad on the right.
+            (gapView2.layoutParams as? LayoutParams)?.let {
+                it.width = ViewConstants.GAP.dp
+                it.height = 0
+            }
+            topLinearLayout.layoutParams = LayoutParams(0, WRAP_CONTENT)
+            bottomLayout.layoutParams = LayoutParams(0, MATCH_PARENT)
+            if (centerGuideline.parent == null) addView(centerGuideline)
+            setConstraints {
+                constrainMaxHeight(topLinearLayout.id, Int.MAX_VALUE)
+                guidelinePercent(centerGuideline, 0.5f)
+                // Header column (left)
+                toStart(topLinearLayout)
+                endToStart(topLinearLayout, gapView2)
+                toTop(topLinearLayout)
+                toBottom(topLinearLayout, 40f)
+                // Gap between columns
+                startToEnd(gapView2, centerGuideline)
+                centerYToCenterY(gapView2, topLinearLayout)
+                // Input + pinpad column (right)
+                startToEnd(bottomLayout, centerGuideline)
+                toEnd(bottomLayout)
+                toTop(bottomLayout)
+                toBottom(bottomLayout)
+            }
+            applyCustomHeaderBottomConstraints(isWide = true)
+        } else {
+            (gapView2.layoutParams as? LayoutParams)?.let {
+                it.width = WRAP_CONTENT
+                it.height = ViewConstants.GAP.dp
+            }
+            topLinearLayout.layoutParams = LayoutParams(MATCH_PARENT, WRAP_CONTENT)
+            bottomLayout.layoutParams = LayoutParams(MATCH_PARENT, 0)
+            if (centerGuideline.parent != null) removeView(centerGuideline)
+            setConstraints {
+                val parentHeight = (containerVC.navigationController?.parent as? View)?.height ?: 0
+                if (parentHeight > 0) {
+                    constrainMaxHeight(
+                        topLinearLayout.id,
+                        (parentHeight * TOP_HEADER_MAX_HEIGHT_RATIO).roundToInt()
+                    )
+                }
+                toTop(topLinearLayout)
+                topToBottom(gapView2, topLinearLayout)
+                topToBottom(bottomLayout, gapView2)
+                toBottom(bottomLayout)
+                createVerticalChain(
+                    ConstraintSet.PARENT_ID,
+                    ConstraintSet.TOP,
+                    ConstraintSet.PARENT_ID,
+                    ConstraintSet.BOTTOM,
+                    intArrayOf(topLinearLayout.id, gapView2.id, bottomLayout.id),
+                    null,
+                    ConstraintSet.CHAIN_SPREAD_INSIDE
+                )
+            }
+            applyCustomHeaderBottomConstraints(isWide = false)
+        }
+        updateTheme()
+    }
+
+    private fun animateViews() {
+        ValueAnimator.ofInt(0, 800.dp).apply {
+            startDelay = 0
+            duration = AnimationConstants.VERY_SLOW_ANIMATION
+
+            addUpdateListener { updatedAnimation ->
+                val updatedValue = updatedAnimation.animatedValue as Int
+
+                if (updatedValue < 400) {
+                    passcodeInputView.scaleX = updatedValue / 400f
+                    passcodeInputView.scaleY = updatedValue / 400f
+                } else {
+                    passcodeInputView.scaleX = 1f
+                    passcodeInputView.scaleY = 1f
+                }
+
+                if (updatedValue < 350) {
+                    titleTextView.alpha = 0f
+                    subTitleTextView.alpha = 0f
+                } else if (updatedValue <= 800) {
+                    val alpha = (updatedValue - 350) / 450f
+                    titleTextView.translationX = (1 - alpha) * 20
+                    subTitleTextView.translationX = titleTextView.translationX
+                    titleTextView.alpha = alpha
+                    subTitleTextView.alpha = alpha
+                }
+            }
+            doOnEnd {
+                passcodeInputView.scaleX = 1f
+                passcodeInputView.scaleY = 1f
+                titleTextView.translationX = 0f
+                subTitleTextView.translationX = 0f
+                titleTextView.alpha = 1f
+                subTitleTextView.alpha = 1f
+            }
+
+            start()
+        }
+    }
+
+    override fun updateTheme() {
+        if (passcodeViewState !is PasscodeViewState.Default) {
+            if (isWideCustomHeaderLayout == true) {
+                bottomLayout.background = null
+            } else {
+                bottomLayout.setBackgroundColor(
+                    WColor.Background.color,
+                    ViewConstants.BLOCK_RADIUS.dp,
+                    ViewConstants.TOOLBAR_RADIUS.dp
+                )
+            }
+        }
+        if (passcodeViewState is PasscodeViewState.Default) {
+            val color =
+                if (passcodeViewState.light ?: ThemeManager.isDark) Color.WHITE else Color.BLACK
+            containerVC.window?.forceStatusBarLight = passcodeViewState.light
+            containerVC.window?.forceBottomBarLight = passcodeViewState.light
+            val lockDrawable = context.getDrawableCompat(
+                org.mytonwallet.app_air.icons.R.drawable.ic_lock
+            )?.apply {
+                setTint(color)
+            }
+            topImageView.setImageDrawable(lockDrawable)
+            titleTextView.setTextColor(color)
+            subTitleTextView.setTextColor(color)
+        } else if (passcodeViewState is PasscodeViewState.CustomHeader) {
+            subTitleTextView.setTextColor(WColor.SecondaryText.color)
+            gapDrawable.invalidateSelf()
+        }
+        updateUpdatingLabelTheme()
+    }
+
+    private fun updateUpdatingLabelTheme() {
+        val color = if (passcodeViewState is PasscodeViewState.Default) {
+            if (passcodeViewState.light ?: ThemeManager.isDark) Color.WHITE else Color.BLACK
+        } else {
+            WColor.SecondaryText.color
+        }
+        updatingLabel?.setTextColor(color)
+        updatingProgressDrawable?.color = color
+    }
+
+    var delegate: Delegate? = null
+
+    interface Delegate {
+        val extraAuthUsages: Int
+            get() = 0
+
+        fun onEnterPasscode(
+            passcode: String,
+            callback: (wasCorrect: Boolean, cooldownDate: Long?) -> Unit
+        )
+
+        fun onBiometricToken(enclaveToken: String) {}
+
+        fun signOutPressed() {}
+    }
+
+    override fun onBiometricsCheck() {
+        if (isLoading.value || inBiometry.value) {
+            return
+        }
+
+        tryBiometrics()
+    }
+
+    override fun onNumberDelete() {
+        if (isLoading.value || inBiometry.value) {
+            return
+        }
+
+        if (passcodeInputView.passcode.isEmpty()) {
+            if ((passcodeViewState as? PasscodeViewState.Default)?.isUnlockScreen == true) {
+                delegate?.signOutPressed()
+            }
+            return
+        }
+        passcodeInputView.passcode = passcodeInputView.passcode.dropLast(1)
+        passcodeKeyboardView.updateButtons(passcodeInputView.passcode.isEmpty())
+    }
+
+    override fun onNumberInput(number: Int) {
+        if (isLoading.value || inBiometry.value) {
+            return
+        }
+
+        doOnNumPadClick?.invoke()
+        passcodeInputView.passcode += number
+        passcodeKeyboardView.updateButtons(passcodeInputView.passcode.isEmpty())
+        if (passcodeInputView.passcode.length >= passcodeLength) {
+            checkPasscode(passcodeInputView.passcode)
+        }
+    }
+
+    var doOnNumPadClick: (() -> Unit)? = null
+
+    /* * */
+
+    var inBiometry = BoolAnimator(
+        AnimationConstants.SLOW_ANIMATION,
+        AnimatorUtils.DECELERATE_INTERPOLATOR,
+        initialValue = showAnimation
+    ) { _, value, _, _ ->
+        if (ANIMATE_PINPAD) {
+            passcodeKeyboardView.alpha = 1f - value
+            passcodeKeyboardView.scaleX = 1f - value * 0.25f
+            passcodeKeyboardView.scaleY = 1f - value * 0.25f
+        }
+    }
+
+    fun tryBiometrics() {
+        Logger.d(
+            Logger.LogTag.PASSCODE_CONFIRM,
+            "tryBiometrics: Attempting biometric authentication"
+        )
+        inBiometry.animatedValue = true
+
+        val isWaitingForBridge =
+            !WalletCore.isBridgeReady && WGlobalStorage.isLegacyBiometricActivated()
+        if (isWaitingForBridge) {
+            passcodeKeyboardView.visibility = INVISIBLE
+            showUpdatingLabel()
+        }
+        AuthStore.authorizeWithBiometrics(
+            containerVC.window!!,
+            onBridgeReady = {
+                if (isWaitingForBridge) {
+                    hideUpdatingLabel()
+                    passcodeKeyboardView.apply {
+                        alpha = 0f
+                        visibility = VISIBLE
+                        fadeIn()
+                    }
+                }
+            },
+            onAuthenticated = {
+                passcodeInputView.passcode = "----"
+                isLoading.animatedValue = true
+                if ((passcodeViewState as? PasscodeViewState.Default)?.isUnlockScreen == true) {
+                    showIndicator(animateToGreen = false)
+                }
+            },
+            extraUsages = delegate?.extraAuthUsages ?: 0
+        ) { token ->
+            if (token != null) {
+                Logger.d(Logger.LogTag.PASSCODE_CONFIRM, "tryBiometrics: Biometric success")
+                passcodeInputView.passcode = "----" // To fill passcode input view
+                isLoading.animatedValue = true
+                delegate?.onBiometricToken(token)
+            } else {
+                Logger.d(Logger.LogTag.PASSCODE_CONFIRM, "tryBiometrics: Biometric canceled/error")
+                inBiometry.animatedValue = false
+            }
+        }
+    }
+
+    /* * */
+
+    private var isLoading = BoolAnimator(
+        220L,
+        AnimatorUtils.DECELERATE_INTERPOLATOR,
+        initialValue = false
+    ) { _, _, _, _ -> }
+
+    private fun checkPasscode(passcode: String) {
+        if (isLoading.value) {
+            inBiometry.animatedValue = false
+            return
+        }
+
+        Logger.d(Logger.LogTag.PASSCODE_CONFIRM, "checkPasscode: Verifying passcode")
+        isLoading.animatedValue = true
+        delegate!!.onEnterPasscode(passcode) { correct, cooldownDate ->
+            isLoading.animatedValue = false
+            if (correct) {
+                Logger.d(Logger.LogTag.PASSCODE_CONFIRM, "checkPasscode: Passcode correct")
+            } else {
+                Logger.d(
+                    Logger.LogTag.PASSCODE_CONFIRM,
+                    "checkPasscode: Passcode incorrect hasCooldown=${cooldownDate != null}"
+                )
+                inBiometry.animatedValue = false
+                passcodeInputView.hideIndicator(true)
+                passcodeInputView.resetInput()
+                if ((passcodeViewState as? PasscodeViewState.Default)?.isUnlockScreen == true &&
+                    cooldownDate != null
+                ) {
+                    passcodeKeyboardView.showSignOut = true
+                }
+                passcodeKeyboardView.updateButtons(isEmpty = true)
+
+                setupCooldown(cooldownDate)
+            }
+        }
+    }
+
+    fun showIndicator(animateToGreen: Boolean = true) {
+        passcodeInputView.showIndicator(animateToGreen)
+    }
+
+    fun clearPasscode() {
+        passcodeInputView.hideIndicator(false)
+        passcodeInputView.passcode = ""
+        passcodeKeyboardView.updateButtons(isEmpty = true)
+        isLoading.animatedValue = false
+        inBiometry.animatedValue = false
+    }
+
+    // Rate Limit //////////
+    private var cooldownHandler: Handler? = null
+    private var cooldownRunnable: Runnable? = null
+
+    fun setupCooldown(cooldownEndTime: Long?) {
+        clearCooldown()
+
+        val remainingMillis = cooldownEndTime?.let { it - System.currentTimeMillis() } ?: 0
+
+        if (remainingMillis > 0) {
+            Logger.d(
+                Logger.LogTag.PASSCODE_CONFIRM,
+                "setupCooldown: Cooldown active remainingMs=$remainingMillis"
+            )
+            passcodeKeyboardView.lockKeypad()
+            startCooldownTimer(cooldownEndTime!!)
+        } else {
+            resetToNormalState()
+        }
+    }
+
+    fun clearCooldown() {
+        cooldownRunnable?.let { runnable ->
+            cooldownHandler?.removeCallbacks(runnable)
+        }
+        cooldownHandler = null
+        cooldownRunnable = null
+    }
+
+    private fun startCooldownTimer(cooldownEndTime: Long) {
+        cooldownHandler = Handler(Looper.getMainLooper())
+
+        cooldownRunnable = object : Runnable {
+            override fun run() {
+                val remainingMillis = cooldownEndTime - System.currentTimeMillis()
+
+                if (remainingMillis > 0) {
+                    updateCooldownDisplay(remainingMillis)
+                    cooldownHandler?.postDelayed(this, 1000)
+                } else {
+                    onCooldownFinished()
+                }
+            }
+        }
+
+        cooldownRunnable?.let { cooldownHandler?.post(it) }
+    }
+
+    private fun updateCooldownDisplay(remainingMillis: Long) {
+        val totalSeconds = (remainingMillis + 999) / 1000
+        var hours = totalSeconds / 3600
+        var minutes = (totalSeconds % 3600) / 60
+        var seconds = totalSeconds % 60
+        if (hours == 1L && minutes == 0L) {
+            hours = 0L
+            minutes = 60L
+        } else if (minutes == 1L && seconds == 0L) {
+            minutes = 0
+            seconds = 60
+        }
+
+        val message = when {
+            hours > 0 -> {
+                val hourText = LocaleController.getPlural(hours.toInt(), "hour")
+                val minuteText = LocaleController.getPlural(minutes.toInt(), "minute")
+                if (minutes > 0) {
+                    LocaleController.getStringWithKeyValues(
+                        "Try again in %duration% and %unit%",
+                        listOf("%duration%" to hourText, "%unit%" to minuteText)
+                    )
+                } else {
+                    LocaleController.getStringWithKeyValues(
+                        "Try again in %duration%",
+                        listOf("%duration%" to hourText)
+                    )
+                }
+            }
+
+            minutes > 0 -> {
+                val minuteText = LocaleController.getPlural(minutes.toInt(), "minute")
+                val secondText = LocaleController.getPlural(seconds.toInt(), "second")
+                if (seconds > 0) {
+                    LocaleController.getStringWithKeyValues(
+                        "Try again in %duration% and %unit%",
+                        listOf("%duration%" to minuteText, "%unit%" to secondText)
+                    )
+                } else {
+                    LocaleController.getStringWithKeyValues(
+                        "Try again in %duration%",
+                        listOf("%duration%" to minuteText)
+                    )
+                }
+            }
+
+            else -> {
+                val secondText = LocaleController.getPlural(seconds.toInt(), "second")
+                LocaleController.getStringWithKeyValues(
+                    "Try again in %duration%",
+                    listOf("%duration%" to secondText)
+                )
+            }
+        }
+
+        subTitleTextView.text = message
+    }
+
+    private fun onCooldownFinished() {
+        resetToNormalState()
+        clearCooldown()
+    }
+
+    private fun resetToNormalState() {
+        passcodeKeyboardView.unlockKeypad()
+        subTitleTextView.text = subtitle
+    }
+}

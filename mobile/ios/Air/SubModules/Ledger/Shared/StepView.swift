@@ -1,0 +1,31 @@
+
+import SwiftUI
+import UIComponents
+import WalletContext
+
+
+struct StepView: View {
+    
+    var step: LedgerViewModel.Step
+    
+    var body: some View {
+        GridRow {
+            ProgressBulletPoint(status: step.status)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.id.displayTitlle)
+                    .textStyle(.body, scaling: .dynamic)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let subtitle = step.status.displaySubtitle ?? step.subtitle {
+                    Text(subtitle)
+                        .textStyle(.body, scaling: .dynamic)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(Color.air.secondaryLabel)
+                        .transition(.opacity.combined(with: .offset(y: -20)))
+                }
+            }
+            .lineLimit(nil)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}

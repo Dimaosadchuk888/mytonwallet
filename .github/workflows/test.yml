@@ -1,0 +1,97 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  ios-localizations:
+    name: iOS localization safety
+    # Match the iOS release toolchain; named catalog placeholders require Xcode 26.
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install localization dependencies
+        run: python -m pip install -r mobile/ios/Air/scripts/strings/requirements.txt
+
+      - name: Test localization generation and formatting
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          xcodebuild -version
+          xcrun swiftc --version
+          python -m unittest discover -s mobile/ios/Air/scripts/strings -p 'test_*.py' -v
+
+  test:
+    name: Simple tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Prepare default translations
+        run: npm run i18n:build:default
+
+      - name: Check types and lint
+        run: npm run check
+
+      - name: Test
+        run: npm test
+
+      - name: Check Agent V2 contracts
+        run: node dev/checkAgentV2Contract.mjs
+
+      # The standalone Air SDK sets `NO_EXTRA_FEATURES=1` to exclude guarded extra features from the bundle
+      - name: Build the standalone SDK bundle
+        run: npm run sdk:build:slim
+
+  chromium-e2e:
+    name: Agent V2 / Chromium E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Prepare default translations
+        run: npm run i18n:build:default
+
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Run Agent V2 Chromium E2E
+        run: npm run test:agent:v2:e2e
+
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-v2-playwright-diagnostics
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,264 @@
+import React, {
+  memo, useEffect, useLayoutEffect, useMemo, useRef,
+} from '../../lib/teact/teact';
+import { removeExtraClass, toggleExtraClass } from '../../lib/teact/teact-dom';
+import { getActions, withGlobal } from '../../global';
+
+import type { ApiSite, ApiSiteCategory } from '../../api/types';
+
+import { ANIMATED_STICKER_BIG_SIZE_PX } from '../../config';
+import { selectCurrentAccountState } from '../../global/selectors';
+import buildClassName from '../../util/buildClassName';
+import captureEscKeyListener from '../../util/captureEscKeyListener';
+import resolveSlideTransitionName from '../../util/resolveSlideTransitionName';
+import { captureControlledSwipe } from '../../util/swipeController';
+import useTelegramMiniAppSwipeToClose from '../../util/telegram/hooks/useTelegramMiniAppSwipeToClose';
+import { IS_TOUCH_ENV } from '../../util/windowEnvironment';
+import { SEC } from '../../api/constants';
+import { ANIMATED_STICKERS_PATHS } from '../ui/helpers/animatedAssets';
+import { processSites } from './helpers/utils';
+
+import useAutoScroll from '../../hooks/useAutoScroll';
+import { useDeviceScreen } from '../../hooks/useDeviceScreen';
+import useDragScroll from '../../hooks/useDragScroll';
+import useHistoryBack from '../../hooks/useHistoryBack';
+import useLang from '../../hooks/useLang';
+import useLastCallback from '../../hooks/useLastCallback';
+import useModalTransitionKeys from '../../hooks/useModalTransitionKeys';
+import usePrevious2 from '../../hooks/usePrevious2';
+import { useStateRef } from '../../hooks/useStateRef';
+
+import AnimatedIconWithPreview from '../ui/AnimatedIconWithPreview';
+import Spinner from '../ui/Spinner';
+import Transition from '../ui/Transition';
+import Category from './Category';
+import DappFeed from './DappFeed';
+import ExploreSearch from './ExploreSearch';
+import SiteFeatured from './SiteFeatured';
+import SiteList from './SiteList';
+
+import styles from './Explore.module.scss';
+
+interface OwnProps {
+  isActive?: boolean;
+}
+
+interface StateProps {
+  categories?: ApiSiteCategory[];
+  sites?: ApiSite[];
+  featuredTitle?: string;
+  currentSiteCategoryId?: number;
+}
+
+const enum SLIDES {
+  main,
+  category,
+}
+
+const SLIDE_DURATION = 4 * SEC;
+
+function Explore({
+  isActive,
+  categories,
+  sites: originalSites,
+  featuredTitle,
+  currentSiteCategoryId,
+}: OwnProps & StateProps) {
+  const {
+    loadExploreSites,
+    getDapps,
+    openSiteCategory,
+    closeSiteCategory,
+    switchToWallet,
+  } = getActions();
+
+  const transitionRef = useRef<HTMLDivElement>();
+  const featuredContainerRef = useRef<HTMLDivElement>();
+
+  const lang = useLang();
+  const { isLandscape, isPortrait } = useDeviceScreen();
+
+  const handleBack = useLastCallback(() => {
+    if (currentSiteCategoryId) {
+      closeSiteCategory();
+    } else {
+      switchToWallet();
+    }
+  });
+
+  useHistoryBack({
+    isActive,
+    onBack: handleBack,
+  });
+
+  useLayoutEffect(() => {
+    toggleExtraClass(document.documentElement, 'is-explore-active', isActive);
+
+    return () => {
+      removeExtraClass(document.documentElement, 'is-explore-active');
+    };
+  }, [isActive]);
+
+  const { renderingKey } = useModalTransitionKeys(currentSiteCategoryId || 0, !!isActive);
+  const prevSiteCategoryIdRef = useStateRef(usePrevious2(renderingKey));
+  const { disableSwipeToClose, enableSwipeToClose } = useTelegramMiniAppSwipeToClose(isActive);
+
+  useEffect(
+    () => (renderingKey ? captureEscKeyListener(closeSiteCategory) : undefined),
+    [closeSiteCategory, renderingKey],
+  );
+
+  const { featuredSites, allSites } = useMemo(() => processSites(originalSites), [originalSites]);
+
+  useEffect(() => {
+    if (!IS_TOUCH_ENV || !originalSites?.length) {
+      return undefined;
+    }
+
+    return captureControlledSwipe(transitionRef.current!, {
+      onSwipeRightStart: () => {
+        closeSiteCategory();
+
+        disableSwipeToClose();
+      },
+      onCancel: () => {
+        openSiteCategory({ id: prevSiteCategoryIdRef.current! });
+
+        enableSwipeToClose();
+      },
+    });
+  }, [disableSwipeToClose, enableSwipeToClose, originalSites?.length, prevSiteCategoryIdRef]);
+
+  useAutoScroll({
+    containerRef: featuredContainerRef,
+    itemSelector: `.${styles.featuredItem}`,
+    interval: SLIDE_DURATION,
+    isDisabled: !isActive || featuredSites.length <= 1,
+  });
+
+  useDragScroll({
+    containerRef: featuredContainerRef,
+    isDisabled: !isActive || IS_TOUCH_ENV || featuredSites.length <= 1,
+  });
+
+  const filteredCategories = useMemo(() => {
+    return categories?.filter((category) => allSites[category.id]?.length > 0);
+  }, [categories, allSites]);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    getDapps();
+    loadExploreSites({ isLandscape, langCode: lang.code });
+  }, [isActive, isLandscape, lang.code]);
+
+  function renderFeatured() {
+    return (
+      <div className={styles.featuredSection}>
+        <h2 className={buildClassName(styles.sectionHeader, styles.sectionHeaderFeatured)}>
+          {lang(featuredTitle || 'Trending')}
+        </h2>
+        <div className={buildClassName(styles.featuredList, 'no-swipe')} ref={featuredContainerRef}>
+          {featuredSites.map((site) => (
+            <SiteFeatured key={`${site.url}-${site.name}`} site={site} className={styles.featuredItem} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  function renderContent(isContentActive: boolean, isFrom: boolean, currentKey: SLIDES) {
+    switch (currentKey) {
+      case SLIDES.main:
+        return (
+          <div className={styles.slideWrapper}>
+            <div
+              className={buildClassName(styles.slide, 'custom-scroll')}
+            >
+              {!isPortrait && (
+                <ExploreSearch sites={originalSites} />
+              )}
+              <DappFeed />
+
+              {Boolean(featuredSites.length) && renderFeatured()}
+
+              {Boolean(filteredCategories?.length) && (
+                <>
+                  <h2 className={styles.sectionHeader}>{lang('Popular Apps')}</h2>
+                  <div className={buildClassName(styles.list, isLandscape && styles.landscapeList)}>
+                    {filteredCategories.map((category) => (
+                      <Category key={category.id} category={category} sites={allSites[category.id]} />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+            {isPortrait && <ExploreSearch sites={originalSites} />}
+          </div>
+        );
+
+      case SLIDES.category: {
+        const currentSiteCategory = allSites[renderingKey];
+        if (!currentSiteCategory) return undefined;
+
+        return (
+          <SiteList
+            key={renderingKey}
+            isActive={isContentActive}
+            categoryId={renderingKey}
+            sites={currentSiteCategory}
+          />
+        );
+      }
+    }
+  }
+
+  if (originalSites === undefined) {
+    return (
+      <div className={buildClassName(styles.emptyList, styles.emptyListLoading)}>
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (originalSites.length === 0) {
+    return (
+      <div className={styles.emptyList}>
+        <AnimatedIconWithPreview
+          play={isActive}
+          tgsUrl={ANIMATED_STICKERS_PATHS.happy}
+          previewUrl={ANIMATED_STICKERS_PATHS.happyPreview}
+          size={ANIMATED_STICKER_BIG_SIZE_PX}
+          className={styles.sticker}
+          noLoop={false}
+          nonInteractive
+        />
+        <p className={styles.emptyListTitle}>{lang('No partners yet')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <Transition
+      ref={transitionRef}
+      name={resolveSlideTransitionName()}
+      activeKey={renderingKey ? SLIDES.category : SLIDES.main}
+      withSwipeControl
+      className={styles.rootSlide}
+    >
+      {renderContent}
+    </Transition>
+  );
+}
+
+export default memo(withGlobal<OwnProps>((global): StateProps => {
+  const { currentSiteCategoryId } = selectCurrentAccountState(global) || {};
+  const { categories, sites, featuredTitle } = global.exploreData || {};
+
+  return {
+    sites,
+    categories,
+    featuredTitle,
+    currentSiteCategoryId,
+  };
+})(Explore));

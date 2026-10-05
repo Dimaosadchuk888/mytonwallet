@@ -1,0 +1,408 @@
+default_platform(:ios)
+
+$package_json_path = '../../../../package.json'
+$workspace_path = 'App.xcworkspace'
+$project_path = '../App.xcodeproj/project.pbxproj'
+
+def env_value(name, fallback = nil)
+  value = ENV[name]
+  value.nil? || value.empty? ? fallback : value
+end
+
+# RC_NUMBER must be a bare integer; anything else (empty, or an API error body that slipped
+# through the workflow) is treated as absent so it can never reach the version name or notes.
+def rc_ordinal
+  n = env_value('RC_NUMBER')
+  n.to_s.match?(/\A\d+\z/) ? n : nil
+end
+
+# Compact provenance line for the top of the build notes: RC label + version, build time,
+# and short commit. On release/* the workflow supplies RC_NUMBER (the Nth store build off the
+# branch), so RC builds read "RC 26.7.0-rc.2 ..."; ordinary builds just lead with the version.
+def build_meta_line(version)
+  rc_number = rc_ordinal
+  is_rc = !env_value('IS_RELEASE_CANDIDATE').nil? && !rc_number.nil?
+  sha = (env_value('GITHUB_SHA') || '')[0, 7]
+  stamp = Time.now.utc.strftime('%Y-%m-%d %H:%M')
+  head = is_rc ? "RC #{version}-rc.#{rc_number}" : version
+  parts = [head, "#{stamp} UTC"]
+  parts << sha unless sha.nil? || sha.empty?
+  parts.join(' · ')
+end
+
+$variant = env_value('APP_VARIANT', 'mytonwallet').downcase
+$variant_config = {
+  'mytonwallet' => {
+    app_identifier: 'org.mytonwallet.app',
+    app_identifier_widget: 'org.mytonwallet.app.AirWidget',
+    app_identifier_notification: 'org.mytonwallet.app.notification-service',
+    profile_name: 'MyTonWallet Production profile',
+    profile_name_widget: 'MyTonWallet Production profile - Widget',
+    profile_name_notification: 'MyTonWallet Production profile - NSE',
+    scheme: 'MyTonWallet',
+    scheme_widget: 'AirWidgetExtension',
+    scheme_notification: 'MyTonWalletNotificationServiceExtension',
+    plist_path: '../../App/App/Resources/MyTonWallet/Info.plist',
+    testflight_group: 'MTW external group',
+  },
+  'gram' => {
+    app_identifier: 'io.gramwallet.app',
+    app_identifier_widget: 'io.gramwallet.app.widget',
+    app_identifier_notification: 'io.gramwallet.app.notification-service',
+    profile_name: 'Gram Wallet Production profile',
+    profile_name_widget: 'Gram Wallet Production profile - Widget',
+    profile_name_notification: 'Gram Wallet Production profile – NSE',
+    scheme: 'GramWallet',
+    scheme_widget: 'GramWalletWidgetExtension',
+    scheme_notification: 'GramWalletNotificationServiceExtension',
+    plist_path: '../../App/App/Resources/GramWallet/Info.plist',
+    testflight_group: 'Gram Wallet external group',
+  },
+}
+
+raise "Unknown APP_VARIANT: #{$variant}" unless $variant_config.key?($variant)
+
+$config = $variant_config[$variant]
+$plist_path = env_value('IOS_PLIST_PATH', $config[:plist_path])
+
+$team_id = env_value('IOS_TEAM_ID', CredentialsManager::AppfileConfig.try_fetch_value(:team_id))
+$app_identifier = env_value('IOS_APP_IDENTIFIER', $config[:app_identifier])
+$profile_name = env_value('IOS_PROFILE_NAME', $config[:profile_name])
+$scheme = env_value('IOS_SCHEME', $config[:scheme])
+$app_identifier_widget = env_value('IOS_APP_IDENTIFIER_WIDGET', $config[:app_identifier_widget])
+$profile_name_widget = env_value('IOS_PROFILE_NAME_WIDGET', $config[:profile_name_widget])
+$scheme_widget = env_value('IOS_WIDGET_SCHEME', $config[:scheme_widget])
+$app_identifier_notification = env_value('IOS_APP_IDENTIFIER_NOTIFICATION', $config[:app_identifier_notification])
+$profile_name_notification = env_value('IOS_PROFILE_NAME_NOTIFICATION', $config[:profile_name_notification])
+$scheme_notification = env_value('IOS_NOTIFICATION_SCHEME', $config[:scheme_notification])
+$testflight_group = env_value('IOS_TESTFLIGHT_GROUP', $config[:testflight_group])
+$external_beta_enabled = env_value('IOS_EXTERNAL_BETA_ENABLED', 'false') == 'true'
+$metadata_path = env_value('IOS_METADATA_PATH')
+$asc_key_id = env_value('APP_STORE_CONNECT_KEY_ID', 'TL49GJ73DP')
+$asc_issuer_id = env_value('APP_STORE_CONNECT_ISSUER_ID', '519080b4-bc5f-4d06-a889-a69254108348')
+$asc_key_path = env_value('APP_STORE_CONNECT_KEY_PATH', './AuthKey.p8')
+
+puts "$variant: #{$variant}"
+puts "$app_identifier: #{$app_identifier}"
+puts "$profile_name: #{$profile_name}"
+puts "$scheme: #{$scheme}"
+puts "$app_identifier_widget: #{$app_identifier_widget}"
+puts "$profile_name_widget: #{$profile_name_widget}"
+puts "$scheme_widget: #{$scheme_widget}"
+puts "$app_identifier_notification: #{$app_identifier_notification}"
+puts "$profile_name_notification: #{$profile_name_notification}"
+puts "$scheme_notification: #{$scheme_notification}"
+puts "$testflight_group: #{$testflight_group}"
+puts "$external_beta_enabled: #{$external_beta_enabled}"
+
+$project_data = nil
+$plist_data = nil
+
+def read_files
+  $project_data = File.read($project_path)
+  $plist_data = File.read($plist_path)
+end
+
+def restore_files
+  File.write($project_path, $project_data)
+  File.write($plist_path, $plist_data)
+end
+
+def update_version_and_build_number
+  version = JSON.parse(File.read($package_json_path))["version"]
+  # Build number = the identity of this CI execution plus a fixed offset. What App Store Connect
+  # actually enforces is uniqueness within a version train, not order: a number already uploaded
+  # under the same marketing version is refused as a duplicate, while a number lower than one
+  # already there is accepted as long as nobody has used it. Both repositories that build this app
+  # upload to the same records, on independent run counters, and the publishing one shipped 26.8.0
+  # as build 3684 the day after this one had uploaded 8759 under that same version. So the property
+  # to preserve is that no number is ever offered twice. Within one repository the derivation gives
+  # that outright, by never repeating a (run, attempt) pair. Across the two it does not: they share
+  # this formula, and all that keeps their numbers apart is the distance between the counters, with
+  # the faster one ahead. That is an operational fact, not something the code can hold, so a change
+  # to the offset or the multiplier on either side has to preserve it deliberately. The offset lifts
+  # everything above the numbers minted by the earlier App Store Connect-lookup scheme. No network
+  # call, nothing to get out of date.
+  build_offset = 3300
+
+  # The identity is the pair (run, attempt), not the run alone. GITHUB_RUN_NUMBER deliberately
+  # does not change when a run is re-run, so a job that dies after App Store Connect has already
+  # taken the binary — a flake in the steps that follow the upload, a runner shutting down
+  # mid-job — would offer that same build number on every re-run and be refused as a duplicate
+  # forever. GITHUB_RUN_ATTEMPT starts at 1 and increments per re-run; giving it the last digit
+  # lets a re-run mint a number that is fresh and still increasing. Ten attempts is what one
+  # run's decade holds, and an eleventh collides with the next run rather than overtaking it.
+  attempts_per_run = 10
+
+  # The counter is scoped to the workflow's identity and restarts at 1 if the workflow file is
+  # ever renamed; GitHub offers no way to restore it. A restarted counter replays (run, attempt)
+  # pairs that have already been spent, so it derives numbers that were already uploaded and gets
+  # them back refused as duplicates, with nothing in the error naming the rename. Fail here
+  # instead, where the cause is named.
+  run_number_floor = 390
+
+  run_number = env_value('GITHUB_RUN_NUMBER')
+  UI.user_error!('GITHUB_RUN_NUMBER is not set — the build number can only be derived in CI') if run_number.nil?
+  UI.user_error!("GITHUB_RUN_NUMBER=#{run_number.inspect} is not a bare integer") unless run_number.match?(/\A\d+\z/)
+  if run_number.to_i < run_number_floor
+    UI.user_error!("GITHUB_RUN_NUMBER=#{run_number} is below the known floor of #{run_number_floor}: the " \
+      'workflow run counter has restarted, which is what renaming the workflow file does. The counter ' \
+      'cannot be restored, so recovery takes both edits here: raise build_offset until the ' \
+      'derived build number clears every build number already uploaded, and drop run_number_floor to the ' \
+      'restarted counter. Raising the offset alone leaves this guard firing on every run.')
+  end
+
+  # Required, not defaulted: an absent or empty value would quietly mint the first attempt's build number
+  # again, which is the collision this whole derivation exists to avoid.
+  run_attempt = env_value('GITHUB_RUN_ATTEMPT')
+  UI.user_error!('GITHUB_RUN_ATTEMPT is not set — the build number can only be derived in CI') if run_attempt.nil?
+  UI.user_error!("GITHUB_RUN_ATTEMPT=#{run_attempt.inspect} is not a bare integer") unless run_attempt.match?(/\A\d+\z/)
+  unless (1..attempts_per_run).cover?(run_attempt.to_i)
+    UI.user_error!("GITHUB_RUN_ATTEMPT=#{run_attempt} is outside the #{attempts_per_run} attempts one run's " \
+      'build number can hold; dispatch a fresh run instead of re-running this one again.')
+  end
+
+  build_number = build_offset + run_number.to_i * attempts_per_run + (run_attempt.to_i - 1)
+  UI.message("iOS build number: #{build_offset} + run #{run_number} * #{attempts_per_run} " \
+    "+ (attempt #{run_attempt} - 1) = #{build_number}")
+
+  increment_version_number(version_number: version)
+  increment_build_number(skip_info_plist: true, build_number: build_number)
+
+  return version, build_number
+end
+
+def ensure_no_app_store_review_in_progress!
+  app = Spaceship::ConnectAPI::App.find($app_identifier)
+  UI.user_error!("Could not find App Store Connect app: #{$app_identifier}") if app.nil?
+
+  blocking_states = [
+    Spaceship::ConnectAPI::AppStoreVersion::AppVersionState::WAITING_FOR_REVIEW,
+    Spaceship::ConnectAPI::AppStoreVersion::AppVersionState::IN_REVIEW,
+  ].join(",")
+  blocked_versions = app.get_app_store_versions(
+    filter: {
+      appVersionState: blocking_states,
+      platform: Spaceship::ConnectAPI::Platform::IOS,
+    }
+  )
+  return if blocked_versions.empty?
+
+  details = blocked_versions.map do |version|
+    state = version.app_version_state || version.app_store_state || "unknown"
+    "#{version.version_string} (#{state})"
+  end.join(", ")
+  UI.user_error!("Cannot start App Store release while another version is in review: #{details}")
+end
+
+def beta_review_in_progress?(version)
+  app = Spaceship::ConnectAPI::App.find($app_identifier)
+  raise "Could not find App Store Connect app: #{$app_identifier}" if app.nil?
+
+  app.get_builds(
+    filter: {
+      "betaAppReviewSubmission.betaReviewState" => "WAITING_FOR_REVIEW,IN_REVIEW",
+      "expired" => false,
+      "preReleaseVersion.version" => version,
+    },
+    includes: "betaAppReviewSubmission,preReleaseVersion",
+    limit: 1,
+  ).any?
+end
+
+def should_distribute_external_beta?(version)
+  return false unless $external_beta_enabled
+
+  if beta_review_in_progress?(version)
+    UI.important("External beta submission skipped: another #{version} build is already in review")
+    return false
+  end
+
+  true
+rescue => exception
+  UI.important("Could not check external beta review status; skipping external submission for this build")
+  UI.verbose("#{exception.class}: #{exception.message}")
+  false
+end
+
+def beta_review_conflict_error?(exception)
+  exception.message.include?("Another build in the same train is already in beta review")
+end
+
+def expire_older_beta_reviews(version)
+  app = Spaceship::ConnectAPI::App.find($app_identifier)
+  raise "Could not find App Store Connect app: #{$app_identifier}" if app.nil?
+
+  current_version = Gem::Version.new(version)
+  app.get_builds(
+    filter: {
+      "betaAppReviewSubmission.betaReviewState" => "WAITING_FOR_REVIEW",
+      "expired" => false,
+    },
+    includes: "preReleaseVersion",
+  ).each do |build|
+    next unless build.pre_release_version.platform == Spaceship::ConnectAPI::Platform::IOS
+    next unless Gem::Version.new(build.app_version) < current_version
+
+    # Expiration cancels beta review with API-key auth and stops TestFlight installs.
+    UI.important("Expiring older beta build waiting for review: #{build.app_version} (#{build.version})")
+    build.expire!
+  end
+end
+
+platform :ios do
+  desc "Push a new beta build to TestFlight"
+
+  before_all do |lane|
+    read_files
+
+    app_store_connect_api_key(
+      key_id: $asc_key_id,
+      issuer_id: $asc_issuer_id,
+      key_filepath: $asc_key_path,
+      duration: 1200,
+      in_house: false
+    )
+
+    update_code_signing_settings(
+      path: "App.xcodeproj",
+      use_automatic_signing: false,
+      profile_name: $profile_name,
+      sdk: "iphoneos*",
+      team_id: $team_id,
+      targets: [$scheme],
+      code_sign_identity: "iPhone Distribution"
+    )
+
+    update_code_signing_settings(
+      path: "App.xcodeproj",
+      use_automatic_signing: false,
+      profile_name: $profile_name_widget,
+      sdk: "iphoneos*",
+      team_id: $team_id,
+      targets: [$scheme_widget],
+      code_sign_identity: "iPhone Distribution"
+    )
+
+    update_code_signing_settings(
+      path: "App.xcodeproj",
+      use_automatic_signing: false,
+      profile_name: $profile_name_notification,
+      sdk: "iphoneos*",
+      team_id: $team_id,
+      targets: [$scheme_notification],
+      code_sign_identity: "iPhone Distribution"
+    )
+  end
+
+  lane :beta do
+    version, _build_number = update_version_and_build_number
+
+    build_app(
+      workspace: $workspace_path,
+      scheme: $scheme,
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          $app_identifier => $profile_name,
+          $app_identifier_widget => $profile_name_widget,
+          $app_identifier_notification => $profile_name_notification,
+        }
+      },
+      xcargs: "-skipMacroValidation",
+    )
+
+    changelog_from_git_commits(merge_commit_filtering: "exclude_merges", commits_count: 3)
+
+    distribute_external = should_distribute_external_beta?(version)
+    upload_params = {
+      app_identifier: $app_identifier,
+      distribute_external: distribute_external,
+      groups: distribute_external ? $testflight_group : nil,
+      beta_app_description: "Bug fixes and performance improvements",
+    }
+
+    # Prepend the compact provenance line to the "What to Test" notes so a tester can pin down
+    # the exact build (RC ordinal, build time, commit); the notes are the per-build field a
+    # TestFlight tester sees. Applies to every build; RC builds lead with the RC label.
+    base_notes = lane_context[SharedValues::FL_CHANGELOG] || ""
+    upload_params[:changelog] = "#{build_meta_line(version)}\n\n#{base_notes}"
+
+    begin
+      upload_to_testflight(upload_params)
+    rescue Spaceship::UnexpectedResponse => exception
+      raise unless distribute_external && beta_review_conflict_error?(exception)
+
+      UI.important("Internal TestFlight upload succeeded; external beta submission skipped because another #{version} build is in review")
+    else
+      expire_older_beta_reviews(version) if distribute_external
+    end
+  end
+
+  lane :release do
+    ensure_no_app_store_review_in_progress!
+    version, build_number = update_version_and_build_number
+
+    changelog_path = "../../../../changelogs/" + version + ".txt"
+    if !File.exist?(changelog_path)
+      raise "There is no changelog for version " + version
+    end
+
+    changelog = File.read(changelog_path)
+
+    build_app(
+      workspace: $workspace_path,
+      scheme: $scheme,
+      export_method: "app-store",
+      export_options: {
+        provisioningProfiles: {
+          $app_identifier => $profile_name,
+          $app_identifier_widget => $profile_name_widget,
+          $app_identifier_notification => $profile_name_notification,
+        }
+      },
+      xcargs: "-skipMacroValidation",
+    )
+
+    upload_options = {
+      app_identifier: $app_identifier,
+      skip_screenshots: true,
+      skip_metadata: false,
+      precheck_include_in_app_purchases: false,
+      submit_for_review: true,
+      submission_information: {
+        add_id_info_uses_idfa: false
+      },
+      force: true,
+      release_notes: {
+        "default" => changelog,
+        "en-US" => changelog,
+      }
+    }
+    upload_options[:metadata_path] = $metadata_path if $metadata_path
+
+    # Review state can change while Xcode builds the archive. Check again immediately before
+    # set_changelog can rename the editable App Store version.
+    ensure_no_app_store_review_in_progress!
+
+    # App Store Connect can have localizations that are not represented in fastlane/metadata.
+    # This updates the edit version's existing localizations before deliver submits for review.
+    set_changelog(
+      app_identifier: $app_identifier,
+      version: version,
+      changelog: changelog,
+      platform: "ios"
+    )
+
+    upload_to_app_store(upload_options)
+  end
+
+  after_all do |lane|
+    restore_files
+  end
+
+  error do |lane, exception|
+    restore_files
+  end
+
+end

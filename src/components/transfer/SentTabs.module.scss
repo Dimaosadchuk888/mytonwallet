@@ -1,0 +1,42 @@
+.headerWrapper {
+  position: relative;
+  display: inline-block;
+  margin: 1.5rem auto 1.25rem;
+}
+
+.headerButton {
+  display: inline-flex;
+
+  min-width: 0 !important;
+  margin: 0 auto;
+
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-black);
+}
+
+.root {
+  margin-top: 1.125rem;
+  margin-bottom: 1rem;
+}
+
+.tabs,
+.tabsOverlay {
+  display: inline-flex;
+  justify-content: center;
+
+  width: 100%;
+  max-width: 100%;
+  padding: 0 1.5rem;
+}
+
+.tab {
+  flex: 0 0 auto;
+}
+
+.menuWrapper {
+  :global(.menu-bubble) {
+    inset-inline-start: calc((var(--menu-width) + var(--trigger-width)) / -2) !important;
+    inset-inline-end: auto !important;
+  }
+}

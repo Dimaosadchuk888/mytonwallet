@@ -1,0 +1,32 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  padding-top: 0.75rem;
+  padding-bottom: 1rem;
+}
+
+.actions {
+  margin: 2rem 0 0;
+
+  // Auto margins center the row, yet collapse to 0 on overflow, keeping it scrollable from the start
+  > :first-child {
+    margin-inline-start: auto;
+  }
+
+  > :last-child {
+    margin-inline-end: auto;
+  }
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+
+  margin-top: 1.5rem;
+}
+
+.panel {
+  min-width: 0;
+}

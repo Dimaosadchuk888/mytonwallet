@@ -1,0 +1,192 @@
+@use "../../styles/mixins";
+
+.wrapper {
+  position: relative;
+  z-index: 2;
+
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+
+  padding: 0 1.25rem 0.75rem;
+
+  :global(html.with-bottombar) & {
+    padding-bottom: calc(0.75rem + var(--bottombar-height));
+  }
+
+  @include mixins.respond-below(xs) {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+
+  @include mixins.respond-above(xs) {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.9) 100%);
+
+    :global(html.theme-dark) & {
+      background: linear-gradient(180deg, rgba(14, 14, 15, 0) 0%, rgba(14, 14, 15, 0.9) 100%);
+    }
+  }
+}
+
+.quotaSlot {
+  margin-bottom: 0.5rem;
+}
+
+.statusSlot {
+  margin: 0 -0.25rem 0.5rem;
+}
+
+.inputRow {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.pill {
+  position: relative;
+
+  flex: 1;
+
+  min-width: 0;
+  border-radius: 1.4375rem;
+
+  background-color: var(--color-app-background);
+  box-shadow: var(--shadow-glass-capsule);
+
+  @supports (backdrop-filter: blur(16px)) {
+    background-color: var(--color-background-blurred);
+    backdrop-filter: blur(var(--blur-glass-capsule));
+  }
+
+  @include mixins.frostedGlass(0.8);
+}
+
+.inputInnerWrapper {
+  margin-bottom: 0;
+}
+
+.input {
+  --agent-input-inline-end-padding: 2.75rem;
+
+  overflow-y: auto !important;
+
+  height: auto;
+  min-height: 2.75rem !important;
+  max-height: 7.5rem;
+  padding-block: 0.75rem !important;
+  padding-inline: 0.75rem var(--agent-input-inline-end-padding) !important;
+  border: none !important;
+  border-radius: 1.4375rem !important;
+
+  line-height: 1.25rem !important;
+
+  background: transparent !important;
+  box-shadow: none !important;
+
+  &::placeholder {
+    color: var(--color-gray-2);
+  }
+
+  &:focus {
+    box-shadow: none !important;
+  }
+}
+
+.inputWithTwoButtons {
+  --agent-input-inline-end-padding: 4.5rem;
+}
+
+.inputButtons {
+  position: absolute;
+  bottom: 0.625rem;
+  inset-inline-end: 0.75rem;
+
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.inputButton {
+  cursor: var(--custom-cursor, pointer);
+
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: 50%;
+
+  font-size: 1.5rem;
+  color: var(--color-gray-3);
+
+  background: none;
+  outline: none;
+
+  @include mixins.transition(color 200ms);
+
+  @media (hover: hover) {
+    &:hover,
+    &:focus-visible,
+    &:active {
+      color: var(--color-accent);
+    }
+  }
+
+  @media (pointer: coarse) {
+    &:focus-visible,
+    &:active {
+      color: var(--color-accent);
+    }
+  }
+
+  @include mixins.active-transition-optimization();
+}
+
+.inputButtonActive {
+  color: var(--color-accent);
+  background-color: var(--color-accent-10o);
+}
+
+.sendButton {
+  cursor: var(--custom-cursor, pointer);
+
+  transform-origin: center;
+
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+
+  width: 2.75rem;
+  height: 2.75rem;
+  margin-inline-start: 0.5rem;
+  border: none;
+  border-radius: 50%;
+
+  font-size: 1.375rem;
+  color: var(--color-accent-button-text);
+
+  background-color: var(--color-accent);
+  outline: none;
+
+  @include mixins.transition("transform 200ms ease, opacity 200ms ease, margin-inline-start 200ms ease");
+
+  &:global(.not-open) {
+    pointer-events: none;
+    transform: scale(0);
+    margin-inline-start: -2.75rem;
+    opacity: 0;
+  }
+
+  @include mixins.active-transition-optimization();
+}

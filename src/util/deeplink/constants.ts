@@ -1,0 +1,18 @@
+import { IS_GRAM_WALLET } from '../../config';
+
+export const TON_PROTOCOL = 'ton://';
+export const TONCONNECT_PROTOCOL = 'tc://';
+export const TONCONNECT_PROTOCOL_SELF = IS_GRAM_WALLET ? 'gramwallet-tc://' : 'mytonwallet-tc://';
+export const SELF_PROTOCOL = IS_GRAM_WALLET ? 'gramwallet://' : 'mtw://';
+export const SELF_UNIVERSAL_URLS = IS_GRAM_WALLET
+  ? ['https://go.gramwallet.io']
+  : ['https://my.tt', 'https://go.mytonwallet.org'];
+export const TONCONNECT_UNIVERSAL_URL = IS_GRAM_WALLET
+  ? 'https://connect.gramwallet.io'
+  : 'https://connect.mytonwallet.org';
+export const CHECKIN_URL = 'https://checkin.mytonwallet.org';
+export const WALLETCONNECT_PROTOCOL = 'wc:';
+export const WALLETCONNECT_DEEPLINK = IS_GRAM_WALLET ? 'gramwallet-wc://' : 'mywallet-wc://';
+export const WALLETCONNECT_UNIVERSAL_URLS = IS_GRAM_WALLET
+  ? ['https://connect.gramwallet.io/wc']
+  : ['https://connect.mywallet.io/wc', 'https://connect.mytonwallet.org/wc'];

@@ -1,0 +1,64 @@
+import type { ChainSdk } from '../../types/chains';
+
+import { fetchActivityDetails, fetchActivitySlice } from './activities';
+import { normalizeAddress } from './address';
+import {
+  fetchPrivateKeyString,
+  getWalletFromAddress,
+  getWalletFromBip39Mnemonic,
+  getWalletFromPrivateKey,
+} from './auth';
+import { TRON_BIP39_PATH } from './constants';
+import { setupActivePolling, setupInactivePolling } from './polling';
+import { fetchTransactionById } from './transactionInfo';
+import { checkTransactionDraft, fetchEstimateDiesel, submitGasfullTransfer } from './transfer';
+import { getAddressInfo, getWalletAssets, getWalletBalance } from './wallet';
+
+function notSupported(): never {
+  throw new Error('Not supported in Tron');
+}
+
+const tronSdk: ChainSdk<'tron'> = {
+  fetchActivitySlice,
+  crosschain: undefined,
+  fetchActivityDetails,
+  decryptComment: notSupported,
+  normalizeAddress,
+  getDefaultDerivation: () => ({ path: TRON_BIP39_PATH, index: 0 }),
+  getWalletFromBip39Mnemonic,
+  getWalletFromPrivateKey,
+  getWalletFromAddress,
+  // A note for the future implementation:
+  // In contrast to TON, Tron doesn't allow loading balances of multiple wallets in 1 request. Loading a wallet from
+  // Ledger is relatively slow. So, to parallelize and speed up the loading, each balance should be loaded as soon as
+  // the corresponding wallet is loaded from Ledger.
+  getWalletsFromLedgerAndLoadBalance: notSupported,
+  setupActivePolling,
+  setupInactivePolling,
+  fetchToken: notSupported,
+  importToken: notSupported,
+  checkTransactionDraft,
+  fetchEstimateDiesel,
+  submitGasfullTransfer,
+  submitGaslessTransfer: notSupported,
+  buildOnchainSwapTransfer: notSupported,
+  submitOnchainSwapTransfer: notSupported,
+  getAddressInfo,
+  getWalletBalance,
+  getWalletAssets,
+  verifyLedgerWalletAddress: notSupported,
+  fetchPrivateKeyString,
+  getIsLedgerAppOpen: notSupported,
+  fetchTransactionById,
+  dapp: undefined,
+  getAccountNfts: notSupported,
+  streamAllAccountNfts: notSupported,
+  checkNftTransferDraft: notSupported,
+  submitNftTransfers: notSupported,
+  checkNftOwnership: notSupported,
+  fetchWalletPermissions: notSupported,
+  revokeWalletPermission: notSupported,
+  fetchWalletPlugins: notSupported,
+};
+
+export default tronSdk;

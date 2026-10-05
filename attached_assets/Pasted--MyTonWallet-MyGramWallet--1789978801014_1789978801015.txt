@@ -1,0 +1,267 @@
+Полный аудит ребрендинга MyTonWallet → MyGramWallet
+Мы делаем полный ребрендинг нашего форка проекта MyTonWallet в MyGramWallet.
+Твоя задача — НЕ выполнять замены сразу. Сначала проведи полный аудит репозитория и составь подробный список всех мест, где старый бренд MyTonWallet / My TON Wallet / mytonwallet используется или может быть связан с брендом.
+1. Что необходимо найти
+Проведи поиск по всему проекту, включая:
+исходный код frontend;
+backend;
+конфигурационные файлы;
+package.json;
+lock-файлы;
+README и документацию;
+HTML;
+manifest-файлы;
+PWA;
+Telegram Mini App;
+метаданные приложения;
+title / description;
+favicon;
+logo;
+SVG;
+PNG / JPG / WEBP;
+OG / OpenGraph metadata;
+SEO metadata;
+robots.txt;
+sitemap;
+service worker;
+web manifest;
+deep links;
+Telegram links;
+TON Connect configuration;
+WalletConnect configuration;
+API URLs;
+environment variables;
+Docker/configuration files;
+CI/CD;
+deployment configuration;
+Replit configuration;
+analytics;
+error tracking;
+logging;
+telemetry;
+user-agent;
+application identifiers;
+storage keys;
+localStorage/sessionStorage keys;
+cookies;
+database-related identifiers;
+cache keys;
+IndexedDB;
+notification names;
+email templates;
+Telegram bot texts;
+UI translations;
+языковые JSON-файлы;
+тесты;
+snapshots;
+mock data;
+fixtures;
+комментарии;
+техническую документацию.
+2. Ищи не только точное совпадение
+Проверь следующие варианты:
+MyTonWallet
+mytonwallet
+MYTONWALLET
+My TON Wallet
+my ton wallet
+myton-wallet
+my_ton_wallet
+а также возможные сокращения, названия пакетов, namespace, identifiers и URL, связанные с MyTonWallet.
+Отдельно найди все URL, содержащие:
+mytonwallet
+mytonwallet.io
+mytonwallet.com
+и любые другие домены, subdomain или API endpoint, которые относятся к старому бренду.
+3. Очень важно: раздели найденные места по категориям
+Для каждого найденного использования создай таблицу:
+
+Типы:
+UI / пользовательский текст
+Logo
+Favicon
+Metadata
+SEO
+URL
+API
+Environment variable
+Package name
+Internal identifier
+Database
+Storage key
+Telegram
+TON Connect
+Analytics
+Error tracking
+Documentation
+Tests
+Build configuration
+Deployment
+Legal / copyright
+Third-party dependency
+Other
+4. Особое внимание URL
+Нам необходимо очень чётко разделить:
+A. URL, которые относятся к бренду
+Например:
+mytonwallet.io
+Такие URL потенциально должны быть заменены на новые URL MyGramWallet.
+B. Внешние API
+Если endpoint используется как внешний API или сервис, который нельзя менять, НЕ изменяй его автоматически.
+Например, если приложение получает курсы валют через внешний API, необходимо определить:
+принадлежит ли домен нашему проекту;
+является ли он частью бренда;
+можно ли его менять;
+что сломается при замене.
+C. URL, которые нельзя менять
+Отдельно составь список URL, которые технически должны остаться без изменений.
+Для каждого объясни почему.
+5. Не менять внутренние идентификаторы автоматически
+Особенно внимательно проверь:
+database keys;
+migration names;
+storage keys;
+localStorage keys;
+IndexedDB names;
+cache names;
+API compatibility identifiers;
+Telegram identifiers;
+package identifiers;
+signing identifiers;
+TON Connect identifiers.
+Если изменение такого значения может привести к потере существующих пользовательских данных или несовместимости — НЕ предлагай простую замену.
+Укажи:
+Оставить как есть / заменить / сделать миграцию.
+6. Package и техническое имя проекта
+Проверь:
+package.json;
+package name;
+application name;
+build name;
+Docker image name;
+repository references;
+imports;
+aliases;
+environment variables.
+Для каждого укажи, безопасно ли переименовывать.
+7. Визуальный брендинг
+Найди все:
+логотипы;
+SVG;
+favicon;
+app icons;
+splash screen;
+loading screen;
+Telegram Mini App icon;
+OG image;
+social preview;
+изображения с надписью MyTonWallet;
+CSS background images;
+встроенные SVG;
+Base64-изображения.
+Укажи точный путь к каждому файлу.
+Отдельно составь список изображений, которые необходимо заменить на визуал MyGramWallet.
+8. Пользовательский интерфейс
+Найди все места, где пользователь может увидеть:
+MyTonWallet
+или связанные варианты названия.
+Проверь:
+Header;
+Footer;
+Settings;
+About;
+Wallet;
+Connect Wallet;
+onboarding;
+error pages;
+notifications;
+dialogs;
+transaction screens;
+Telegram Mini App;
+mobile UI;
+desktop UI;
+browser extension, если она присутствует.
+9. Metadata
+Проверь:
+<title>;
+meta description;
+OpenGraph;
+Twitter/X cards;
+manifest;
+application-name;
+apple-mobile-web-app-title;
+theme metadata;
+favicon;
+canonical URL;
+structured data;
+SEO.
+Покажи конкретные текущие значения и предложи новые значения для MyGramWallet.
+10. Telegram
+Проверь всё, что связано с Telegram:
+название Mini App;
+username;
+bot description;
+WebApp configuration;
+Telegram links;
+preview;
+icon;
+deep links;
+кнопки;
+inline links;
+тексты;
+команды;
+webhook-related configuration.
+Отдельно укажи, что нужно изменить в коде, а что нужно изменить непосредственно в Telegram Bot / Mini App настройках.
+11. TON Connect
+Проверь:
+manifest;
+name;
+URL;
+iconUrl;
+bridge configuration;
+app metadata;
+universal links;
+deep links.
+Особенно важно не сломать подключение кошельков после ребрендинга.
+12. Составь итоговый план
+После аудита создай 4 списка.
+LIST 1 — ОБЯЗАТЕЛЬНО ЗАМЕНИТЬ
+Все места, где старый бренд должен быть заменён на MyGramWallet.
+Для каждого:
+файл → строка → старое значение → новое значение
+LIST 2 — МОЖНО ЗАМЕНИТЬ
+Места, которые желательно привести к новому бренду, но которые требуют проверки совместимости.
+LIST 3 — НЕ МЕНЯТЬ
+Все технические идентификаторы, URL или значения, которые необходимо оставить без изменений.
+Для каждого обязательно объясни причину.
+LIST 4 — НУЖНО ИЗМЕНИТЬ ВНЕ КОДА
+Например:
+Telegram Bot;
+Telegram Mini App;
+домен;
+DNS;
+favicon;
+GitHub;
+Replit;
+deployment;
+сторонние сервисы;
+analytics;
+TON Connect;
+социальные сети.
+13. Финальная проверка
+После составления отчёта выполни повторный глобальный поиск по проекту.
+Нужно показать:
+сколько найдено упоминаний MyTonWallet;
+сколько из них пользовательских;
+сколько технических;
+сколько URL;
+сколько изображений;
+сколько конфигурационных значений;
+сколько мест нельзя менять;
+сколько мест можно безопасно заменить.
+ВАЖНО:
+На этом этапе ничего не изменяй.
+Сначала предоставь полный аудит и дождись моего подтверждения.
+Не делай массовый replace.
+Не удаляй старые идентификаторы, если они могут использоваться для совместимости.
+Главная цель — получить точную карту всех зависимостей бренда MyTonWallet перед переходом на MyGramWallet.

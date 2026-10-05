@@ -1,0 +1,122 @@
+name: Upload sites to S3
+
+on:
+  push:
+    branches:
+      - master
+      # Release branches carry the candidate testers actually install, so the web and TMA bundles
+      # are built from them too rather than only from master.
+      - 'release/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STAKING_POOLS: ${{ vars.STAKING_POOLS }}
+  PUBLISH_REPO: ${{ vars.PUBLISH_REPO }}
+  BRILLIANT_API_BASE_URL: ${{ vars.BRILLIANT_API_BASE_URL }}
+  SWAP_FEE_ADDRESS: ${{ vars.SWAP_FEE_ADDRESS }}
+  DIESEL_ADDRESS: ${{ vars.DIESEL_ADDRESS }}
+  AGENT_API_URL: ${{ vars.AGENT_API_URL }}
+
+jobs:
+  build-web:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Build
+        run: |
+          if [ -z "$PUBLISH_REPO" ]; then
+            npm run build:staging
+          else
+            npm run build:production
+          fi
+
+      - name: Assert version.txt matches package.json
+        run: |
+          expected=$(node -p "require('./package.json').version")
+          actual=$(cat dist/version.txt)
+          if [ "$actual" != "$expected" ]; then
+            echo "dist/version.txt ($actual) does not match package.json ($expected)"
+            exit 1
+          fi
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ vars.PUBLISH_REPO && 'mytonwallet.app' || 'beta.mytonwallet.app' }}
+          path: dist
+
+  build-tma:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Build
+        run: |
+          if [ -z "$PUBLISH_REPO" ]; then
+            npm run telegram:build:staging
+          else
+            npm run telegram:build:production
+          fi
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ vars.PUBLISH_REPO && 'tma.mytonwallet.io' || 'tma-beta.mytonwallet.io' }}
+          path: dist
+
+  build-explorer:
+    if: vars.PUBLISH_REPO != '' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Build
+        run: npm run explorer:build:production
+
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: my.tt
+          path: dist
+
+  deploy-hostinger:
+    name: Deploy mytonwallet.shop to Hostinger
+    needs: build-web
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the Node environment
+        uses: mytonwallet-org/shared-actions/prepare_node@master
+        with:
+          node-version: ${{ vars.NODE_VERSION }}
+
+      - name: Deploy production site
+        env:
+          HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          HOSTINGER_DOMAIN: mytonwallet.shop
+        run: bash deploy/hostinger_api_deploy.sh

@@ -1,0 +1,142 @@
+import UIKit
+
+enum ContextMenuVisuals {
+    static func resolvedUserInterfaceStyle(for traits: UITraitCollection) -> UIUserInterfaceStyle {
+        traits.userInterfaceStyle == .dark ? .dark : .light
+    }
+
+    @MainActor
+    static func titleFont() -> UIFont {
+        ContextMenuTypography.titleFont
+    }
+
+    @MainActor
+    static func subtitleFont() -> UIFont {
+        ContextMenuTypography.subtitleFont
+    }
+
+    @MainActor
+    static func badgeFont() -> UIFont {
+        ContextMenuTypography.badgeFont
+    }
+
+    static func primaryTextColor(for traits: UITraitCollection, role: ContextMenuRole, enabled: Bool) -> UIColor {
+        let base: UIColor
+        switch role {
+        case .normal:
+            base = traits.userInterfaceStyle == .dark ? .white : .black
+        case .destructive:
+            base = .systemRed
+        }
+        return enabled ? base : base.withAlphaComponent(0.4)
+    }
+
+    static func secondaryTextColor(for traits: UITraitCollection) -> UIColor {
+        let base = traits.userInterfaceStyle == .dark ? UIColor.white : UIColor.black
+        return base.withAlphaComponent(0.56)
+    }
+
+    static func separatorColor(for traits: UITraitCollection) -> UIColor {
+        let base = traits.userInterfaceStyle == .dark ? UIColor.white : UIColor.black
+        return base.withAlphaComponent(0.12)
+    }
+
+    static func badgeForegroundColor(for traits: UITraitCollection) -> UIColor {
+        traits.userInterfaceStyle == .dark ? .black : .white
+    }
+
+    static func badgeFillColor(for traits: UITraitCollection) -> UIColor {
+        traits.userInterfaceStyle == .dark ? UIColor.white.withAlphaComponent(0.9) : UIColor.black.withAlphaComponent(0.88)
+    }
+
+    static func backdropTintColor() -> UIColor {
+        .black
+    }
+
+    static func highlightTintColor(for traits: UITraitCollection) -> UIColor {
+        traits.userInterfaceStyle == .dark ? .white : .black
+    }
+
+    static func highlightAlpha() -> CGFloat {
+        0.1
+    }
+
+    static var supportsNativeGlass: Bool {
+        if #available(iOS 26.0, *) {
+            return true
+        } else {
+            return false
+        }
+    }
+
+    @available(iOS 26.0, *)
+    @MainActor
+    static func nativePanelEffect(
+        for traits: UITraitCollection,
+        interactive: Bool,
+        tint: ContextMenuGlassTint
+    ) -> UIGlassEffect {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = interactive
+        let isDark = traits.userInterfaceStyle == .dark
+        let tintAlpha: CGFloat = switch tint {
+        case .strong: isDark ? 0.2 : 0.6
+        case .subtle: isDark ? 0.025 : 0.1
+        }
+        effect.tintColor = UIColor(white: 1.0, alpha: tintAlpha)
+        return effect
+    }
+
+    @MainActor
+    static func legacyPanelEffect(for traits: UITraitCollection) -> UIBlurEffect {
+        UIBlurEffect(style: traits.userInterfaceStyle == .dark ? .systemChromeMaterialDark : .systemChromeMaterialLight)
+    }
+
+    static func legacyPanelTintColor(for traits: UITraitCollection) -> UIColor {
+        if traits.userInterfaceStyle == .dark {
+            return UIColor(white: 1.0, alpha: 0.08)
+        } else {
+            return UIColor(white: 1.0, alpha: 0.2)
+        }
+    }
+
+    static func legacyPanelStrokeColor(for traits: UITraitCollection) -> UIColor {
+        if traits.userInterfaceStyle == .dark {
+            return UIColor.white.withAlphaComponent(0.14)
+        } else {
+            return UIColor.white.withAlphaComponent(0.34)
+        }
+    }
+
+    @MainActor
+    static func chevronImage(layoutDirection: UIUserInterfaceLayoutDirection) -> UIImage? {
+        let configuration = UIImage.SymbolConfiguration(font: ContextMenuTypography.symbolFont)
+        let systemName = layoutDirection.contextMenuIsRightToLeft ? "chevron.left" : "chevron.right"
+        return UIImage(systemName: systemName, withConfiguration: configuration)?.withRenderingMode(.alwaysTemplate)
+    }
+
+    @MainActor
+    static func makeBadgeImage(text: String, traits: UITraitCollection) -> UIImage? {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: badgeFont(),
+            .foregroundColor: badgeForegroundColor(for: traits)
+        ]
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let horizontalInset: CGFloat = 5.0
+        let verticalInset: CGFloat = 1.0
+        let badgeSize = CGSize(
+            width: max(textSize.width + horizontalInset * 2.0, textSize.height + verticalInset * 2.0),
+            height: textSize.height + verticalInset * 2.0
+        )
+        let renderer = UIGraphicsImageRenderer(size: badgeSize)
+        return renderer.image { _ in
+            badgeFillColor(for: traits).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: badgeSize), cornerRadius: badgeSize.height * 0.5).fill()
+            let origin = CGPoint(
+                x: floor((badgeSize.width - textSize.width) * 0.5),
+                y: floor((badgeSize.height - textSize.height) * 0.5)
+            )
+            (text as NSString).draw(at: origin, withAttributes: attributes)
+        }.withRenderingMode(.alwaysOriginal)
+    }
+}

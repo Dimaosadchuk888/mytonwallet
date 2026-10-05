@@ -1,0 +1,28 @@
+import {
+  API_APP_NAME,
+  EMBEDDED_DAPP_BRIDGE_CHANNEL,
+  TONCONNECT_PROTOCOL_VERSION,
+  TONCONNECT_WALLET_JSBRIDGE_KEY,
+} from '../../../config';
+import { registerEvmInjectedWallet } from '../../injectedConnector/evmConnector';
+import { INJECTED_ICON } from '../../injectedConnector/injectedIcon';
+import { registerSolanaInjectedWallet } from '../../injectedConnector/solanaConnector';
+import { tonConnectGetDeviceInfo } from '../../tonConnectEnvironment';
+import { initConnector } from './connector';
+
+export function initIframeBridgeConnector() {
+  initConnector(
+    TONCONNECT_WALLET_JSBRIDGE_KEY,
+    EMBEDDED_DAPP_BRIDGE_CHANNEL,
+    window.parent,
+    {
+      deviceInfo: tonConnectGetDeviceInfo(),
+      protocolVersion: TONCONNECT_PROTOCOL_VERSION,
+      isWalletBrowser: true,
+    },
+    API_APP_NAME,
+    INJECTED_ICON,
+    registerSolanaInjectedWallet,
+    registerEvmInjectedWallet,
+  );
+}

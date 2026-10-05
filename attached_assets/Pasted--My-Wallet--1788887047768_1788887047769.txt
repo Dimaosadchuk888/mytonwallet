@@ -1,0 +1,189 @@
+Нужно провести ПОЛНЫЙ АУДИТ инфраструктурных зависимостей My Wallet, чтобы понять, что именно необходимо настроить в нашем fork, чтобы приложение работало максимально полно так же, как оригинальный My Wallet.
+ВАЖНО:
+НИЧЕГО НЕ ИЗМЕНЯЙ В КОДЕ.
+Не удаляй файлы.
+Не меняй UI.
+Не меняй wallet logic.
+Не меняй API.
+Не создавай временные заглушки.
+Не отключай функции ради того, чтобы убрать ошибки.
+Только исследование и отчет.
+Наш fork: https://github.com/Dimaosadchuk888/mytonwallet
+Наш домен: https://mytonwallet.shop
+Сейчас приложение открывается, но внутри Telegram Mini App многие разделы бесконечно загружаются. Ранее была ошибка:
+GET https://api.mywallet.io/referrer/get attempts=3 Load failed
+Нужно точно определить ВСЕ внешние зависимости.
+Проведи аудит по следующим направлениям:
+ENVIRONMENT VARIABLES
+Найди все переменные окружения, которые используются проектом.
+Для каждой переменной укажи:
+название;
+где используется;
+обязательная или необязательная;
+для какой функции нужна;
+относится ли она к frontend, backend или build-time;
+является ли секретом;
+можно ли использовать собственное значение;
+какое значение/сервис используется в оригинальном My Wallet, если это можно достоверно определить.
+Сделай отдельную таблицу.
+ВСЕ EXTERNAL API
+Найди абсолютно все внешние URL/API/endpoint'ы, к которым обращается приложение.
+Раздели их:
+CRITICAL: без них не работает основной кошелек.
+IMPORTANT: нужны для основных функций, но базовый кошелек может открыться без них.
+OPTIONAL: swap, staking, portfolio, agent и т.д.
+MY WALLET INFRASTRUCTURE: сервисы оригинального My Wallet, которые мы не должны оставлять в production нашего fork без отдельного решения.
+Для каждого укажи:
+URL;
+назначение;
+вызывающие модули;
+какие функции зависят от него;
+нужен ли API key;
+можно ли заменить своим сервисом.
+TON
+Полностью определить, что нужно для:
+получения баланса TON;
+истории транзакций;
+отправки TON;
+получения TON;
+Jettons;
+NFT;
+staking;
+swap;
+token prices;
+transaction emulation/estimation.
+Отдельно сравни TON Center и TONAPI.
+Определи минимальный набор сервисов, чтобы TON wallet работал полноценно.
+WALLETCONNECT
+Определить:
+нужен ли WalletConnect Project ID;
+где он используется;
+какие функции без него не работают;
+какие домены/bridge используются;
+что необходимо настроить для собственного production приложения.
+TELEGRAM MINI APP
+Полностью проверить Telegram-specific часть:
+IS_TELEGRAM_APP;
+Telegram WebApp API;
+Bot Username;
+Mini App URL;
+Telegram CSP;
+Telegram-specific headers;
+deeplinks;
+TON Connect внутри Telegram;
+какие настройки нужны в BotFather.
+Для нашего проекта использовать:
+https://mytonwallet.shop
+Но пока НИЧЕГО НЕ МЕНЯТЬ.
+ДОМЕН
+Определить все места, где оригинальный домен My Wallet используется как:
+BASE_URL;
+canonical URL;
+API origin;
+static assets;
+TON Connect;
+CSP;
+iframe whitelist;
+deeplinks;
+Telegram Mini App.
+Отдельно указать, что необходимо заменить на:
+https://mytonwallet.shop
+а что НЕ должно заменяться на наш домен, потому что это внешний blockchain/service endpoint.
+STATIC ASSETS
+Проверить зависимости от:
+static.mytonwallet.org
+imgproxy.mytonwallet.org
+dns-image.mytonwallet.org
+mytonwallet S3
+других CDN/static сервисов.
+Определить: можно ли использовать их; какие ресурсы там находятся; нужно ли нам переносить их на собственный CDN/domain; что произойдет, если эти сервисы недоступны.
+REFERRAL API
+Особенно подробно исследовать:
+https://api.mywallet.io/referrer/get
+Найти полный call chain:
+какой компонент → какая функция → какой API → какой ответ → что происходит после ответа.
+Определить, является ли этот API необходимым для самого wallet.
+Также найти ВСЕ остальные обращения к api.mywallet.io.
+SWAP
+Определить:
+какой swap provider используется;
+какие API;
+какие ключи;
+fee address;
+какие настройки;
+нужен ли backend;
+можно ли полностью перенести функциональность на наш fork.
+STAKING
+Определить:
+staking pools;
+API;
+smart contracts;
+backend;
+переменные окружения;
+какие данные нужны для отображения.
+PORTFOLIO / AGENT / MFA
+Отдельно определить инфраструктуру:
+Portfolio;
+Agent;
+MFA;
+Notifications;
+analytics;
+referral;
+giveaway;
+multisend;
+WalletConnect Pay.
+Для каждого указать: оставляем / заменяем / можем отключить.
+SECURITY
+Определить:
+какие secrets нужны;
+какие ключи нельзя помещать во frontend;
+какие ключи являются публичными;
+где оригинал использует backend/proxy для защиты API keys;
+какие security headers нужны;
+CSP;
+Telegram headers.
+BUILD
+Проверить все build modes:
+обычный web;
+Telegram;
+production;
+development.
+Определить точную команду, которая должна использоваться для нашего Telegram Mini App.
+ИТОГОВАЯ АРХИТЕКТУРА
+Создай:
+docs/SELF_HOSTING_REQUIREMENTS.md
+В конце документа обязательно сделать четыре списка:
+A. ОБЯЗАТЕЛЬНО УСТАНОВИТЬ/НАСТРОИТЬ То, без чего wallet не будет нормально работать.
+B. НУЖНО ПОЛУЧИТЬ API KEYS / CREDENTIALS Все необходимые ключи и где их получить.
+C. НУЖНО СОЗДАТЬ САМИМ Например:
+собственный backend;
+proxy;
+Telegram Bot;
+WalletConnect Project;
+доменные настройки; и т.д.
+D. МОЖНО НЕ УСТАНАВЛИВАТЬ Необязательные сервисы.
+ОСОБО ВАЖНО
+Сделай финальную таблицу:
+Функция | Работает сейчас | Что отсутствует | Что нужно настроить | Критичность
+Функции:
+запуск;
+создание кошелька;
+импорт seed;
+баланс TON;
+история;
+отправка;
+получение;
+Jettons;
+NFT;
+swap;
+staking;
+portfolio;
+TON Connect;
+WalletConnect;
+Telegram Mini App;
+Agent;
+MFA;
+referrals;
+notifications.
+После аудита НЕ ИСПРАВЛЯЙ НИЧЕГО.
+Мне нужен именно точный список того, какую инфраструктуру и какие API/ключи необходимо подготовить, чтобы затем мы могли поэтапно настроить наш fork.

@@ -1,0 +1,35 @@
+@use "../../../styles/mixins";
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+
+  @include mixins.transition(opacity 200ms);
+
+  @media (min-width: 1100px) {
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem 1rem;
+  }
+}
+
+// Previous-range charts kept on screen while the next range loads: dimmed and non-interactive
+.stale {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 12rem;
+  padding: 2rem 1rem;
+  border-radius: var(--border-radius-default);
+
+  font-size: 0.9375rem;
+  color: var(--color-gray-2);
+
+  background-color: var(--color-background-first);
+}

@@ -1,0 +1,283 @@
+package org.mytonwallet.app_air.uireceive
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Color
+import android.graphics.LinearGradient
+import android.graphics.Shader
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.ImageView
+import android.widget.LinearLayout
+import androidx.appcompat.widget.AppCompatImageView
+import androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+import org.mytonwallet.app_air.uicomponents.base.WNavigationBar
+import org.mytonwallet.app_air.uicomponents.base.WViewController
+import org.mytonwallet.app_air.uicomponents.commonViews.cells.HeaderCell
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.unspecified
+import org.mytonwallet.app_air.uicomponents.helpers.SpannableHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.helpers.adaptiveFontSize
+import org.mytonwallet.app_air.uicomponents.helpers.typeface
+import org.mytonwallet.app_air.uicomponents.widgets.CopyTextView
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WQRCodeView
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.setBackgroundColor
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.ViewConstants
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.utils.getDrawableCompat
+import org.mytonwallet.app_air.walletcontext.helpers.AddressHelpers
+import org.mytonwallet.app_air.walletcore.WalletCore
+import org.mytonwallet.app_air.walletcore.WalletEvent
+import org.mytonwallet.app_air.walletcore.helpers.ExplorerHelpers
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+import org.mytonwallet.app_air.walletcore.stores.AccountStore
+import org.mytonwallet.app_air.walletcore.stores.TokenStore
+
+@SuppressLint("ViewConstructor")
+class QRCodeVC(context: Context, val chain: MBlockchain, private val onQrLoaded: (() -> Unit)?) :
+    WViewController(context) {
+    @Suppress("PropertyName")
+    override val TAG = "QRCode"
+
+    override val displayedAccount =
+        DisplayedAccount(AccountStore.activeAccountId, AccountStore.isPushedTemporary)
+
+    override val shouldDisplayTopBar = false
+    override val shouldDisplayBottomBar = false
+
+    override var title: String?
+        get() = chain.displayName
+        set(_) {}
+
+    private val isViewOnlyAccount = AccountStore.activeAccount?.isViewOnly == true
+
+    val walletAddress: String
+        get() = AccountStore.activeAccount?.addressByChain?.get(chain.name) ?: ""
+
+    companion object {
+        private const val QR_TOP_MARGIN = 16
+        private const val QR_CODE_SIZE = 252
+        private const val ADDRESS_HEADER_MARGIN = 39
+        const val HEIGHT = QR_TOP_MARGIN + QR_CODE_SIZE + ADDRESS_HEADER_MARGIN
+    }
+
+    private val qrCodeSize = QR_CODE_SIZE.dp
+    internal val qrCodeView: WQRCodeView by lazy {
+        val qrContent = if (chain == MBlockchain.ton) {
+            AddressHelpers.walletInvoiceUrl(walletAddress)
+        } else {
+            walletAddress
+        }
+        val v = WQRCodeView(
+            context,
+            qrContent,
+            qrCodeSize,
+            qrCodeSize,
+            chain.qrIcon,
+            56.dp,
+            chain.qrGradientColors?.let {
+                LinearGradient(
+                    0f,
+                    0f,
+                    qrCodeSize.toFloat(),
+                    qrCodeSize.toFloat(),
+                    it,
+                    null,
+                    Shader.TileMode.CLAMP
+                )
+            }
+        ).apply {
+            setPadding(1, 1, 1, 1)
+            generate {
+                view.fadeIn()
+                onQrLoaded?.invoke()
+            }
+        }
+        v
+    }
+
+    val ornamentView = AppCompatImageView(context).apply {
+        id = View.generateViewId()
+        alpha = 0.5f
+    }
+
+    init {
+        view.alpha = 0f
+    }
+
+    private val addressLabel = CopyTextView(context).apply {
+        id = View.generateViewId()
+
+        setLineHeight(TypedValue.COMPLEX_UNIT_SP, 22f)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, adaptiveFontSize())
+        gravity = Gravity.LEFT
+        typeface = WFont.Regular.typeface
+        layoutParams = LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT)
+
+        includeFontPadding = false
+        clipLabel = "Address"
+        clipToast =
+            LocaleController.getString("%chain% Address Copied")
+                .replace("%chain%", chain.displayName)
+        setText(SpannableHelpers.addressSpan(walletAddress), walletAddress)
+    }
+
+    private val titleLabel = HeaderCell(context, startMargin = 24f).apply {
+        configure(
+            title = LocaleController.getString(
+                if (isViewOnlyAccount) "%blockchain% Address" else "My %blockchain% Address"
+            )
+                .replace("%blockchain%", title.toString()),
+            titleColor = WColor.Tint,
+            topRounding = HeaderCell.TopRounding.NORMAL
+        )
+    }
+
+    private val warningLabel = WLabel(context).apply {
+        setStyle(14f, WFont.Regular)
+        setLineHeight(TypedValue.COMPLEX_UNIT_SP, 20f)
+        text = if (chain == MBlockchain.ton) {
+            LocaleController.getString("\$send_only_ton")
+        } else {
+            LocaleController.getStringWithKeyValues(
+                "\$send_only_chain",
+                listOf(
+                    Pair("%chain%", chain.name.replaceFirstChar { it.uppercaseChar() }),
+                    Pair(
+                        "%symbol%",
+                        TokenStore.getToken(chain.nativeSlug)?.symbol ?: ""
+                    )
+                )
+            )
+        }
+    }
+
+    private val explorerButton = AppCompatImageView(context).apply {
+        id = View.generateViewId()
+        setImageDrawable(
+            context.getDrawableCompat(org.mytonwallet.app_air.icons.R.drawable.ic_world)
+        )
+        contentDescription = LocaleController.getString("Open in Explorer")
+        setOnClickListener {
+            val config = ExplorerHelpers.createAddressExplorerConfig(
+                chain,
+                AccountStore.activeAccount?.network ?: return@setOnClickListener,
+                walletAddress
+            ) ?: return@setOnClickListener
+            WalletCore.notifyEvent(WalletEvent.OpenUrlWithConfig(config))
+        }
+    }
+
+    val addressView = WView(context).apply {
+        setPadding(20.dp, 6.dp, 20.dp, 14.dp)
+
+        addView(
+            addressLabel,
+            LayoutParams(LayoutParams.MATCH_CONSTRAINT, WRAP_CONTENT)
+        )
+        addView(explorerButton, LayoutParams(28.dp, 28.dp))
+        addView(
+            warningLabel,
+            LayoutParams(LayoutParams.MATCH_CONSTRAINT, WRAP_CONTENT)
+        )
+
+        setConstraints {
+            toTop(addressLabel)
+            toStart(addressLabel)
+            endToStart(addressLabel, explorerButton, 7f)
+            toEnd(explorerButton, 5f)
+            centerYToCenterY(explorerButton, addressLabel)
+            topToBottom(warningLabel, addressLabel, 11f)
+            toCenterX(warningLabel, 4f)
+        }
+    }
+
+    override fun setupViews() {
+        super.setupViews()
+
+        view.addView(
+            ornamentView,
+            LayoutParams(LayoutParams.MATCH_CONSTRAINT, LayoutParams.MATCH_CONSTRAINT)
+        )
+        view.addView(
+            qrCodeView,
+            LayoutParams(qrCodeSize, qrCodeSize)
+        )
+        view.addView(
+            titleLabel,
+            LayoutParams(LayoutParams.MATCH_CONSTRAINT, WRAP_CONTENT)
+        )
+        view.addView(
+            addressView,
+            LayoutParams(LayoutParams.MATCH_CONSTRAINT, WRAP_CONTENT)
+        )
+
+        view.setConstraints {
+            toCenterX(qrCodeView)
+            centerYToCenterY(ornamentView, qrCodeView, 16f.dp)
+            toCenterX(ornamentView)
+            topToBottom(titleLabel, qrCodeView, ADDRESS_HEADER_MARGIN.toFloat())
+            toCenterX(titleLabel)
+            topToBottom(addressView, titleLabel)
+            toCenterX(addressView)
+        }
+
+        addressView.measure(0.unspecified, 0.unspecified)
+        updateTheme()
+    }
+
+    override fun updateTheme() {
+        super.updateTheme()
+
+        view.setBackgroundColor(Color.TRANSPARENT)
+        addressLabel.setTextColor(WColor.PrimaryText.color)
+        explorerButton.imageTintList = ColorStateList.valueOf(WColor.Tint.color)
+        titleLabel.updateTheme()
+        warningLabel.setTextColor(WColor.SecondaryText.color)
+        addressView.setBackgroundColor(
+            WColor.Background.color,
+            0f,
+            ViewConstants.BLOCK_RADIUS.dp
+        )
+
+        val ornamentRes = chain.receiveOrnamentImage
+        if (ornamentRes != null) {
+            ornamentView.setImageDrawable(context.getDrawableCompat(ornamentRes))
+            ornamentView.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            ornamentView.visibility = View.VISIBLE
+        } else {
+            ornamentView.setImageDrawable(null)
+            ornamentView.visibility = View.INVISIBLE
+        }
+    }
+
+    override fun insetsUpdated() {
+        super.insetsUpdated()
+        view.setConstraints {
+            toTopPx(
+                qrCodeView,
+                (navigationController?.getSystemBars()?.top ?: 0) +
+                    WNavigationBar.DEFAULT_HEIGHT.dp + QR_TOP_MARGIN.dp
+            )
+            toStartPx(qrCodeView, systemBarStartInset)
+            toEndPx(qrCodeView, systemBarEndInset)
+            toStartPx(titleLabel, systemBarStartInset)
+            toEndPx(titleLabel, systemBarEndInset)
+            toStartPx(addressView, systemBarStartInset)
+            toEndPx(addressView, systemBarEndInset)
+        }
+    }
+
+    fun getHeight(): Int = (addressView.y + addressView.height).toInt()
+
+    fun getTransparentHeight(): Int = QR_TOP_MARGIN.dp + qrCodeSize + ADDRESS_HEADER_MARGIN.dp
+}

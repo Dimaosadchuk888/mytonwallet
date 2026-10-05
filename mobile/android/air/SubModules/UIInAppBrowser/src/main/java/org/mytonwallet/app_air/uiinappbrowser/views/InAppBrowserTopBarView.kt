@@ -1,0 +1,673 @@
+package org.mytonwallet.app_air.uiinappbrowser.views
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.os.Handler
+import android.os.Looper
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.TextUtils
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import androidx.core.graphics.ColorUtils
+import androidx.core.net.toUri
+import androidx.core.view.setPadding
+import java.lang.ref.WeakReference
+import kotlin.math.roundToInt
+import org.mytonwallet.app_air.icons.R
+import org.mytonwallet.app_air.uicomponents.base.ITabsVC
+import org.mytonwallet.app_air.uicomponents.base.WNavigationBar
+import org.mytonwallet.app_air.uicomponents.drawable.WRippleDrawable
+import org.mytonwallet.app_air.uicomponents.extensions.dp
+import org.mytonwallet.app_air.uicomponents.extensions.getLtrBaselineSpacingOffset
+import org.mytonwallet.app_air.uicomponents.extensions.resize
+import org.mytonwallet.app_air.uicomponents.extensions.startActivityCatching
+import org.mytonwallet.app_air.uicomponents.glass.GlassProviders
+import org.mytonwallet.app_air.uicomponents.glass.WGlassView
+import org.mytonwallet.app_air.uicomponents.helpers.ClipboardHelpers
+import org.mytonwallet.app_air.uicomponents.helpers.HapticType
+import org.mytonwallet.app_air.uicomponents.helpers.Haptics
+import org.mytonwallet.app_air.uicomponents.helpers.WFont
+import org.mytonwallet.app_air.uicomponents.image.Content
+import org.mytonwallet.app_air.uicomponents.image.WCustomImageView
+import org.mytonwallet.app_air.uicomponents.widgets.BackDrawable
+import org.mytonwallet.app_air.uicomponents.widgets.WImageButton
+import org.mytonwallet.app_air.uicomponents.widgets.WLabel
+import org.mytonwallet.app_air.uicomponents.widgets.WThemedView
+import org.mytonwallet.app_air.uicomponents.widgets.WView
+import org.mytonwallet.app_air.uicomponents.widgets.fadeIn
+import org.mytonwallet.app_air.uicomponents.widgets.fadeOut
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup
+import org.mytonwallet.app_air.uicomponents.widgets.menu.WMenuPopup.BackgroundStyle
+import org.mytonwallet.app_air.uiinappbrowser.InAppBrowserVC
+import org.mytonwallet.app_air.walletbasecontext.localization.LocaleController
+import org.mytonwallet.app_air.walletbasecontext.theme.WColor
+import org.mytonwallet.app_air.walletbasecontext.theme.color
+import org.mytonwallet.app_air.walletbasecontext.theme.colorForTheme
+import org.mytonwallet.app_air.walletbasecontext.utils.getDrawableCompat
+import org.mytonwallet.app_air.walletcontext.utils.VerticalImageSpan
+import org.mytonwallet.app_air.walletcontext.utils.colorWithAlpha
+import org.mytonwallet.app_air.walletcore.models.InAppBrowserConfig
+
+@SuppressLint("ViewConstructor")
+class InAppBrowserTopBarView(
+    private val viewController: InAppBrowserVC,
+    private val options: List<InAppBrowserConfig.Option>?,
+    private var selectedOption: String?,
+    private val optionsOnTitle: Boolean,
+    private val minimizeStarted: () -> Unit,
+    private val minimizeFinished: () -> Unit,
+    private val maximizeStarted: () -> Unit,
+    private val maximizeFinished: () -> Unit
+) : WView(viewController.context),
+    WThemedView {
+
+    private val tabBarController: ITabsVC?
+        get() = viewController.tabBarController
+
+    var canBeMinimized = computeCanBeMinimized()
+        private set
+
+    private fun computeCanBeMinimized() =
+        tabBarController != null && viewController.window?.isWideLayout == false
+
+    private val minimizedBlurRoot get() = tabBarController?.minimizedBlurRootView
+    private val useMinimizedBlur get() = minimizedBlurRoot != null
+
+    private var minimizedBlurView: WGlassView? = null
+    private var minimizedBlurViewRoot: ViewGroup? = null
+
+    private val moreButtonRipple = WRippleDrawable.create(20f.dp)
+    private val minimizeButtonRipple = WRippleDrawable.create(20f.dp)
+    private val backButtonRipple = WRippleDrawable.create(100f.dp)
+
+    private val backDrawable = BackDrawable(context, false).apply {
+        setRotation(1f, false)
+    }
+
+    private val iconView = WCustomImageView(context).apply {
+        defaultRounding = Content.Rounding.Radius(8f.dp)
+        alpha = 0f
+    }
+
+    private val titleLabel: WLabel by lazy {
+        WLabel(context).apply {
+            setStyle(22F, WFont.Medium)
+            gravity = Gravity.CENTER_VERTICAL or
+                if (LocaleController.isRTL) Gravity.RIGHT else Gravity.LEFT
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.MARQUEE
+            isHorizontalFadingEdgeEnabled = true
+            pivotX = 0f
+            useCustomEmoji = true
+            if (optionsOnTitle && !options.isNullOrEmpty()) {
+                text = textWithArrow(options.find { it.identifier == selectedOption }?.title, true)
+                setOnClickListener {
+                    showOptionsMenu(this)
+                }
+            }
+        }
+    }
+
+    fun textWithArrow(txt: String?, isTitle: Boolean): SpannableStringBuilder? {
+        val txt = txt ?: return null
+        val ss = SpannableStringBuilder(txt)
+        context.getDrawableCompat(R.drawable.ic_arrows_14)?.let { drawable ->
+            drawable.mutate()
+            drawable.setTint(
+                (if (isTitle) WColor.PrimaryText else WColor.SecondaryText).colorForTheme(
+                    overrideThemeIsDark
+                )
+            )
+            val arrowScale = if (isTitle) 1f else 0.8f
+            val width = 7.dp * arrowScale
+            val height = 14.dp * arrowScale
+            val yOffset = (if (isTitle) 1f else 0.5f).dp.roundToInt()
+            drawable.setBounds(
+                0,
+                yOffset,
+                width.roundToInt(),
+                height.roundToInt() + yOffset
+            )
+            val imageSpan = VerticalImageSpan(
+                drawable,
+                startPadding = 5.dp
+            )
+            ss.append(" ", imageSpan, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return ss
+    }
+
+    private fun showOptionsMenu(anchorView: WLabel) {
+        WMenuPopup.present(
+            anchorView,
+            options?.map { option ->
+                WMenuPopup.Item(
+                    WMenuPopup.Item.Config.SelectableItem(
+                        option.title,
+                        null,
+                        selectedOption == option.identifier
+                    ),
+                    onTap = {
+                        selectedOption = option.identifier
+                        if (optionsOnTitle) {
+                            titleLabel.text = textWithArrow(option.title, true)
+                            subtitleLabel.text = option.subtitle
+                        } else {
+                            subtitleLabel.text = textWithArrow(option.title, false)
+                        }
+                        option.onClick(WeakReference(viewController))
+                    }
+                )
+            } ?: emptyList(),
+            positioning = WMenuPopup.Positioning.BELOW,
+            windowBackgroundStyle = BackgroundStyle.Cutout.fromView(
+                view = anchorView,
+                roundRadius = 8f.dp,
+                horizontalOffset = 8.dp,
+                verticalOffset = 0
+            ),
+            xOffset = (-8).dp
+        )
+    }
+
+    private val subtitleLabel: WLabel by lazy {
+        WLabel(context).apply {
+            setTextColor(WColor.SecondaryText)
+            setStyle(12f, WFont.Medium)
+            gravity = Gravity.CENTER_VERTICAL or
+                if (LocaleController.isRTL) Gravity.RIGHT else Gravity.LEFT
+            setSingleLine()
+            ellipsize = TextUtils.TruncateAt.MARQUEE
+            isHorizontalFadingEdgeEnabled = true
+            pivotX = 0f
+            useCustomEmoji = true
+            if (optionsOnTitle) {
+                text = options?.find { it.identifier == selectedOption }?.subtitle
+            } else {
+                text =
+                    textWithArrow(options?.find { it.identifier == selectedOption }?.title, false)
+                setOnClickListener {
+                    showOptionsMenu(this)
+                }
+            }
+        }
+    }
+
+    private val backButton: WImageButton by lazy {
+        val btn = object : WImageButton(context) {
+            override fun updateTheme() {}
+        }
+        btn.setImageDrawable(backDrawable)
+        btn.setOnClickListener {
+            backPressed()
+        }
+        btn
+    }
+
+    private val minimizeButton: WImageButton by lazy {
+        val v = WImageButton(context)
+        v.setPadding(8.dp)
+        val minimizeDrawable =
+            context.getDrawableCompat(
+                R.drawable.ic_arrow_up_24
+            )?.resize(context, 24.dp, 24.dp)
+        v.setImageDrawable(minimizeDrawable)
+        v.setOnClickListener {
+            minimize()
+        }
+        v
+    }
+
+    private val moreButton: WImageButton by lazy {
+        val v = WImageButton(context)
+        v.setPadding(8.dp)
+        v.setImageDrawable(
+            context.getDrawableCompat(R.drawable.ic_more)
+        )
+        v
+    }
+
+    override fun setupViews() {
+        super.setupViews()
+
+        minHeight =
+            (
+                if (options.isNullOrEmpty()) {
+                    WNavigationBar.DEFAULT_HEIGHT_TINY
+                } else {
+                    WNavigationBar.DEFAULT_HEIGHT
+                }
+                ).dp +
+            (viewController.navigationController?.getSystemBars()?.top ?: 0)
+        maxHeight = minHeight
+        addView(titleLabel, LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        if (!options.isNullOrEmpty()) {
+            addView(subtitleLabel, LayoutParams(0, WRAP_CONTENT))
+            subtitleLabel.translationY =
+                titleLabel.paint.getLtrBaselineSpacingOffset(subtitleLabel.paint)
+        }
+        addView(backButton, ViewGroup.LayoutParams(40.dp, 40.dp))
+        addView(moreButton, LayoutParams(40.dp, 40.dp))
+        if (canBeMinimized) {
+            addView(minimizeButton, LayoutParams(40.dp, 40.dp))
+        }
+        moreButton.setOnClickListener {
+            morePressed()
+        }
+        setOnClickListener {
+            tabBarController?.maximize()
+        }
+        addView(iconView, LayoutParams(24.dp, 24.dp))
+
+        setConstraints {
+            setHorizontalBias(titleLabel.id, 0f)
+            constrainedWidth(titleLabel.id, true)
+            startToEnd(titleLabel, backButton, 8f)
+            endToStart(titleLabel, if (canBeMinimized) minimizeButton else moreButton, 8f)
+            if (options.isNullOrEmpty()) {
+                toTopPx(titleLabel, viewController.navigationController?.getSystemBars()?.top ?: 0)
+                toBottom(titleLabel)
+            } else {
+                toTopPx(
+                    titleLabel,
+                    8.dp + (viewController.navigationController?.getSystemBars()?.top ?: 0)
+                )
+                startToStart(subtitleLabel, titleLabel, 1f)
+                topToBottom(subtitleLabel, titleLabel)
+            }
+            toTopPx(iconView, viewController.navigationController?.getSystemBars()?.top ?: 0)
+            toBottom(iconView)
+            startToStart(iconView, titleLabel, 4f)
+            toTopPx(backButton, viewController.navigationController?.getSystemBars()?.top ?: 0)
+            toBottom(backButton)
+            toStart(backButton, 16f)
+            toTopPx(moreButton, viewController.navigationController?.getSystemBars()?.top ?: 0)
+            toBottom(moreButton)
+            toEnd(moreButton, 16f)
+            if (canBeMinimized) {
+                endToStart(minimizeButton, moreButton, 4f)
+                toTopPx(
+                    minimizeButton,
+                    viewController.navigationController?.getSystemBars()?.top ?: 0
+                )
+                toBottom(minimizeButton)
+            }
+        }
+
+        setBackgroundColor(Color.TRANSPARENT)
+        updateTheme()
+    }
+
+    fun updateCanBeMinimized() {
+        val newValue = computeCanBeMinimized()
+        if (newValue == canBeMinimized) return
+        canBeMinimized = newValue
+        if (!newValue) {
+            if (isMinimizing || isMinimized) tabBarController?.maximize()
+            if (minimizeButton.parent != null) removeView(minimizeButton)
+        } else {
+            if (minimizeButton.parent == null) addView(minimizeButton, LayoutParams(40.dp, 40.dp))
+        }
+        val topInset = viewController.navigationController?.getSystemBars()?.top ?: 0
+        setConstraints {
+            endToStart(titleLabel, if (canBeMinimized) minimizeButton else moreButton, 8f)
+            if (canBeMinimized) {
+                endToStart(minimizeButton, moreButton, 4f)
+                toTopPx(minimizeButton, topInset)
+                toBottom(minimizeButton)
+            }
+        }
+    }
+
+    fun insetsUpdated() {
+        updateCanBeMinimized()
+        val topInset = viewController.navigationController?.getSystemBars()?.top ?: 0
+        minHeight =
+            (
+                if (options.isNullOrEmpty()) {
+                    WNavigationBar.DEFAULT_HEIGHT_TINY
+                } else {
+                    WNavigationBar.DEFAULT_HEIGHT
+                }
+                ).dp +
+            topInset
+        maxHeight = minHeight
+        setConstraints {
+            if (options.isNullOrEmpty()) {
+                toTopPx(titleLabel, topInset)
+                toBottom(titleLabel)
+            } else {
+                toTopPx(titleLabel, 8.dp + topInset)
+            }
+            toTopPx(iconView, topInset)
+            toBottom(iconView)
+            toTopPx(backButton, topInset)
+            toBottom(backButton)
+            toTopPx(moreButton, topInset)
+            toBottom(moreButton)
+            if (canBeMinimized) {
+                toTopPx(minimizeButton, topInset)
+                toBottom(minimizeButton)
+            }
+        }
+    }
+
+    var overrideThemeIsDark: Boolean? = null
+        set(value) {
+            field = value
+            updateTheme()
+        }
+
+    private fun syncBlurView() {
+        val blurRoot = minimizedBlurRoot ?: return
+        if (minimizedBlurView != null) {
+            if (minimizedBlurViewRoot === blurRoot) return
+            removeView(minimizedBlurView)
+            minimizedBlurView = null
+        }
+        minimizedBlurViewRoot = blurRoot
+        minimizedBlurView = WGlassView(context).also {
+            it.setProvider(GlassProviders.plain(WColor.Background))
+            it.setupWith(blurRoot)
+            it.alpha = 0f
+            addView(it, 0, LayoutParams(0, 0))
+            setConstraints {
+                allEdges(it)
+            }
+        }
+    }
+
+    override fun updateTheme() {
+        val shouldRenderMinimized = isMinimizing || isMinimized
+        val shouldRenderAsDarkMode = if (shouldRenderMinimized) null else overrideThemeIsDark
+        val tintColor =
+            if (shouldRenderMinimized) {
+                WColor.PrimaryText.color
+            } else {
+                WColor.SecondaryText.colorForTheme(
+                    shouldRenderAsDarkMode
+                )
+            }
+        if (shouldRenderMinimized) {
+            if (useMinimizedBlur) {
+                setBackgroundColor(Color.TRANSPARENT)
+                syncBlurView()
+                minimizedBlurView?.alpha = 1f
+                minimizedBlurView?.updateTheme()
+            } else {
+                setBackgroundColor(WColor.SearchFieldBackground.color)
+            }
+        }
+        backDrawable.setColor(tintColor)
+        backDrawable.setRotatedColor(tintColor)
+        titleLabel.animateTextColor(WColor.PrimaryText.colorForTheme(shouldRenderAsDarkMode))
+        moreButton.drawable.setTint(WColor.SecondaryText.colorForTheme(shouldRenderAsDarkMode))
+        moreButton.background = moreButtonRipple
+        moreButtonRipple.backgroundColor = Color.TRANSPARENT
+        moreButtonRipple.rippleColor = WColor.BackgroundRipple.colorForTheme(shouldRenderAsDarkMode)
+        minimizeButton.rotation = if (shouldRenderMinimized) 0f else 180f
+        minimizeButton.drawable.setTint(tintColor)
+        minimizeButton.background = minimizeButtonRipple
+        minimizeButtonRipple.backgroundColor = Color.TRANSPARENT
+        minimizeButtonRipple.rippleColor =
+            WColor.BackgroundRipple.colorForTheme(shouldRenderAsDarkMode)
+        if (!options.isNullOrEmpty()) {
+            if (optionsOnTitle) {
+                titleLabel.text =
+                    textWithArrow(options.find { it.identifier == selectedOption }?.title, true)
+            } else {
+                subtitleLabel.text =
+                    textWithArrow(options.find { it.identifier == selectedOption }?.title, false)
+            }
+        }
+        backButton.background = backButtonRipple
+        backButtonRipple.backgroundColor = Color.TRANSPARENT
+        backButtonRipple.rippleColor =
+            WColor.BackgroundRipple.colorForTheme(shouldRenderAsDarkMode)
+    }
+
+    fun blendColors(color1: Int, color2: Int, ratio: Float): Int =
+        ColorUtils.blendARGB(color1, color2, ratio)
+
+    private fun applyMinimizedBackground(fraction: Float) {
+        val f = fraction.coerceIn(0f, 1f)
+        if (useMinimizedBlur) {
+            setBackgroundColor(Color.TRANSPARENT)
+            syncBlurView()
+            minimizedBlurView?.alpha = f
+        } else {
+            setBackgroundColor(WColor.SearchFieldBackground.color.colorWithAlpha((f * 255).toInt()))
+        }
+    }
+
+    var isMinimized = false
+    var isMinimizing = false
+    private fun minimize() {
+        if (isMinimizing) return
+        if (isMinimized) {
+            tabBarController?.maximize()
+            return
+        }
+        isMinimizing = true
+        minimizeStarted()
+        viewController.view.post {
+            titleLabel.pivotY = titleLabel.height / 2f
+            backDrawable.setRotation(1f, true)
+            titleLabel.animateTextColor(WColor.PrimaryText.color)
+            val hasOptions = !options.isNullOrEmpty()
+            val iconOffsetY = if (hasOptions) {
+                val titleCenterY = titleLabel.top + titleLabel.height / 2f
+                val iconCenterY = iconView.top + iconView.height / 2f
+                titleCenterY - iconCenterY
+            } else {
+                0f
+            }
+            tabBarController?.minimize(viewController.navigationController!!, onProgress = {
+                val heightDiff = (viewController.navigationController?.getSystemBars()?.top ?: 0)
+                val parent = parent as ViewGroup
+                parent.layoutParams = (parent.layoutParams as MarginLayoutParams).apply {
+                    topMargin = (-it * heightDiff).roundToInt()
+                }
+                moreButton.layoutParams = (moreButton.layoutParams as MarginLayoutParams).apply {
+                    rightMargin = (16.dp - it * 56.dp).roundToInt()
+                }
+                backButton.layoutParams = (backButton.layoutParams as MarginLayoutParams).apply {
+                    leftMargin = (4.dp + (1 - it) * 12.dp).roundToInt()
+                }
+                titleLabel.scaleX = 1 - 0.23f * it
+                titleLabel.scaleY = titleLabel.scaleX
+                minimizeButton.rotation = (1 - it) * 180
+                applyMinimizedBackground(it)
+                val drawableColor =
+                    blendColors(
+                        WColor.SecondaryText.color,
+                        WColor.PrimaryText.color,
+                        it
+                    )
+                backDrawable.setColor(drawableColor)
+                backDrawable.setRotatedColor(drawableColor)
+                minimizeButton.drawable.setTint(drawableColor)
+                titleLabel.translationX = 36f.dp * it
+                iconView.alpha = it
+                if (hasOptions) {
+                    subtitleLabel.alpha = 1 - it
+                    iconView.translationY = iconOffsetY * it
+                    backButton.translationY = iconOffsetY * it
+                    minimizeButton.translationY = iconOffsetY * it
+                }
+                if (it == 1f) {
+                    isMinimized = true
+                    isMinimizing = false
+                    titleLabel.isClickable = false
+                    minimizeFinished()
+                }
+            }, onMaximizeProgress = {
+                if (it == 0f) {
+                    maximizeStarted()
+                    updateBackButton(true)
+                    titleLabel.isClickable = true
+                }
+                val heightDiff = (viewController.navigationController?.getSystemBars()?.top ?: 0)
+                val parent = parent as ViewGroup
+                parent.layoutParams = (parent.layoutParams as MarginLayoutParams).apply {
+                    topMargin = (-(1 - it) * heightDiff).roundToInt()
+                }
+                moreButton.layoutParams = (moreButton.layoutParams as MarginLayoutParams).apply {
+                    rightMargin = (16.dp - (1 - it) * 56.dp).roundToInt()
+                }
+                backButton.layoutParams = (backButton.layoutParams as MarginLayoutParams).apply {
+                    leftMargin = (4.dp + it * 12.dp).roundToInt()
+                }
+                titleLabel.scaleX = 1 - 0.23f * (1 - it)
+                titleLabel.scaleY = titleLabel.scaleX
+                titleLabel.animateTextColor(WColor.PrimaryText.colorForTheme(overrideThemeIsDark))
+                minimizeButton.rotation = it * 180
+                titleLabel.setTextColor(
+                    blendColors(
+                        WColor.SecondaryText.color,
+                        WColor.PrimaryText.color,
+                        it
+                    )
+                )
+                applyMinimizedBackground(1 - it)
+                val drawableColor =
+                    blendColors(
+                        WColor.PrimaryText.color,
+                        WColor.SecondaryText.color,
+                        it
+                    )
+                backDrawable.setColor(drawableColor)
+                backDrawable.setRotatedColor(drawableColor)
+                minimizeButton.drawable.setTint(drawableColor)
+                titleLabel.translationX = 36f.dp * (1 - it)
+                iconView.alpha = 1 - it
+                if (hasOptions) {
+                    subtitleLabel.alpha = it
+                    iconView.translationY = iconOffsetY * (1 - it)
+                    backButton.translationY = iconOffsetY * (1 - it)
+                    minimizeButton.translationY = iconOffsetY * (1 - it)
+                }
+                if (it == 1f) {
+                    isMinimized = false
+                    isMinimizing = false
+                    maximizeFinished()
+                }
+            })
+        }
+    }
+
+    fun backPressed() {
+        if (isMinimizing) return
+        if (isMinimized) {
+            tabBarController?.dismissMinimized()
+            return
+        }
+        if (viewController.webView.canGoBack()) {
+            viewController.webView.goBack()
+            updateBackButton(true)
+        } else {
+            if (viewController.window?.isAnimating == true) return
+            viewController.window?.dismissLastNav()
+        }
+    }
+
+    private var isShowingBackArrow = false
+    fun updateBackButton(animated: Boolean) {
+        isShowingBackArrow = if (viewController.webView.canGoBack() && !isShowingBackArrow) {
+            true
+        } else if (!viewController.webView.canGoBack() && isShowingBackArrow) {
+            false
+        } else {
+            return
+        }
+        backDrawable.setRotation(if (isShowingBackArrow) 0f else 1f, animated)
+    }
+
+    private fun morePressed() {
+        val activeUrl = viewController.webView.url ?: viewController.config.url
+        WMenuPopup.present(
+            moreButton,
+            listOf(
+                WMenuPopup.Item(
+                    null,
+                    LocaleController.getString("Reload")
+                ) {
+                    viewController.webView.reload()
+                },
+                WMenuPopup.Item(
+                    null,
+                    LocaleController.getString("Open in Browser")
+                ) {
+                    viewController.window?.startActivityCatching(
+                        Intent(Intent.ACTION_VIEW, activeUrl.toUri())
+                    )
+                },
+                WMenuPopup.Item(
+                    null,
+                    LocaleController.getString("CopyURL")
+                ) {
+                    if (ClipboardHelpers.copyToClipboard(
+                            context,
+                            LocaleController.getString("CopyURL"),
+                            activeUrl
+                        )
+                    ) {
+                        Haptics.play(context, HapticType.LIGHT_TAP)
+                    }
+                },
+                WMenuPopup.Item(
+                    null,
+                    LocaleController.getString("Share")
+                ) {
+                    val shareIntent = Intent(Intent.ACTION_SEND)
+                    shareIntent.setType("text/plain")
+                    shareIntent.putExtra(Intent.EXTRA_TEXT, activeUrl)
+                    viewController.window?.startActivity(
+                        Intent.createChooser(
+                            shareIntent,
+                            LocaleController.getString("Share")
+                        )
+                    )
+                }
+            ),
+            popupWidth = WRAP_CONTENT,
+            positioning = WMenuPopup.Positioning.ALIGNED
+        )
+    }
+
+    private fun startMarquee() {
+        Handler(Looper.getMainLooper()).postDelayed({
+            titleLabel.isSelected = true
+        }, 2000)
+    }
+
+    fun updateTitle(newTitle: String, animated: Boolean) {
+        titleLabel.isSelected = false
+        if (!animated) {
+            titleLabel.text = newTitle
+            startMarquee()
+            return
+        }
+        titleLabel.fadeOut {
+            titleLabel.text = newTitle
+            titleLabel.fadeIn {
+                startMarquee()
+            }
+        }
+    }
+
+    fun setIconUrl(url: String) {
+        if (!canBeMinimized) return
+        iconView.set(Content.ofUrl(url))
+    }
+
+    fun setIconBitmap(bitmap: Bitmap?) {
+        if (!canBeMinimized) return
+        iconView.setImageBitmap(bitmap)
+    }
+}

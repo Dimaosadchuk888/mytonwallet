@@ -1,0 +1,55 @@
+package org.mytonwallet.app_air.walletcontext.helpers
+
+import android.os.Handler
+import android.os.Looper
+import java.util.Timer
+import java.util.TimerTask
+import org.mytonwallet.app_air.walletcontext.WalletContextManager
+
+class AutoLockHelper {
+    companion object {
+        private var timer: Timer? = null
+        private var period: Int? = null
+        private var timerStartAt: Long? = null
+
+        fun start(period: Int?) {
+            AutoLockHelper.period = period
+            resetTimer()
+        }
+
+        fun resetTimer(remainingTimeMs: Long? = null) {
+            timer?.cancel()
+
+            period?.let { period ->
+                timer = Timer()
+                timerStartAt = System.currentTimeMillis()
+                timer?.schedule(
+                    object : TimerTask() {
+                        override fun run() {
+                            Handler(Looper.getMainLooper()).post {
+                                WalletContextManager.delegate?.get()?.lockScreen()
+                            }
+                        }
+                    },
+                    remainingTimeMs ?: (period * 1000L)
+                )
+            }
+        }
+
+        fun appResumed() {
+            val timerStartAt = timerStartAt ?: return
+            val period = period ?: return
+            val passedTimeMs = System.currentTimeMillis() - timerStartAt
+            val periodTime = period * 1000L
+            if (passedTimeMs >= periodTime) {
+                WalletContextManager.delegate?.get()?.lockScreen()
+            } else {
+                resetTimer(periodTime - passedTimeMs)
+            }
+        }
+
+        fun stop() {
+            timer?.cancel()
+        }
+    }
+}

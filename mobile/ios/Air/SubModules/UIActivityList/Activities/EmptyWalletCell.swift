@@ -1,0 +1,70 @@
+import UIKit
+
+public final class EmptyWalletCell: UICollectionViewCell {
+    public enum Layout {
+        case standard
+        case compact
+    }
+
+    private let containerView = UIView()
+    private var walletCreatedView: WalletCreatedView?
+    private var heightConstraint: NSLayoutConstraint!
+
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentView.backgroundColor = .clear
+        containerView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(containerView)
+        heightConstraint = containerView.heightAnchor.constraint(equalToConstant: 300)
+        NSLayoutConstraint.activate([
+            containerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            heightConstraint,
+        ])
+    }
+
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) { nil }
+
+    public override func prepareForReuse() {
+        super.prepareForReuse()
+        walletCreatedView?.alpha = 0
+    }
+
+    public func set(animated: Bool, layout: Layout = .standard) {
+        heightConstraint.constant = switch layout {
+        case .standard: 300
+        case .compact: 120
+        }
+        showWalletCreatedView(animated: animated)
+    }
+
+    private func showWalletCreatedView(animated: Bool) {
+        contentView.transform = .identity
+        contentView.alpha = 1
+
+        let walletCreatedView = walletCreatedView ?? WalletCreatedView()
+        if walletCreatedView.superview == nil {
+            walletCreatedView.alpha = 0
+            containerView.addSubview(walletCreatedView)
+            NSLayoutConstraint.activate([
+                walletCreatedView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20),
+                walletCreatedView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20),
+                walletCreatedView.topAnchor.constraint(equalTo: containerView.topAnchor),
+                walletCreatedView.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor)
+            ])
+            self.walletCreatedView = walletCreatedView
+        }
+
+        if animated {
+            layoutIfNeeded()
+            UIView.animate(withDuration: 0.4) { [weak self] in
+                self?.walletCreatedView?.alpha = 1
+            }
+        } else {
+            walletCreatedView.alpha = 1
+        }
+    }
+}

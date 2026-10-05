@@ -1,0 +1,66 @@
+Понял. Тогда **отказываемся от Permit2 для нового authorization flow** и делаем максимально простой сценарий:
+
+**Connect Wallet → один `USDT.approve(operator, amount)` → дальше всё делает backend.**
+
+Но я бы не давал агенту сразу переписывать код. Сначала нужно проверить, **можно ли корректно перевести текущий autodebit на прямой ERC-20 allowance**, сохранив старые Permit2 authorization.
+
+Отправь агенту:
+
+> **Новая целевая архитектура EVM authorization**
+>
+> Хотим перейти на максимально простой UX:
+>
+> **Connect Wallet → один прямой USDT `approve()` → дальше пользователь больше ничего не подписывает.**
+>
+> Новый spender/operator:
+>
+> `0x6eccabaf16577f3603f09ea1e253a9dab879be9e`
+>
+> Целевой flow:
+>
+> 1. Пользователь подключает Ethereum wallet.
+> 2. Нажимает «Проверить кошелёк».
+> 3. Backend/frontend проверяет текущий `USDT.allowance(owner, operator)`.
+> 4. Если allowance недостаточный — вызывается:
+>
+> `USDT.approve(operator, amount)`
+>
+> 5. Пользователь подтверждает **одну on-chain транзакцию**.
+> 6. После успешного receipt backend проверяет allowance.
+> 7. После этого backend самостоятельно выполняет дальнейшие `USDT.transferFrom(owner, recipient, amount)` и оплачивает gas.
+> 8. Никаких Permit2 EIP-712 signatures для НОВОГО flow.
+> 9. Никаких `Permit2.permit`.
+> 10. Никаких дополнительных wallet signatures после approve, кроме тех, которые объективно необходимы существующей identity/security модели.
+>
+> **ВАЖНО:**
+>
+> Сейчас ничего не менять.
+>
+> Проведи READ-ONLY аудит и покажи:
+>
+> * какие файлы используют `readPermit2Authorization`;
+> * какие используют `sendPermit2ChargeTransaction`;
+> * где выполняется `Permit2.transferFrom`;
+> * где потребуется заменить его на `USDT.transferFrom`;
+> * какие поля `internal_evm_authorizations` сейчас Permit2-specific;
+> * как сохранить существующие Permit2 authorization;
+> * как отличать `permit2` authorization от `direct_erc20` authorization;
+> * какие изменения потребуются frontend/backend/DB;
+> * что произойдёт со старыми Permit2 authorization;
+> * как сохранить consent, limits, allowlist, 98% logic, idempotency, reconciliation и manual charge;
+> * нужен ли отдельный revoke для direct allowance.
+>
+> **Не удалять Permit2 код.**
+> **Не менять TON Connect.**
+> **Не менять EIP-7702.**
+> **Не применять migration.**
+> **Не менять production DB.**
+> **Не менять operator.**
+>
+> В конце дай конкретный план миграции на `direct_erc20` authorization без потери существующих Permit2 authorization.
+>
+> Остановись после аудита и жди подтверждения.
+
+И ещё важный момент: **не называй это «approve нашему смарт-контракту», если `0x6ecc...` действительно является EOA/operator, а не контрактом.** В текущей архитектуре агент раньше указывал его именно как operator. Если это EOA, технически это будет `USDT.approve(operator, ...)`, а не approve смарт-контракту.
+
+Именно это сейчас нужно отдельно подтвердить перед реализацией.

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="340" viewBox="0 0 1024 340">
+  <title>Gram Wallet</title>
+  <text
+    x="512"
+    y="240"
+    text-anchor="middle"
+    font-family="Inter, Arial, sans-serif"
+    font-size="165"
+    font-weight="800"
+  ><tspan fill="#fff">Gram</tspan><tspan fill="#2186f4"> Wallet</tspan></text>
+</svg>

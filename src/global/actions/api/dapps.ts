@@ -1,0 +1,473 @@
+import type { TonConnectEventName } from '../../../api/dappProtocols/adapters/tonConnect/analytics';
+import type { GlobalState } from '../../types';
+import { DappConnectState, SignDataState, TransferState } from '../../types';
+
+import { ANIMATION_END_DELAY } from '../../../config';
+import { areDeepEqual } from '../../../util/areDeepEqual';
+import { getDoesUsePinPad } from '../../../util/biometrics';
+import { getDappConnectionUniqueId } from '../../../util/getDappConnectionUniqueId';
+import { pause } from '../../../util/schedulers';
+import { USER_AGENT_LANG_CODE } from '../../../util/windowEnvironment';
+import { callApi } from '../../../api';
+import { requestAbortDappConnectWalletCreation } from '../../helpers/abortDappConnectWalletCreation';
+import { withEnclaveSessionRelease } from '../../helpers/enclave';
+import { handleDappSignatureResult, prepareDappOperation } from '../../helpers/transfer';
+import { addActionHandler, getGlobal, setGlobal } from '../../index';
+import {
+  clearConnectedDapps,
+  clearCurrentDappSignData,
+  clearCurrentDappTransfer,
+  clearDappConnectRequest,
+  clearIsPinAccepted,
+  removeConnectedDapp,
+  updateConnectedDapps,
+  updateCurrentDappSignData,
+  updateCurrentDappTransfer,
+  updateDappConnectRequest,
+} from '../../reducers';
+import { selectCurrentAccountId } from '../../selectors';
+import { switchAccount } from './auth';
+
+import { getIsPortrait } from '../../../hooks/useDeviceScreen';
+
+import { CLOSE_DURATION, CLOSE_DURATION_PORTRAIT } from '../../../components/ui/Modal';
+
+const GET_DAPPS_PAUSE = 250;
+
+// Reports a TON Connect UI event (modal shown / approved / rejected) for a real request; the worker enriches it
+// from the flow context by `promiseId`. No-op for the speculative placeholder, which has no `promiseId`.
+function recordTonConnectUiEvent(eventName: TonConnectEventName, promiseId?: string) {
+  if (!promiseId) {
+    return;
+  }
+
+  void callApi('recordTonConnectEvent', { event_name: eventName, promiseId });
+}
+
+addActionHandler('submitDappConnectRequestConfirm', withEnclaveSessionRelease(async (
+  global, actions, { enclaveToken, accountId },
+) => {
+  const {
+    promiseId, permissions, proof, dapp,
+  } = global.dappConnectRequest!;
+
+  recordTonConnectUiEvent('wallet-connect-accepted', promiseId);
+  if (!prepareDappOperation(
+    accountId,
+    DappConnectState.ConfirmHardware,
+    updateDappConnectRequest,
+    Boolean(permissions?.isPasswordRequired),
+  )) {
+    return;
+  }
+
+  const signingResult = proof
+    ? await callApi(
+      'signDappProof',
+      dapp.chains,
+      accountId,
+      { ...proof, type: 'tonProof' },
+      enclaveToken,
+    )
+    : { signatures: undefined };
+
+  if (!handleDappSignatureResult(signingResult, updateDappConnectRequest)) {
+    return;
+  }
+
+  actions.switchAccount({ accountId });
+
+  await callApi('confirmDappRequestConnect', promiseId!, {
+    accountId,
+    proofSignatures: signingResult.signatures,
+  });
+
+  global = getGlobal();
+  global = clearDappConnectRequest(global);
+  setGlobal(global);
+
+  await pause(GET_DAPPS_PAUSE);
+  actions.getDapps();
+}));
+
+addActionHandler('cancelDappConnectRequestConfirm', (global) => {
+  if (global.dappConnectRequest?.isCreatingAccount) {
+    requestAbortDappConnectWalletCreation();
+  }
+
+  recordTonConnectUiEvent('wallet-connect-rejected', global.dappConnectRequest?.promiseId);
+  cancelDappOperation(
+    (global) => global.dappConnectRequest,
+    clearDappConnectRequest,
+  );
+});
+
+addActionHandler('setDappConnectRequestState', (global, actions, { state }) => {
+  setGlobal(updateDappConnectRequest(global, { state }));
+});
+
+addActionHandler('cancelDappTransfer', (global) => {
+  recordTonConnectUiEvent('wallet-transaction-declined', global.currentDappTransfer.promiseId);
+  cancelDappOperation(
+    (global) => global.currentDappTransfer,
+    clearCurrentDappTransfer,
+  );
+});
+
+function cancelDappOperation(
+  getState: (global: GlobalState) => { promiseId?: string } | undefined,
+  clearState: (global: GlobalState) => GlobalState,
+) {
+  let global = getGlobal();
+  const { promiseId } = getState(global) ?? {};
+
+  if (promiseId) {
+    void callApi('cancelDappRequest', promiseId, 'Canceled by the user');
+  }
+
+  if (getDoesUsePinPad()) {
+    global = clearIsPinAccepted(global);
+  }
+  global = clearState(global);
+  setGlobal(global);
+}
+
+addActionHandler('submitDappTransfer', withEnclaveSessionRelease(async (global, actions, payload) => {
+  const { enclaveToken } = payload ?? {};
+  const { promiseId } = global.currentDappTransfer;
+  if (!promiseId) {
+    return;
+  }
+
+  recordTonConnectUiEvent('wallet-transaction-accepted', promiseId);
+
+  if (!prepareDappOperation(
+    selectCurrentAccountId(global)!,
+    TransferState.ConfirmHardware,
+    updateCurrentDappTransfer,
+    true,
+  )) {
+    return;
+  }
+
+  global = getGlobal();
+  const { transactions, validUntil, vestingAddress, operationChain, dapp, isLegacyOutput } = global.currentDappTransfer;
+  const currentChain = dapp?.chains?.find((e) => e.chain === operationChain);
+  if (!currentChain) {
+    return;
+  }
+  const accountId = selectCurrentAccountId(global)!;
+
+  const signedTransactions = await callApi(
+    'signDappTransfers',
+    currentChain,
+    accountId,
+    transactions!,
+    {
+      enclaveToken,
+      validUntil,
+      vestingAddress,
+      isLegacyOutput,
+    });
+
+  if (!handleDappSignatureResult(signedTransactions, updateCurrentDappTransfer)) {
+    return;
+  }
+
+  if (signedTransactions && typeof signedTransactions === 'object' && 'mfaRequestHash' in signedTransactions) {
+    global = getGlobal();
+    global = updateCurrentDappTransfer(global, {
+      state: TransferState.ConfirmMfa,
+      isLoading: false,
+      mfaRequestHash: signedTransactions.mfaRequestHash,
+    });
+    setGlobal(global);
+
+    await callApi('confirmDappRequestSendTransaction', promiseId, {
+      mfaRequestHash: signedTransactions.mfaRequestHash,
+    });
+    return;
+  }
+
+  await callApi('confirmDappRequestSendTransaction', promiseId, signedTransactions);
+}));
+
+addActionHandler('submitDappSignData', withEnclaveSessionRelease(async (global, actions, payload) => {
+  const { enclaveToken } = payload ?? {};
+  const { promiseId } = global.currentDappSignData;
+  if (!promiseId) {
+    return;
+  }
+
+  recordTonConnectUiEvent('wallet-sign-data-accepted', promiseId);
+
+  if (!prepareDappOperation(
+    selectCurrentAccountId(global)!,
+    0 as never, // Ledger doesn't support SignData yet, so this value is never used
+    updateCurrentDappSignData,
+    true,
+  )) {
+    return;
+  }
+
+  global = getGlobal();
+  const { dapp, payloadToSign, operationChain } = global.currentDappSignData;
+  const currentChain = dapp?.chains?.find((e) => e.chain === operationChain);
+  if (!currentChain) {
+    return;
+  }
+  const accountId = selectCurrentAccountId(global)!;
+  const signedData = await callApi(
+    'signDappData',
+    currentChain,
+    accountId,
+    dapp!.url,
+    payloadToSign!,
+    enclaveToken,
+  );
+
+  if (!handleDappSignatureResult(signedData, updateCurrentDappSignData)) {
+    return;
+  }
+
+  await callApi('confirmDappRequestSignData', promiseId, signedData);
+}));
+
+addActionHandler('getDapps', async (global, actions) => {
+  const { currentAccountId } = global;
+
+  let result = await callApi('getDapps', currentAccountId!);
+
+  if (!result) {
+    return;
+  }
+
+  // Check for broken dapps without URL
+  const brokenDapp = result.find(({ url }) => !url);
+  if (brokenDapp) {
+    actions.deleteDapp({ url: brokenDapp.url, uniqueId: getDappConnectionUniqueId(brokenDapp) });
+    result = result.filter(({ url }) => url);
+  }
+
+  global = getGlobal();
+  global = updateConnectedDapps(global, result);
+  setGlobal(global);
+});
+
+addActionHandler('deleteAllDapps', (global) => {
+  const { currentAccountId } = global;
+
+  void callApi('deleteAllDapps', currentAccountId!);
+
+  global = getGlobal();
+  global = clearConnectedDapps(global);
+  setGlobal(global);
+});
+
+addActionHandler('deleteDapp', (global, actions, { url, uniqueId }) => {
+  const { currentAccountId } = global;
+
+  void callApi('deleteDapp', currentAccountId!, url, uniqueId);
+
+  global = getGlobal();
+  global = removeConnectedDapp(global, url);
+  setGlobal(global);
+});
+
+addActionHandler('cancelDappSignData', (global) => {
+  recordTonConnectUiEvent('wallet-sign-data-declined', global.currentDappSignData.promiseId);
+  cancelDappOperation(
+    (global) => global.currentDappSignData,
+    clearCurrentDappSignData,
+  );
+});
+
+addActionHandler('apiUpdateDappConnect', (global, actions, {
+  accountId, dapp, permissions, promiseId, proof, multichainResolution,
+}) => {
+  global = updateDappConnectRequest(global, {
+    state: DappConnectState.Info,
+    promiseId,
+    accountId,
+    dapp,
+    permissions: {
+      isAddressRequired: permissions.address,
+      isPasswordRequired: permissions.proof,
+    },
+    proof,
+    multichainResolution,
+  });
+  setGlobal(global);
+
+  recordTonConnectUiEvent('wallet-connect-request-ui-displayed', promiseId);
+  actions.addSiteToBrowserHistory({ url: dapp.url });
+});
+
+addActionHandler('apiUpdateDappSendTransaction', async (global, actions, payload) => {
+  const {
+    promiseId,
+    transactions,
+    emulation,
+    dapp,
+    validUntil,
+    vestingAddress,
+    operationChain,
+    shouldHideTransfers,
+    isLegacyOutput,
+  } = payload;
+
+  await apiUpdateDappOperation(
+    payload,
+    (global) => global.currentDappTransfer,
+    actions.closeDappTransfer,
+    (global) => global.currentDappTransfer.state !== TransferState.None,
+    clearCurrentDappTransfer,
+    (global) => updateCurrentDappTransfer(global, {
+      state: TransferState.Initial,
+      operationChain,
+      promiseId,
+      transactions,
+      emulation,
+      dapp,
+      validUntil,
+      vestingAddress,
+      shouldHideTransfers,
+      isLegacyOutput,
+    }),
+  );
+
+  recordTonConnectUiEvent('wallet-transaction-confirmation-ui-displayed', promiseId);
+});
+
+addActionHandler('apiUpdateDappSignData', async (global, actions, payload) => {
+  const { promiseId, dapp, payloadToSign, operationChain, parsedPayloadToSign } = payload;
+
+  await apiUpdateDappOperation(
+    payload,
+    (global) => global.currentDappSignData,
+    actions.closeDappSignData,
+    (global) => global.currentDappSignData.state !== SignDataState.None,
+    clearCurrentDappSignData,
+    (global) => updateCurrentDappSignData(global, {
+      state: SignDataState.Initial,
+      promiseId,
+      dapp,
+      operationChain,
+      payloadToSign,
+      parsedPayloadToSign,
+    }),
+  );
+
+  recordTonConnectUiEvent('wallet-sign-data-confirmation-ui-displayed', promiseId);
+});
+
+async function apiUpdateDappOperation(
+  payload: { accountId: string },
+  getState: (global: GlobalState) => { promiseId?: string },
+  close: NoneToVoidFunction,
+  isStateActive: (global: GlobalState) => boolean,
+  clearState: (global: GlobalState) => GlobalState,
+  updateState: (global: GlobalState) => GlobalState,
+) {
+  let global = getGlobal();
+
+  const { accountId } = payload;
+  const { promiseId: currentPromiseId } = getState(global);
+
+  await switchAccount(global, accountId);
+
+  if (currentPromiseId) {
+    close();
+    const closeDuration = getIsPortrait() ? CLOSE_DURATION_PORTRAIT : CLOSE_DURATION;
+    await pause(closeDuration + ANIMATION_END_DELAY);
+  }
+
+  global = getGlobal();
+  global = clearState(global);
+  global = updateState(global);
+  setGlobal(global);
+}
+
+// Clears the placeholder transfer modal (opened by a wake deeplink, no request yet) so a `signData`/`connect`
+// event can supersede it.
+function clearPlaceholderDappTransfer(global: GlobalState): GlobalState {
+  const transfer = global.currentDappTransfer;
+  if (transfer.state === TransferState.Initial && transfer.isWaitingForRequest && !transfer.promiseId) {
+    return clearCurrentDappTransfer(global);
+  }
+  return global;
+}
+
+addActionHandler('apiUpdateDappLoading', (global, actions, {
+  connectionType, isSse, accountId, isWaitingForRequest, returnUrl,
+}) => {
+  // If the SSE event already opened a request modal (event arrived before the wake deeplink), ignore the placeholder.
+  if (isWaitingForRequest && (
+    global.currentDappTransfer.state !== TransferState.None
+    || global.currentDappSignData.state !== SignDataState.None
+    || global.dappConnectRequest?.state !== undefined
+  )) {
+    return;
+  }
+
+  if (accountId) {
+    actions.switchAccount({ accountId });
+  }
+
+  if (connectionType === 'connect') {
+    global = clearPlaceholderDappTransfer(global);
+    global = updateDappConnectRequest(global, {
+      state: DappConnectState.Info,
+      isSse,
+    });
+  } else if (connectionType === 'sendTransaction') {
+    global = updateCurrentDappTransfer(global, {
+      state: TransferState.Initial,
+      isSse,
+      isWaitingForRequest,
+      returnUrl,
+    });
+  } else if (connectionType === 'signData') {
+    global = clearPlaceholderDappTransfer(global);
+    global = updateCurrentDappSignData(global, {
+      state: SignDataState.Initial,
+      isSse,
+    });
+  }
+  setGlobal(global);
+});
+
+addActionHandler('apiUpdateDappCloseLoading', (global, actions, { connectionType }) => {
+  // But clear the state if a skeleton is displayed in the Modal
+  if (connectionType === 'connect' && global.dappConnectRequest?.state === DappConnectState.Info) {
+    global = clearDappConnectRequest(global);
+  } else if (connectionType === 'sendTransaction' && global.currentDappTransfer.state === TransferState.Initial) {
+    global = clearCurrentDappTransfer(global);
+  } else if (connectionType === 'signData' && global.currentDappSignData.state === SignDataState.Initial) {
+    global = clearCurrentDappSignData(global);
+  }
+  setGlobal(global);
+});
+
+addActionHandler('loadExploreSites', async (global, _, { isLandscape, langCode = USER_AGENT_LANG_CODE }) => {
+  const exploreData = await callApi('loadExploreSites', { isLandscape, langCode });
+  global = getGlobal();
+  if (areDeepEqual(exploreData, global.exploreData)) {
+    return;
+  }
+
+  global = { ...global, exploreData };
+  setGlobal(global);
+});
+
+addActionHandler('updateDappMfaRequestStatus', async (global) => {
+  const hash = global.currentDappTransfer.mfaRequestHash;
+  if (!hash) return;
+  const result = await callApi('fetchMfaRequest', hash);
+
+  if (result?.isConfirmed) {
+    global = getGlobal();
+    global = updateCurrentDappTransfer(global, { state: TransferState.Complete });
+    setGlobal(global);
+  }
+});

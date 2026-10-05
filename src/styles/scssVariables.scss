@@ -1,0 +1,81 @@
+$fontFamily: "Nunito Sans", -apple-system, BlinkMacSystemFont, "Apple Color Emoji", "Segoe UI", Oxygen, Ubuntu,
+Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+
+$landscapeAuthContentMaxWidth: 31.4375rem;
+$landscapeMainContentMaxWidth: 53.5rem;
+$portraitContentMaxWidth: 27rem;
+$portraitHeaderHeight: 3rem;
+$defaultCardGradient: #27B1FA 0, #0874F8 100%;
+$gramCardGradient: #9C86E1 0, #6D92D9 100%;
+$tegroCardGradient: #6C87F0 0, #4844D5 100%;
+$redCardGradient: #D26868 0, #B03E4F 100%;
+$orangeCardGradient: #E2AE55 0, #D28B2A 100%;
+$greenCardGradient: #82C24B 0, #36902F 100%;
+$seaCardGradient: #3ABDBE 0, #1E879B 100%;
+$purpleCardGradient: #8E6EE5 0, #682FB4 100%;
+$pinkCardGradient: #B055AD 0, #B4569C 100%;
+$silverCardGradient: #C4C3C5 0, #C4C3C5 100%;
+$goldCardGradient: #C4842B 0, #FFDE5E 100%;
+$platinumCardGradient: #393A3F 0, #393A3F 100%;
+$blackCardGradient: #000 0, #000 100%;
+
+// Card (portrait: 378×220, landscape: 328×200)
+$cardAspectRatioPortrait: 58.201%;
+$cardAspectRatioLandscape: 60.976%;
+$cardPortraitBaseBalanceSize: 3.25rem;
+$cardLandscapeBaseBalanceSize: 3rem;
+
+// Transaction modal heights
+$transactionModalHeight: 38.5rem;
+$transactionModalMaxWidth: 24rem;
+
+$byChain: (
+  ton: (
+    tabColor: var(--color-default-accent),
+    tabBackground: var(--color-default-accent-bg),
+  ),
+  tron: (
+    tabColor: var(--color-activity-red-text),
+    tabBackground: var(--color-activity-red-background),
+  ),
+  solana: (
+    tabColor: var(--color-chain-solana),
+    tabBackground: var(--color-chain-solana-bg),
+  ),
+  ethereum: (
+    tabColor: var(--color-chain-ethereum),
+    tabBackground: var(--color-chain-ethereum-bg),
+  ),
+  base: (
+    tabColor: var(--color-chain-base),
+    tabBackground: var(--color-chain-base-bg),
+  ),
+  bnb: (
+    tabColor: var(--color-chain-bnb),
+    tabBackground: var(--color-chain-bnb-bg),
+  ),
+  polygon: (
+    tabColor: var(--color-chain-polygon),
+    tabBackground: var(--color-chain-polygon-bg),
+  ),
+  arbitrum: (
+    tabColor: var(--color-chain-arbitrum),
+    tabBackground: var(--color-chain-arbitrum-bg),
+  ),
+  monad: (
+    tabColor: var(--color-chain-monad),
+    tabBackground: var(--color-chain-monad-bg),
+  ),
+  avalanche: (
+    tabColor: var(--color-chain-avalanche),
+    tabBackground: var(--color-chain-avalanche-bg),
+  ),
+  hyperliquid: (
+    tabColor: var(--color-chain-hyperliquid),
+    tabBackground: var(--color-chain-hyperliquid-bg),
+  ),
+  robinhood: (
+    tabColor: var(--color-chain-robinhood),
+    tabBackground: var(--color-chain-robinhood-bg),
+  ),
+);

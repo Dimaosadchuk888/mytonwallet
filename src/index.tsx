@@ -1,0 +1,91 @@
+import './global/actions';
+import './global/init';
+import './util/handleError';
+import './util/bigintPatch';
+
+import React from './lib/teact/teact';
+import TeactDOM from './lib/teact/teact-dom';
+import { getActions, getGlobal } from './global';
+
+import {
+  DEBUG, IS_TELEGRAM_APP, STRICTERDOM_ENABLED,
+} from './config';
+import { requestMutation } from './lib/fasterdom/fasterdom';
+import { enableStrict } from './lib/fasterdom/stricterdom';
+import { initAgentProtocolVersion } from './util/agent/agentProtocolVersion';
+import { initAgentWriterPrompt } from './util/agent/agentWriterPromptState';
+import { betterView } from './util/betterView';
+import { initElectron } from './util/electron';
+import { initFocusScrollController } from './util/focusScroll';
+import { forceLoadFonts } from './util/fonts';
+import { logDebug, logSelfXssWarnings } from './util/logs';
+import { initTelegramApp } from './util/telegram';
+import { IS_ELECTRON, IS_LEDGER_EXTENSION_TAB } from './util/windowEnvironment';
+
+import App from './components/App';
+
+import './styles/index.scss';
+
+if (DEBUG) {
+  // eslint-disable-next-line no-console
+  console.log('>>> INIT');
+}
+
+if (STRICTERDOM_ENABLED) {
+  enableStrict();
+}
+
+if (IS_ELECTRON) {
+  void initElectron();
+}
+
+if (IS_TELEGRAM_APP) {
+  void initTelegramApp();
+}
+
+initFocusScrollController();
+
+void (async () => {
+  await window.electron?.restoreStorage?.();
+
+  initAgentProtocolVersion();
+  initAgentWriterPrompt();
+  getActions().init();
+
+  // Connecting to the API from remote tabs creates excessive polling in the API.
+  // The remote tab doesn't need the API anyway.
+  if (!IS_LEDGER_EXTENSION_TAB) {
+    getActions().initApi();
+  } else {
+    logDebug('API was not initialized because it was connected from a detached tab');
+  }
+
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log('>>> START INITIAL RENDER');
+  }
+
+  requestMutation(() => {
+    TeactDOM.render(
+      <App />,
+      document.getElementById('root')!,
+    );
+
+    forceLoadFonts();
+    betterView();
+  });
+
+  if (DEBUG) {
+    // eslint-disable-next-line no-console
+    console.log('>>> FINISH INITIAL RENDER');
+  }
+
+  document.addEventListener('dblclick', () => {
+    // eslint-disable-next-line no-console
+    console.warn('GLOBAL STATE', getGlobal());
+  });
+
+  if (window.top === window) {
+    logSelfXssWarnings();
+  }
+})();

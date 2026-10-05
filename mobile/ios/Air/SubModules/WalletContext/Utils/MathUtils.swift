@@ -1,0 +1,36 @@
+
+import Foundation
+
+/// Linear interpolation.
+///
+/// - Parameters:
+///     - from: value at 0
+///     - to: value at 1
+///     - progress: interpolates beyond 0...1
+public func interpolate(from: Double, to: Double, progress: Double) -> Double {
+    from * (1 - progress) + to * progress
+}
+
+/// Returns `value` constrained to the inclusive bounds `min...max`.
+public func clamp<T: Comparable>(_ value: T, min: T, max: T) -> T {
+    Swift.min(max, Swift.max(min, value))
+}
+
+/// Returns `value` constrained to `range`.
+public func clamp<T: Comparable>(_ value: T, to range: ClosedRange<T>) -> T {
+    clamp(value, min: range.lowerBound, max: range.upperBound)
+}
+
+
+public func interpolate(from: CGFloat, to: CGFloat, progress: CGFloat) -> CGFloat {
+    from * (1 - progress) + to * progress
+}
+
+public func interpolate(from: CGRect, to: CGRect, progress: CGFloat) -> CGRect {
+    CGRect(
+        x: interpolate(from: from.origin.x, to: to.origin.x, progress: progress),
+        y: interpolate(from: from.origin.y, to: to.origin.y, progress: progress),
+        width: interpolate(from: from.width, to: to.width, progress: progress),
+        height: interpolate(from: from.height, to: to.height, progress: progress)
+    )
+}

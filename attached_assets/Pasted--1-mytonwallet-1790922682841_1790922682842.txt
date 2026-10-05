@@ -1,0 +1,76 @@
+Да. По скриншотам здесь видно две отдельные проблемы:
+1. В окне подключения отображается mytonwallet-kazercx.replit.app вместо названия приложения MyGramWallet.ton. Это похоже на неправильное значение name в tonconnect-manifest.json либо на использование URL/старого manifest в TON Connect. TON Connect действительно берет отображаемое имя приложения из manifest. 
+2. После нажатия «Подключить кошелёк» открывается старая связка MyTonWallet → @MyTonWalletBot, после чего Telegram сообщает, что бот не существует. Это уже похоже не на название dApp, а на старый universal/deep link или запись MyTonWallet в конфигурации TON Connect. В TON Connect universal link и bridge берутся из конфигурации конкретного wallet. 
+Вот готовое задание агенту — можешь отправить как есть:
+
+
+⸻
+
+
+Задача: полностью исправить TON Connect / MyGramWallet
+Проверь текущую реализацию подключения TON Wallet и исправь следующие проблемы. Не переписывай существующую архитектуру и не меняй код, который не относится к этой задаче.
+1. Название приложения
+Сейчас в окне подключения TON Connect вместо названия приложения отображается:
+mytonwallet-kazercx.replit.app
+Нужно, чтобы пользователю отображалось:
+MyGramWallet.ton
+Проверь:
+tonconnect-manifest.json
+name
+url
+iconUrl
+• manifestUrl, который передается в TonConnectUIProvider / TonConnectUI
+• все места, где создается TON Connect instance
+• нет ли старого manifest URL
+• нет ли кеширования старого manifest
+• нет ли второго/дублирующего manifest в проекте.
+Важно: название должно быть именно MyGramWallet.ton, а не URL домена.
+При этом не ломай существующий домен приложения и другие API.
+2. Главная проблема — после «Подключить кошелёк» открывается старый MyTonWallet
+На скриншотах видно следующий неправильный flow:
+MyGramWallet → «Подключить кошелёк» → браузер → старая версия MyTonWallet → @MyTonWalletBot → «такого бота не существует».
+Нужно найти, откуда именно берется этот старый MyTonWallet link.
+Проверь:
+universalLink
+deepLink
+bridgeUrl
+• wallet registry / wallets-v2.json
+• TON Connect wallet discovery
+• сохраненные wallet-конфигурации
+• hardcoded mytonwallet
+MyTonWallet
+MyTonWalletBot
+• старые t.me ссылки
+• старые connect.mytonwallet... ссылки
+• старые mytonwallet domains
+returnStrategy
+• любые redirect/deep-link URL
+• все переменные окружения, связанные с TON Connect.
+Особенно важно: не просто заменить строку MyTonWallet на MyGramWallet. Нужно определить, какая конкретно конфигурация заставляет TON Connect открывать старый MyTonWallet universal/deep link.
+3. Проверить правильную TON Connect конфигурацию
+Сверь реализацию с официальной документацией TON Connect.
+Manifest должен быть публично доступен по HTTPS, а TON Connect должен использовать актуальный manifestUrl. Официальная документация указывает, что manifest содержит url, name и iconUrl, а wallet получает из него метаданные приложения. 
+Также проверь, что wallet connection использует актуальный universal link именно текущего MyGramWallet, а не старую конфигурацию MyTonWallet. В TON Connect universal link является частью wallet-конфигурации и используется для передачи connect-запроса wallet. 
+4. Проверить весь flow
+После исправлений протестировать именно такой сценарий:
+Telegram Mini App → Connect Wallet → MyGramWallet → подтверждение → возврат обратно в приложение → адрес кошелька появляется в кабинете.
+Не должно быть:
+• открытия старого MyTonWallet;
+• перехода на @MyTonWalletBot;
+• ошибки «бот не существует»;
+• отображения mytonwallet-kazercx.replit.app вместо MyGramWallet.ton;
+• возврата на старую версию приложения;
+• зависания после подтверждения.
+5. Важное ограничение
+Не менять Ethereum/WalletConnect/Reown интеграцию.
+Не менять API.
+Не менять платежную логику.
+Не менять домены parsing/rates API.
+Работать только с TON Connect / manifest / wallet discovery / universal links / deep links / брендингом, которые непосредственно вызывают описанную проблему.
+В конце дай мне отчет:
+1. Где находилась причина.
+2. Какой старый URL/конфигурация вызывал MyTonWallet.
+3. Что конкретно изменено.
+4. Какой теперь manifestUrl.
+5. Какое теперь значение name.
+6.

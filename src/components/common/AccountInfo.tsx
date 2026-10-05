@@ -1,0 +1,122 @@
+import React, { memo } from '../../lib/teact/teact';
+import { withGlobal } from '../../global';
+
+import type { ApiChain, ApiNft } from '../../api/types';
+import type { Account } from '../../global/types';
+import type { AccountBalance } from '../../hooks/useAccountsBalances';
+
+import {
+  selectAccountSettings,
+  selectCurrentAccount,
+  selectCurrentAccountChainDisplay,
+  selectCurrentAccountId,
+} from '../../global/selectors';
+import buildClassName from '../../util/buildClassName';
+import { getOrderedAccountChains } from '../../util/chain';
+import { getTelegramAvatarUrlFromDomain } from '../../util/dns';
+import { formatAccountAddresses } from '../../util/formatAccountAddress';
+import { formatCurrency } from '../../util/formatNumber';
+import isViewAccount from '../../util/isViewAccount';
+import { getPlatformByChain, usePlatformAccount } from '../../platform/accountStore';
+
+import CustomCardPreview from '../main/modals/accountSelector/CustomCardPreview';
+import SensitiveData from '../ui/SensitiveData';
+import WalletAvatar from '../ui/WalletAvatar';
+
+import styles from './AccountInfo.module.scss';
+
+interface StateProps {
+  currentAccount?: Account;
+  currentAccountId?: string;
+  visibleChains?: ApiChain[];
+  cardBackgroundNft?: ApiNft;
+  isSensitiveDataHidden?: boolean;
+  isTestnet?: boolean;
+  avatarUrl?: string;
+}
+
+interface OwnProps {
+  balanceData?: AccountBalance;
+}
+
+function AccountInfo({
+  currentAccount,
+  currentAccountId,
+  visibleChains,
+  cardBackgroundNft,
+  isSensitiveDataHidden,
+  isTestnet,
+  avatarUrl,
+  balanceData,
+}: StateProps & OwnProps) {
+  usePlatformAccount();
+  if (!currentAccount) return;
+
+  const isHardware = currentAccount.type === 'hardware';
+  const isView = isViewAccount(currentAccount.type);
+  const platformByChain = getPlatformByChain(currentAccount.byChain, Boolean(isTestnet));
+  const formattedAddress = formatAccountAddresses(
+    platformByChain,
+    visibleChains ?? getOrderedAccountChains(platformByChain),
+  );
+
+  return (
+    <div className={styles.info}>
+      <WalletAvatar
+        title={currentAccount.title}
+        accountId={currentAccountId}
+        className={styles.avatar}
+        imageUrl={avatarUrl}
+      />
+
+      <div className={styles.titleRow}>
+        <span className={styles.title}>{currentAccount.title}</span>
+
+        {balanceData && (
+          <SensitiveData
+            isActive={isSensitiveDataHidden}
+            rows={2}
+            min={5}
+            max={10}
+            seed={currentAccount.title || ''}
+            cellSize={8}
+            align="right"
+          >
+            <div className={buildClassName(styles.balance, 'rounded-font')}>
+              {formatCurrency(balanceData.value, balanceData.currencySymbol)}
+            </div>
+          </SensitiveData>
+        )}
+
+        {cardBackgroundNft && (
+          <CustomCardPreview nft={cardBackgroundNft} className={styles.nftIndicator} />
+        )}
+      </div>
+
+      <div className={styles.address}>
+        {isTestnet && <i className={buildClassName(styles.icon, 'icon-testnet')} aria-hidden />}
+        {isHardware && <i className={buildClassName(styles.icon, 'icon-ledger')} aria-hidden />}
+        {isView && <i className={buildClassName(styles.icon, 'icon-eye-filled')} aria-hidden />}
+        {formattedAddress}
+      </div>
+    </div>
+  );
+}
+
+export default memo(withGlobal((global): StateProps => {
+  const currentAccount = selectCurrentAccount(global);
+  const currentAccountId = selectCurrentAccountId(global);
+  const accountSettings = selectAccountSettings(global, currentAccountId!);
+
+  const { isSensitiveDataHidden, isTestnet } = global.settings;
+
+  return {
+    currentAccount,
+    currentAccountId,
+    visibleChains: selectCurrentAccountChainDisplay(global)?.addressLineChains,
+    cardBackgroundNft: accountSettings?.cardBackgroundNft,
+    isSensitiveDataHidden,
+    isTestnet,
+    avatarUrl: getTelegramAvatarUrlFromDomain(currentAccount?.byChain.ton?.domain),
+  };
+})(AccountInfo));

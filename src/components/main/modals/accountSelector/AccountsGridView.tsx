@@ -1,0 +1,125 @@
+import React, { memo, useEffect, useRef } from '../../../../lib/teact/teact';
+
+import type { ApiChain } from '../../../../api/types';
+import type { Account, AccountSettings, AccountType } from '../../../../global/types';
+import type { AccountTab } from './constants';
+
+import buildClassName from '../../../../util/buildClassName';
+
+import Transition from '../../../ui/Transition';
+import AccountsEmptyState from './AccountsEmptyState';
+import AccountWalletCard from './AccountWalletCard';
+
+import styles from './AccountSelectorModal.module.scss';
+
+interface OwnProps {
+  isActive: boolean;
+  isTestnet?: boolean;
+  filteredAccounts: Array<[string, Account]>;
+  activeTab: AccountTab;
+  balancesByAccountId: Record<string, { wholePart: string; fractionPart?: string; currencySymbol: string }>;
+  settingsByAccountId?: Record<string, AccountSettings>;
+  addressLineChainsByAccountId?: Record<string, ApiChain[]>;
+  currentAccountId: string;
+  isSensitiveDataHidden?: true;
+  onSwitchAccount: (accountId: string) => void;
+  onRename: (accountId: string) => void;
+  onReorder: NoneToVoidFunction;
+  onLogOut: (accountId: string) => void;
+  onScroll: (e: React.UIEvent<HTMLElement>) => void;
+  onScrollInitialize: (scrollContainer: HTMLDivElement) => void;
+}
+
+function AccountsGridView({
+  isActive,
+  isTestnet,
+  filteredAccounts,
+  activeTab,
+  balancesByAccountId,
+  settingsByAccountId,
+  addressLineChainsByAccountId,
+  currentAccountId,
+  isSensitiveDataHidden,
+  onSwitchAccount,
+  onRename,
+  onReorder,
+  onLogOut,
+  onScroll,
+  onScrollInitialize,
+}: OwnProps) {
+  const ref = useRef<HTMLDivElement>();
+
+  useEffect(() => {
+    if (isActive && ref.current?.parentElement) {
+      onScrollInitialize(ref.current.parentElement as HTMLDivElement);
+    }
+  }, [isActive, activeTab, onScrollInitialize]);
+
+  function renderCard(
+    accountId: string,
+    byChain: Account['byChain'],
+    accountType: AccountType,
+    title?: string,
+    isRecoveryRequired?: true,
+  ) {
+    const { cardBackgroundNft } = settingsByAccountId?.[accountId] || {};
+    const isActive = accountId === currentAccountId;
+    const balanceData = balancesByAccountId[accountId];
+
+    return (
+      <AccountWalletCard
+        key={accountId}
+        isTestnet={isTestnet}
+        accountId={accountId}
+        byChain={byChain}
+        visibleChains={addressLineChainsByAccountId?.[accountId]}
+        accountType={accountType}
+        isActive={isActive}
+        title={title}
+        isRecoveryRequired={isRecoveryRequired}
+        balanceData={balanceData}
+        cardBackgroundNft={cardBackgroundNft}
+        withContextMenu
+        isSensitiveDataHidden={isSensitiveDataHidden}
+        onClick={onSwitchAccount}
+        onRename={onRename}
+        onReorder={onReorder}
+        onLogOut={onLogOut}
+      />
+    );
+  }
+
+  return (
+    <Transition
+      shouldWrap
+      isScrollOnWrap
+      activeKey={activeTab}
+      name="semiFade"
+      className={styles.accountsContainer}
+      slideClassName={buildClassName(styles.contentSlide, 'custom-scroll')}
+      onScroll={onScroll}
+    >
+      {filteredAccounts.length === 0 ? (
+        <AccountsEmptyState ref={ref} isActive={isActive} tab={activeTab} />
+      ) : (
+        <div
+          ref={ref}
+          className={buildClassName(styles.gridContainer, styles.container)}
+        >
+          {filteredAccounts.map(
+            ([accountId, {
+              title,
+              byChain,
+              type,
+              isRecoveryRequired,
+            }]) => {
+              return renderCard(accountId, byChain, type, title, isRecoveryRequired);
+            },
+          )}
+        </div>
+      )}
+    </Transition>
+  );
+}
+
+export default memo(AccountsGridView);

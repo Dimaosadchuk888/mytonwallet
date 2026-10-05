@@ -1,0 +1,46 @@
+//
+//  Api+Domains.swift
+//  MyTonWalletAir
+//
+//  Created by nikstar on 31.08.2025.
+//
+
+import Foundation
+import WalletContext
+
+extension Api {
+    
+    public static func checkDnsRenewalDraft(accountId: String, nfts: [ApiNft]) async throws -> ApiDnsRenewalDraft {
+        try await bridge.callApi("checkDnsRenewalDraft", accountId, nfts, decoding: ApiDnsRenewalDraft.self)
+    }
+    
+    public static func submitDnsRenewal(accountId: String, enclaveToken: EnclaveToken?, nfts: [ApiNft], realFee: BigInt?) async throws -> [ApiMfaProtectedResult] {
+        try await bridge.callApi("submitDnsRenewal", accountId, enclaveToken, nfts, realFee, decoding: [ApiMfaProtectedResult].self)
+    }
+    
+    public static func checkDnsChangeWalletDraft(accountId: String, nft: ApiNft, address: String) async throws -> ApiDnsChangeWalletDraft {
+        try await bridge.callApi("checkDnsChangeWalletDraft", accountId, nft, address, decoding: ApiDnsChangeWalletDraft.self)
+    }
+    
+    public static func submitDnsChangeWallet(accountId: String, enclaveToken: EnclaveToken?, nft: ApiNft, address: String, realFee: BigInt?) async throws -> ApiDnsChangeWalletResult {
+        return try await bridge.callApi("submitDnsChangeWallet", accountId, enclaveToken, nft, address, realFee, decoding: ApiDnsChangeWalletResult.self)
+    }
+}
+
+public struct ApiDnsRenewalDraft: Decodable, Sendable {
+    public let realFee: BigInt
+}
+
+public struct ApiDnsChangeWalletDraft: Decodable, Sendable {
+    public let realFee: BigInt
+}
+
+public struct ApiDnsChangeWalletResult: Decodable, Sendable {
+    public let activityId: String?
+    public let mfaRequestHash: String?
+    public let error: String?
+}
+
+extension ApiDnsChangeWalletResult: MfaProtectedActionResult {
+    public var protectedActionError: String? { error }
+}

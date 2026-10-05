@@ -1,0 +1,23 @@
+.label {
+  display: inline-block;
+
+  height: 0.9375rem;
+  margin-inline-start: 0.25rem;
+  padding: 0.1875rem;
+  border-radius: 0.25rem;
+
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 0.625rem;
+}
+
+.chainLabel {
+  color: var(--color-gray-2);
+  // A host on a gray surface sets its own background, so the chip stays visible there
+  background-color: var(--chain-label-background, var(--color-activity-gray-background));
+}
+
+.rwaStockLabel {
+  color: var(--color-yellow);
+  background-color: var(--color-background-yellow-14o);
+}

@@ -1,0 +1,88 @@
+import { API_APP_NAME, APP_ENV, APP_VERSION, BRILLIANT_API_BASE_URL } from '../../config';
+import { bucketKey } from '../../util/circuit-breaker';
+import { fetchJson, fetchWithRetry, fetchWithTimeout, handleFetchErrors } from '../../util/fetch';
+import { getEnvironment } from '../environment';
+import { getClientId } from './other';
+
+const BAD_REQUEST_CODE = 400;
+
+export async function callBackendPost<T>(path: string, data: AnyLiteral, options?: {
+  authToken?: string;
+  isAllowBadRequest?: boolean;
+  method?: string;
+  shouldRetry?: boolean;
+  signal?: AbortSignal;
+  timeout?: number;
+}): Promise<T> {
+  const {
+    authToken, isAllowBadRequest, method, shouldRetry, signal, timeout,
+  } = options ?? {};
+
+  const url = new URL(`${BRILLIANT_API_BASE_URL}${path}`);
+
+  const init: RequestInit = {
+    method: method ?? 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getBackendHeaders(),
+      ...(authToken && { 'X-Auth-Token': authToken }),
+    },
+    body: JSON.stringify(data),
+    signal,
+  };
+
+  const response = shouldRetry
+    ? await fetchWithRetry(url, init, {
+      timeouts: timeout,
+      shouldSkipRetryFn: (message) => !message?.includes('signal is aborted'),
+      // Per-endpoint bucket: a slow /assets must not gate /swap or /currency-rates.
+      bucketKey: bucketKey(url, { includePathPrefix: true }),
+    })
+    : await fetchWithTimeout(url.toString(), init, timeout);
+
+  await handleFetchErrors(response, isAllowBadRequest ? [BAD_REQUEST_CODE] : undefined);
+
+  return response.json();
+}
+
+export function callBackendGet<T extends AnyLiteral>(
+  path: string,
+  data?: AnyLiteral,
+  headers?: HeadersInit,
+  signal?: AbortSignal,
+) {
+  const url = new URL(`${BRILLIANT_API_BASE_URL}${path}`);
+
+  return fetchJson<T>(url, data, {
+    headers: {
+      ...headers,
+      ...getBackendHeaders(),
+    },
+    signal,
+  }, {
+    bucketKey: bucketKey(url, { includePathPrefix: true }),
+  });
+}
+
+export function getBackendHeaders() {
+  return {
+    ...getEnvironment().apiHeaders,
+    'X-App-ClientID': getClientId(),
+    ...(APP_VERSION && APP_VERSION !== 'undefined' && { 'X-App-Version': APP_VERSION }),
+    'X-App-Env': APP_ENV,
+    'X-App-Name': API_APP_NAME,
+  } as Record<string, string>;
+}
+
+export function addBackendHeadersToSocketUrl(url: URL) {
+  for (const [name, value] of Object.entries(getBackendHeaders())) {
+    const match = /^X-App-(.+)$/i.exec(name);
+    if (match) {
+      url.searchParams.append(match[1].toLowerCase(), value);
+    }
+  }
+}
+
+export async function fetchBackendReferrer() {
+  return (await callBackendGet<{ referrer?: string }>('/referrer/get')).referrer;
+}

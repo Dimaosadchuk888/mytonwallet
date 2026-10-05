@@ -1,0 +1,157 @@
+@use "../../../../styles/mixins";
+
+.emptyList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  height: 100%;
+  padding-top: 1.875rem;
+  padding-bottom: 2rem;
+
+  color: var(--color-gray-2);
+
+  @include mixins.respond-above(xs) {
+    justify-content: center;
+    border-radius: var(--border-radius-default);
+    background: var(--color-background-first);
+  }
+}
+
+.emptyListTitle {
+  margin: 1.25rem 0 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-black);
+}
+
+.emptyListButton {
+  margin-top: 0.75rem;
+}
+
+.emptyListLoading {
+  padding-top: 8rem;
+
+  @include mixins.respond-above(xs) {
+    padding-bottom: 8rem;
+  }
+}
+
+.greeting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  height: 100%;
+  padding: 2rem 0;
+  border-radius: var(--border-radius-default);
+
+  background: var(--color-background-first);
+}
+
+.sticker {
+  width: 9.75rem;
+  height: 9.75rem;
+}
+
+.loaderThreshold {
+  pointer-events: none;
+
+  position: absolute;
+  bottom: min(100%, 40rem);
+
+  width: 0;
+  height: 0;
+}
+
+.itemLoading {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 1rem;
+}
+
+.date {
+  --color-dot: var(--color-activity-gray-text);
+
+  width: max-content;
+  margin: 0.25rem auto;
+  padding: 0.25rem 0.5625rem;
+  border-radius: var(--border-radius-default);
+
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.125rem;
+  color: var(--color-activity-gray-text);
+
+  background-color: var(--color-activity-gray-background);
+
+  @include mixins.is-mobile() {
+    font-size: 0.8125rem;
+  }
+
+  &_withLoadingDots {
+    position: relative;
+    padding-inline-end: 2.5rem;
+  }
+}
+
+.loadingDots {
+  position: absolute;
+  top: 50%;
+  inset-inline-end: 0;
+  transform: translateY(-50%) scale(0.6);
+}
+
+.dateContainer {
+  display: flex;
+  align-items: center;
+  height: 1.625rem;
+  margin: 0.75rem auto 0.25rem;
+
+  @include mixins.respond-above(xs) {
+    margin-top: 0;
+  }
+}
+
+.dateSlide {
+  position: absolute;
+  inset-inline: 0;
+
+  & > .date {
+    margin: 0 auto !important;
+  }
+}
+
+.listItem {
+  position: absolute;
+  width: 100%;
+  text-align: center;
+}
+
+.listGroup {
+  overflow-anchor: auto;
+
+  overflow-y: scroll;
+
+  width: 100%;
+  height: 100%;
+  padding-top: 1rem;
+  border-radius: var(--border-radius-default);
+
+  background-color: var(--color-background-first);
+}
+
+.listGroupExternalScroll {
+  overflow: visible;
+  height: auto;
+  min-height: 100%;
+}
+
+.animateOpacity {
+  @include mixins.transition('opacity 200ms ease-out');
+}
+
+.animateTransform {
+  @include mixins.transition('transform 200ms ease-out');
+}

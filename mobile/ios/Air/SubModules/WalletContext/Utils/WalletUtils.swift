@@ -1,0 +1,536 @@
+//
+//  WalletUtils.swift
+//  WalletContext
+//
+//  Created by Sina on 3/20/24.
+//
+
+import Foundation
+import UIKit
+
+public let TON_CHAIN = "ton"
+public let TRON_CHAIN = "tron"
+public let SOLANA_CHAIN = "solana"
+public let ETHEREUM_CHAIN = "ethereum"
+public let BASE_CHAIN = "base"
+public let BNB_CHAIN = "bnb"
+public let POLYGON_CHAIN = "polygon"
+public let ARBITRUM_CHAIN = "arbitrum"
+public let MONAD_CHAIN = "monad"
+public let AVALANCHE_CHAIN = "avalanche"
+public let HYPERLIQUID_CHAIN = "hyperliquid"
+public let ROBINHOOD_CHAIN = "robinhood"
+
+public let TONCOIN_SLUG = "toncoin"
+public let TON_USDT_SLUG = "ton-eqcxe6mutq"
+public let TON_USDT_TESTNET_SLUG = "ton-kqd0gkbm8z"
+public let TRX_SLUG = "trx"
+public let TRON_USDT_SLUG = "tron-tr7nhqjekq"
+public let TRON_USDT_TESTNET_SLUG = "tron-tg3xxyexbk"
+public let SOLANA_SLUG = "sol"
+public let SOLANA_USDT_MAINNET_SLUG = "solana-es9vmfrzac"
+public let SOLANA_USDC_MAINNET_SLUG = "solana-epjfwdd5au"
+public let ETH_SLUG = "eth"
+public let ETH_USDT_MAINNET_SLUG = "ethereum-0xdac17f95"
+public let ETH_USDC_MAINNET_SLUG = "ethereum-0xa0b86991"
+public let BASE_SLUG = "base"
+public let BASE_USDT_MAINNET_SLUG = "base-0xfde4c96c"
+public let BASE_USDC_MAINNET_SLUG = "base-0x833589fc"
+public let BNB_SLUG = "bnb"
+public let BSC_USDT_MAINNET_SLUG = "bnb-0x55d39832"
+public let POLYGON_SLUG = "pol"
+public let ARBITRUM_SLUG = "arb"
+public let MONAD_SLUG = "mon"
+public let AVALANCHE_SLUG = "ava"
+public let AVALANCHE_USDT_MAINNET_SLUG = "avalanche-0x9702230a"
+public let HYPERLIQUID_SLUG = "hyperliquid"
+public let HYPERLIQUID_USDC_MAINNET_SLUG = "hyperliquid-0xb88339cb"
+public let ROBINHOOD_SLUG = "robinhood"
+public let MYCOIN_SLUG = "ton-eqcfvnlrbn"
+public let STAKED_TON_SLUG = "ton-eqcqc6ehrj"
+public let STAKED_MYCOIN_SLUG = "ton-eqcbzvsfwq"
+public let TON_USDE_SLUG = "ton-eqaib6kmdf"
+public let TON_TSUSDE_SLUG = "ton-eqdq5uuyph"
+
+public let DIESEL_TOKENS = [
+    "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT", // NOT
+    "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs", // USDT
+    "EQCvxJy4eG8hyHBFsZ7eePxrRsUQSFE_jpptRAYBmcG_DOGS", // DOGS
+    "EQD-cvR0Nz6XAyRBvbhz-abTrRC6sI5tvHvvpeQraV9UAAD7", // CATI
+    "EQAJ8uWd7EBqsmpSWaRdf_I-8R8-XHwh3gsNKhy-UrdrPcUo", // HAMSTER
+]
+
+fileprivate let decimalSeparator = "."
+public let signSpace = "\u{2009}"
+fileprivate let thousandSpace: Character = " "
+private let subscriptDigits = ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"]
+
+public let walletAddressLength: Int = 48
+public let walletTextLimit: Int = 120
+
+public let supportedTonConnectVersion = 2
+
+public var appName: String { APP_NAME }
+public let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+
+public func formatStartEndAddress(_ address: String, prefix: Int = 6, suffix: Int = 6, separator: String = "···") -> String {
+    if address.count < prefix + suffix + 3 {
+        return address
+    }
+    return "\(address.prefix(prefix))\(separator)\(address.suffix(suffix))"
+}
+
+public func formatAddressAttributed(
+    _ address: String,
+    startEnd: Bool,
+    primaryFont: UIFont? = nil,
+    secondaryFont: UIFont? = nil,
+    primaryColor: UIColor? = nil,
+    secondaryColor: UIColor? = nil,
+    kerning: CGFloat? = nil
+) -> NSAttributedString {
+    let prefix = 6
+    let suffix = 6
+
+    let string = startEnd ? formatStartEndAddress(address, prefix: prefix, suffix: suffix) : address
+    let len = (string as NSString).length
+    let at = NSMutableAttributedString(string: string)
+    if startEnd, len > prefix + suffix + 1 {
+
+        let primaryFont = primaryFont ?? UIFont.systemFont(ofSize: 17, weight: .regular)
+        let secondaryFont = secondaryFont ?? UIFont.systemFont(ofSize: 17, weight: .regular)
+        let primaryColor = primaryColor ?? UIColor.label
+        let secondaryColor = secondaryColor ?? primaryColor
+
+        at.addAttributes([
+            .font: primaryFont,
+            .foregroundColor: primaryColor,
+        ], range: NSRange(location: 0, length: prefix))
+        at.addAttributes([
+            .font: secondaryFont,
+            .foregroundColor: secondaryColor,
+        ], range: NSRange(location: prefix, length: len - suffix - prefix))
+        at.addAttributes([
+            .font: primaryFont,
+            .foregroundColor: primaryColor,
+        ], range: NSRange(location: len - suffix, length: suffix))
+
+    } else {
+
+        let primaryFont = primaryFont ?? UIFont.systemFont(ofSize: 17, weight: .regular)
+        let secondaryFont = secondaryFont ?? primaryFont
+        let primaryColor = primaryColor ?? UIColor.label
+        let secondaryColor = secondaryColor ?? .air.secondaryLabel
+
+        if len > 25 {
+            at.addAttributes([
+                .font: primaryFont,
+                .foregroundColor: primaryColor,
+            ], range: NSRange(location: 0, length: prefix))
+            at.addAttributes([
+                .font: secondaryFont,
+                .foregroundColor: secondaryColor,
+            ], range: NSRange(location: prefix, length: len-prefix-suffix))
+            at.addAttributes([
+                .font: primaryFont,
+                .foregroundColor: primaryColor,
+            ], range: NSRange(location: len-suffix, length: suffix))
+            
+            // insert zero-width spaces to fix line breaking
+            let zws = NSAttributedString(string: "\u{200B}")
+            for idx in (1..<len).reversed() {
+                at.insert(zws, at: idx)
+            }
+        } else {
+            at.addAttributes([
+                .font: primaryFont,
+                .foregroundColor: primaryColor,
+            ], range: NSRange(location: 0, length: len))
+        }
+    }
+
+    if let kerning {
+        at.addAttributes([
+            .kern: kerning
+        ], range: NSRange(location: 0, length: len))
+    }
+
+    return at
+}
+
+fileprivate func insertGroupingSeparator(in string: String, separator: Character = thousandSpace, every nthPosition: Int = 3) -> String {
+    var result = ""
+    var count = 0
+    var hasDot = string.contains(".")
+
+    for char in string.reversed() {
+        if hasDot {
+            result.insert(char, at: result.startIndex)
+            if char == "." {
+                hasDot = false
+            }
+            continue
+        }
+        if count != 0 && count % nthPosition == 0 {
+            result.insert(separator, at: result.startIndex)
+        }
+        result.insert(char, at: result.startIndex)
+        count += 1
+    }
+
+    return result
+}
+
+public func integerPart(_ value: BigInt, tokenDecimals: Int) -> BigInt {
+    var balanceText = "\(abs(value))"
+    while balanceText.count < tokenDecimals + 1 {
+        balanceText.insert("0", at: balanceText.startIndex)
+    }
+    balanceText.insert(contentsOf: decimalSeparator, at: balanceText.index(balanceText.endIndex, offsetBy: -tokenDecimals))
+    let parts = balanceText.components(separatedBy: decimalSeparator)
+    let integerPart = parts[0]
+    return BigInt(integerPart) ?? 0
+}
+
+// format amount into string with separator
+public func formatBigIntText(_ value: BigInt,
+                            currency: String? = nil,
+                            negativeSign: Bool = false,
+                            positiveSign: Bool = false,
+                            tokenDecimals: Int,
+                            decimalsCount: Int? = nil,
+                            minimumFractionDigits: Int? = nil,
+                            forceCurrencyToRight: Bool = false,
+                            roundHalfUp: Bool = true,
+                            isShortened: Bool = false,
+                            zeroCountSubscriptMinCount: Int? = nil) -> String {
+    
+    // Try shorten first. Note that rounding must not be applied here, this is a truncation process.
+    var shortenedResult: String?
+    if isShortened {
+        let absDoubleValue = abs(Double(value) / pow(Double(10), Double(tokenDecimals)))
+        if LocalizationSupport.shared.isChinese {
+            if absDoubleValue >= 10_000 {
+                shortenedResult = formatShortenedDouble(absDoubleValue, kThreshold: 10_000, mThreshold: 100_000_000)
+            }
+        } else {
+            if absDoubleValue >= 1_000 {
+                shortenedResult = formatShortenedDouble(absDoubleValue, kThreshold: 1_000, mThreshold: 1_000_000)
+            }
+        }
+    }
+    
+    var result = shortenedResult ?? insertGroupingSeparator(
+        in: applyZeroCountSubscript(
+            to: formatClassicBigIntText(
+                value,
+                tokenDecimals: tokenDecimals,
+                decimalsCount: decimalsCount,
+                minimumFractionDigits: minimumFractionDigits,
+                roundHalfUp: roundHalfUp
+            ),
+            minZeroCount: zeroCountSubscriptMinCount
+        )
+    )
+
+    if let currency, currency.count > 0 {
+        if currency.count > 1 || forceCurrencyToRight || currency == "₽" {
+            result = "\(result) \(currency)"
+        } else {
+            result = "\(currency)\(result)"
+        }
+    }
+
+    if value < 0, negativeSign {
+        result.insert(contentsOf: "-\(signSpace)", at: result.startIndex)
+    } else if value >= 0, positiveSign {
+        result.insert(contentsOf: "+\(signSpace)", at: result.startIndex)
+    }
+    return result
+}
+
+private func applyZeroCountSubscript(to value: String, minZeroCount: Int?) -> String {
+    guard let minZeroCount, minZeroCount > 0, value.hasPrefix("0.") else {
+        return value
+    }
+
+    var zeroCount = 0
+    var index = value.index(value.startIndex, offsetBy: 2)
+    while index < value.endIndex, value[index] == "0" {
+        zeroCount += 1
+        index = value.index(after: index)
+    }
+
+    guard zeroCount >= minZeroCount, index < value.endIndex else {
+        return value
+    }
+
+    return "0.0\(subscriptString(zeroCount))\(value[index...])"
+}
+
+private func subscriptString(_ value: Int) -> String {
+    String(value).compactMap { digit -> String? in
+        digit.wholeNumberValue.map { subscriptDigits[$0] }
+    }.joined()
+}
+
+private func formatClassicBigIntText(_ value: BigInt, tokenDecimals: Int, decimalsCount: Int?, minimumFractionDigits: Int?, roundHalfUp: Bool) -> String {
+    let rounded: BigInt = if let decimalsCount {
+        value.rounded(digitsToRound: tokenDecimals - decimalsCount, roundHalfUp: roundHalfUp)
+    } else {
+        value
+    }
+    let requestedMinimumFractionDigits = max(minimumFractionDigits ?? 0, 0)
+    let maxFractionDigits = max(decimalsCount ?? tokenDecimals, 0)
+    let availableFractionDigits = max(tokenDecimals, 0)
+    let minimumFractionDigits = min(requestedMinimumFractionDigits, min(maxFractionDigits, availableFractionDigits))
+    
+    var result = "\(abs(rounded))"
+    while result.count < tokenDecimals + 1 {
+        result.insert("0", at: result.startIndex)
+    }
+    result.insert(contentsOf: decimalSeparator, at: result.index(result.endIndex, offsetBy: -tokenDecimals))
+    while result.hasSuffix("0"), fractionDigitCount(in: result) > minimumFractionDigits {
+        result.removeLast()
+    }
+    if result.hasSuffix(decimalSeparator) {
+        result.removeLast()
+    }
+    return result
+}
+
+private func fractionDigitCount(in value: String) -> Int {
+    guard let separatorRange = value.range(of: decimalSeparator) else {
+        return 0
+    }
+    return value.distance(from: separatorRange.upperBound, to: value.endIndex)
+}
+
+private func formatShortenedDouble(_ v: Double,  kThreshold: Double, mThreshold: Double) -> String {
+    assert(v >= 0 && kThreshold > 0 && mThreshold > 0)
+    
+    func formatValue(_ x: Double) -> String {
+        let frac = Int((x - floor(x)) * 10)
+        let s = frac > 0 ? "\(Int(x)).\(frac)" : "\(Int(x))"
+        return insertGroupingSeparator(in: s)
+    }
+        
+    if v < kThreshold { return formatValue(v) }
+    if v < mThreshold { return L10n.amountK(amount: formatValue(v / kThreshold)) }
+    return L10n.amountM(amount: formatValue(v / mThreshold))
+}
+
+/// Expects value 0...1 (0.42 -> 42%)
+public func formatPercent(_ value: Double, decimals: Int = 2, showPlus: Bool = true, showMinus: Bool = true) -> String {
+    let value = (value * 100).rounded(decimals: decimals)
+    let absoluteValue = abs(value)
+    let text = if decimals == 0, absoluteValue.isFinite {
+        "\(Int(absoluteValue))"
+    } else {
+        "\(absoluteValue)"
+    }
+    return if showPlus && value > 0 {
+        "+\(signSpace)\(text)%"
+    } else if showMinus && value < 0 {
+        "-\(signSpace)\(text)%"
+    } else {
+        "\(text)%"
+    }
+}
+
+// timestamp into string
+public func stringForTimestamp(timestamp: Int32, local: Bool = true) -> String {
+    var t = Int(timestamp)
+    var timeinfo = tm()
+    if local {
+        localtime_r(&t, &timeinfo)
+    } else {
+        gmtime_r(&t, &timeinfo)
+    }
+
+    return stringForShortTimestamp(hours: timeinfo.tm_hour, minutes: timeinfo.tm_min)
+}
+
+public func stringForShortTimestamp(hours: Int32, minutes: Int32) -> String {
+    let hourString: String = hours < 10 ? "0\(hours)" : "\(hours)"
+    if minutes >= 10 {
+        return "\(hourString):\(minutes)"// \(periodString)"
+    } else {
+        return "\(hourString):0\(minutes)"// \(periodString)"
+    }
+}
+
+public func normalizeAmountInput(_ string: String, preserveTrailingSeparator: Bool = false) -> String {
+    let string = string
+        .normalizeArabicPersianNumeralStringToWestern()
+        .replacingOccurrences(of: " ", with: "")
+        .replacingOccurrences(of: "\u{00A0}", with: "")
+        .replacingOccurrences(of: "\u{202F}", with: "")
+        .replacingOccurrences(of: "\u{2009}", with: "")
+        .replacingOccurrences(of: "'", with: "")
+        .replacingOccurrences(of: "’", with: "")
+
+    guard let separatorIndex = string.lastIndex(where: { $0 == "." || $0 == "," }) else {
+        return String(string.filter(\.isWholeNumber))
+    }
+
+    let integralPart = String(string[..<separatorIndex].filter(\.isWholeNumber))
+    let fractionalPart = String(string[string.index(after: separatorIndex)...].filter(\.isWholeNumber))
+    let normalizedIntegralPart = integralPart.isEmpty ? "0" : integralPart
+
+    if fractionalPart.isEmpty {
+        return preserveTrailingSeparator ? normalizedIntegralPart + "." : normalizedIntegralPart
+    }
+
+    return normalizedIntegralPart + "." + fractionalPart
+}
+
+public func amountValue(_ string: String, digits: Int) -> BigInt {
+    normalizedAmountValue(normalizeAmountInput(string), digits: digits)
+}
+
+public func normalizedAmountValue(_ string: String, digits: Int) -> BigInt {
+    if let range = string.range(of: ".") {
+        let integralPart = String(string[..<range.lowerBound])
+        let fractionalPart = String(string[range.upperBound...])
+        let string = integralPart + "\(fractionalPart.prefix(digits))" + String(repeating: "0", count: max(0, digits - fractionalPart.count))
+        return BigInt(string) ?? 0
+    } else if let integral = BigInt(string) {
+        return integral * powI64(10, digits)
+    }
+    return 0
+}
+
+public func roundDecimals(_ amount: BigInt, decimals: Int, roundTo maxDecimals: Int) -> BigInt {
+    let m = powI64(10, max(decimals - maxDecimals, 1))
+    return amount - (amount % m)
+}
+
+// MARK: - Wallet URL Processor
+
+public struct TonTransferUrl {
+    public var address: String
+    public var amount: BigInt?
+    public var comment: String?
+    public var token: String?
+    public var bin: String?
+    public var jetton: String?
+    public var stateInit: String?
+}
+
+private let invalidWalletAddressCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=").inverted
+private func isValidWalletAddress(_ address: String) -> Bool {
+    if address.count != 48 || address.rangeOfCharacter(from: invalidWalletAddressCharacters) != nil {
+        return false
+    }
+    return true
+}
+
+public func parseTonTransferUrl(_ url: URL) -> TonTransferUrl? {
+    guard (url.scheme == "ton" || url.scheme == SELF_PROTOCOL_SCHEME) && url.host == "transfer" else {
+        return nil
+    }
+    let updatedUrl = URL(string: url.absoluteString.replacingOccurrences(of: "+", with: "%20"), relativeTo: nil) ?? url
+
+    let address = updatedUrl.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    guard isValidWalletAddress(address) || DNSHelpers.isDnsDomain(address) else {
+        return nil
+    }
+    
+    var amount: BigInt?
+    var comment: String?
+    var token: String?
+    var bin: String?
+    var jetton: String?
+    var stateInit: String?
+    
+    if let query = updatedUrl.query, let components = URLComponents(string: "/?" + query), let queryItems = components.queryItems {
+        for queryItem in queryItems {
+            if let value = queryItem.value {
+                if queryItem.name == "amount", !value.isEmpty, let amountValue = BigInt(value) {
+                    amount = amountValue
+                } else if queryItem.name == "text", !value.isEmpty {
+                    comment = value
+                } else if queryItem.name == "token", !value.isEmpty {
+                    token = value
+                } else if queryItem.name == "bin", !value.isEmpty {
+                    bin = value
+                } else if queryItem.name == "jetton", !value.isEmpty {
+                    jetton = value
+                } else if queryItem.name == "init" || queryItem.name == "stateInit", !value.isEmpty {
+                    stateInit = value
+                }
+            }
+        }
+    }
+    return TonTransferUrl(address: address, amount: amount, comment: comment, token: token, bin: bin, jetton: jetton, stateInit: stateInit)
+}
+
+public func tokenDecimals(for amount: BigInt, tokenDecimals: Int, minimumSignificantDigits: Int = 2) -> Int {
+    let tokenDecimals = max(0, tokenDecimals)
+    guard tokenDecimals > 0 else { return 0 }
+
+    let amount = abs(amount)
+    guard amount > 0 else { return 0 }
+
+    let minimumSignificantDigits = max(1, minimumSignificantDigits)
+    let amountDigitCount = "\(amount)".count
+    let requiredDecimals = tokenDecimals + minimumSignificantDigits - amountDigitCount
+
+    return min(tokenDecimals, max(minimumSignificantDigits, requiredDecimals))
+}
+
+public func doubleToBigInt(_ doubleValue: Double, decimals: Int) -> BigInt {
+    return normalizedAmountValue(String(format: "%.20f", doubleValue), digits: decimals)
+}
+
+public func bigIntToDouble(amount: BigInt, decimals: Int) -> Double {
+    Double.init(amount) / pow(Double(10), Double(decimals))
+}
+
+public func bigIntToDoubleString(_ amount: BigInt, decimals: Int) -> String {
+    var s = String(amount)
+    while s.count < decimals { s = "0" + s }
+    if s.count > decimals {
+        s = s.prefix(s.count - decimals) + "." + s.suffix(decimals)
+    } else {
+        s = "0." + s
+    }
+    return s
+}
+
+extension Double {
+    public func rounded(decimals: Int) -> Double {
+        let m = pow(10.0, Double(decimals))
+        return (self * m).rounded() / m
+    }
+    
+    public func string(decimals: Int) -> String {
+        String(format: "%0\(decimals)f", self)
+    }
+}
+
+public func powI64(_ a: BigInt, _ b: Int) -> BigInt {
+    assert(b >= 0, "b must be >= 0")
+    let res: BigInt = {
+        var result: BigInt = 1
+        for _ in 0 ..< b {
+            result = result * a
+        }
+        return result
+    }()
+    return res
+}
+
+public func convertAmount(_ tokenAmount: BigInt, price: Double, tokenDecimals: Int, baseCurrencyDecimals: Int) -> BigInt {
+    tokenAmount * doubleToBigInt(price, decimals: baseCurrencyDecimals) / powI64(10, tokenDecimals)
+}
+
+public func convertAmountReverse(_ baseCurrencyAmount: BigInt, price: Double, tokenDecimals: Int, baseCurrencyDecimals: Int) -> BigInt {
+    baseCurrencyAmount * powI64(10, 9) / doubleToBigInt(price, decimals: 9) * powI64(10, tokenDecimals) / powI64(10, baseCurrencyDecimals)
+}
+
+public func convertDecimalsKeepingDoubleValue(_ amount: BigInt, fromDecimals: Int, toDecimals: Int) -> BigInt {
+    let delta = toDecimals - fromDecimals
+    return delta >= 0 ? amount * powI64(10, delta) : amount / powI64(10, -delta)
+}

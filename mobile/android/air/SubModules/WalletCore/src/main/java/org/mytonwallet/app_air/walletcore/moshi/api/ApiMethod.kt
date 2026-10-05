@@ -1,0 +1,1262 @@
+package org.mytonwallet.app_air.walletcore.moshi.api
+
+import com.squareup.moshi.JsonClass
+import com.squareup.moshi.Types
+import java.lang.reflect.Type
+import java.math.BigInteger
+import org.json.JSONArray
+import org.json.JSONObject
+import org.mytonwallet.app_air.walletcontext.models.MBlockchainNetwork
+import org.mytonwallet.app_air.walletcore.api.ArgumentsBuilder
+import org.mytonwallet.app_air.walletcore.models.AccountMfa
+import org.mytonwallet.app_air.walletcore.models.blockchain.MBlockchain
+import org.mytonwallet.app_air.walletcore.moshi.ApiAddAllFoundSubwalletsResult
+import org.mytonwallet.app_air.walletcore.moshi.ApiAddSubWalletResult
+import org.mytonwallet.app_air.walletcore.moshi.ApiCreateSubWalletResult
+import org.mytonwallet.app_air.walletcore.moshi.ApiDapp
+import org.mytonwallet.app_air.walletcore.moshi.ApiDappTransfer
+import org.mytonwallet.app_air.walletcore.moshi.ApiGroupedWalletVariant
+import org.mytonwallet.app_air.walletcore.moshi.ApiNft
+import org.mytonwallet.app_air.walletcore.moshi.ApiNotificationAddress
+import org.mytonwallet.app_air.walletcore.moshi.ApiSubWallet
+import org.mytonwallet.app_air.walletcore.moshi.ApiSubmitTransferResult
+import org.mytonwallet.app_air.walletcore.moshi.ApiSubmitTransfersResult
+import org.mytonwallet.app_air.walletcore.moshi.ApiTonConnectProof
+import org.mytonwallet.app_air.walletcore.moshi.MApiCheckNftDraftOptions
+import org.mytonwallet.app_air.walletcore.moshi.MApiCheckStakeDraftResult
+import org.mytonwallet.app_air.walletcore.moshi.MApiCheckTransactionDraftOptions
+import org.mytonwallet.app_air.walletcore.moshi.MApiCheckTransactionDraftResult
+import org.mytonwallet.app_air.walletcore.moshi.MApiFetchSwapItem
+import org.mytonwallet.app_air.walletcore.moshi.MApiFetchSwapsResult
+import org.mytonwallet.app_air.walletcore.moshi.MApiGetAddressInfoResult
+import org.mytonwallet.app_air.walletcore.moshi.MApiLedgerAccountInfo
+import org.mytonwallet.app_air.walletcore.moshi.MApiMarketAssetsResponse
+import org.mytonwallet.app_air.walletcore.moshi.MApiReconcileActivityUpdateResult
+import org.mytonwallet.app_air.walletcore.moshi.MApiSubmitTransferOptions
+import org.mytonwallet.app_air.walletcore.moshi.MApiSwapDefaults
+import org.mytonwallet.app_air.walletcore.moshi.MApiSwapDefaultsRequest
+import org.mytonwallet.app_air.walletcore.moshi.MApiSwapEstimateRequest
+import org.mytonwallet.app_air.walletcore.moshi.MApiSwapEstimateResponse
+import org.mytonwallet.app_air.walletcore.moshi.MApiTokenDetails
+import org.mytonwallet.app_air.walletcore.moshi.MApiTransaction
+import org.mytonwallet.app_air.walletcore.moshi.MEnvironmentVariables
+import org.mytonwallet.app_air.walletcore.moshi.MImportedViewWalletResponse
+import org.mytonwallet.app_air.walletcore.moshi.MImportedWalletResponse
+import org.mytonwallet.app_air.walletcore.moshi.MRevokeWalletPermissionOptions
+import org.mytonwallet.app_air.walletcore.moshi.MRevokeWalletPermissionResult
+import org.mytonwallet.app_air.walletcore.moshi.MSignDataPayload
+import org.mytonwallet.app_air.walletcore.moshi.MTonPlugin
+import org.mytonwallet.app_air.walletcore.moshi.MWalletPermission
+import org.mytonwallet.app_air.walletcore.moshi.ReturnStrategy
+import org.mytonwallet.app_air.walletcore.moshi.StakingState
+import org.mytonwallet.app_air.walletcore.moshi.inject.ApiDappConnectionRequest
+import org.mytonwallet.app_air.walletcore.moshi.inject.ApiDappDisconnectRequest
+import org.mytonwallet.app_air.walletcore.moshi.inject.ApiDappSessionChain
+import org.mytonwallet.app_air.walletcore.moshi.inject.ApiDappSignDataRequest
+import org.mytonwallet.app_air.walletcore.moshi.inject.ApiDappTransactionRequest
+import org.mytonwallet.app_air.walletcore.moshi.ledger.MLedgerWalletInfo
+
+sealed class ApiMethod<T> {
+    abstract val name: String
+    abstract val type: Type
+    abstract val arguments: String
+
+    /* Other */
+    object Other {
+        class CaptureInstallAttribution(snapshot: JSONObject) : ApiMethod<Any>() {
+            override val name = "captureInstallAttribution"
+            override val type: Type = Any::class.java
+            override val arguments = ArgumentsBuilder().jsonObject(snapshot).build()
+        }
+
+        class SetIsAppFocused(isFocused: Boolean) : ApiMethod<Array<String>>() {
+            override val name: String = "setIsAppFocused"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .boolean(isFocused)
+                .build()
+        }
+
+        class SetLangCode(langCode: String) : ApiMethod<Array<String>>() {
+            override val name: String = "setLangCode"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(langCode)
+                .build()
+        }
+
+        class WaitForLedgerApp(chain: MBlockchain, options: Options? = null) :
+            ApiMethod<Boolean>() {
+            @JsonClass(generateAdapter = true)
+            data class Options(val timeout: Int? = null, val attemptPause: Int? = null)
+
+            override val name: String = "waitForLedgerApp"
+            override val type: Type = Boolean::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .jsObject(options, Options::class.java)
+                .build()
+        }
+
+        class RenderBlurredReceiveBg(chain: MBlockchain, options: Options? = null) :
+            ApiMethod<String>() {
+            @JsonClass(generateAdapter = true)
+            data class Options(
+                val width: Int? = null,
+                val height: Int? = null,
+                val blurPx: Int? = null,
+                val quality: Double? = null,
+                val overlay: String? = null,
+                val scale: Int? = null
+            )
+
+            override val name = "renderBlurredReceiveBg"
+            override val type: Type = String::class.java
+            override val arguments = ArgumentsBuilder()
+                .string(chain.name)
+                .jsObject(options, Options::class.java)
+                .build()
+        }
+
+        class GetMoonpayOnrampUrl(params: Params) : ApiMethod<GetMoonpayOnrampUrl.Result>() {
+            @JsonClass(generateAdapter = true)
+            data class Params(
+                val chain: String,
+                // Address of every wallet chain, so MoonPay delivers each selected currency to the
+                // matching network's address (preventing a cross-network mismatch)
+                val addressByChain: Map<String, String>,
+                val theme: String,
+                val currency: String
+            )
+
+            @JsonClass(generateAdapter = true)
+            data class Result(val url: String)
+
+            override val name: String = "getMoonpayOnrampUrl"
+            override val type: Type = Result::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(params, Params::class.java)
+                .build()
+        }
+
+        class GetMoonpayOfframpUrl(params: Params) : ApiMethod<GetMoonpayOfframpUrl.Result>() {
+            @JsonClass(generateAdapter = true)
+            data class Params(
+                val chain: String,
+                val address: String,
+                val theme: String,
+                val currency: String,
+                val amount: String,
+                val baseUrl: String
+            )
+
+            @JsonClass(generateAdapter = true)
+            data class Result(val url: String)
+
+            override val name: String = "getMoonpayOfframpUrl"
+            override val type: Type = Result::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(params, Params::class.java)
+                .build()
+        }
+
+        class GetEnvironmentVariables : ApiMethod<MEnvironmentVariables>() {
+            override val name: String = "getEnvironmentVariables"
+            override val type: Type = MEnvironmentVariables::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .build()
+        }
+    }
+
+    /* Auth */
+    object Auth {
+        class WaitDataPreload : ApiMethod<Unit>() {
+            override val name: String = "waitDataPreload"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .build()
+        }
+
+        class RepairInvalidBip39TonAuthTokens : ApiMethod<Unit>() {
+            override val name: String = "repairInvalidBip39TonAuthTokens"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .build()
+        }
+
+        class GetMultichainUpgradeCandidateIds : ApiMethod<Array<String>>() {
+            override val name: String = "getMultichainUpgradeCandidateIds"
+            override val type: Type = Array<String>::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .build()
+        }
+
+        class UpgradeMultichainAccounts(enclaveToken: String) : ApiMethod<Unit>() {
+            override val name: String = "upgradeMultichainAccounts"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(enclaveToken)
+                .build()
+        }
+
+        class GenerateMnemonic : ApiMethod<Array<String>>() {
+            override val name: String = "generateMnemonic"
+            override val type: Type = Array<String>::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .boolean(true)
+                .build()
+        }
+
+        class GetLedgerWallets(
+            chain: MBlockchain,
+            network: MBlockchainNetwork,
+            startWalletIndex: Int,
+            count: Int
+        ) : ApiMethod<Array<MLedgerWalletInfo>>() {
+            override val name: String = "getLedgerWallets"
+            override val type: Type = Array<MLedgerWalletInfo>::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .string(network.value)
+                .number(startWalletIndex)
+                .number(count)
+                .build()
+        }
+
+        class ImportLedgerWallet(network: MBlockchainNetwork, accountInfo: MApiLedgerAccountInfo) :
+            ApiMethod<MImportedWalletResponse>() {
+            override val name: String = "importLedgerAccount"
+            override val type: Type = MImportedWalletResponse::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(network.value)
+                .jsObject(accountInfo, MApiLedgerAccountInfo::class.java)
+                .build()
+        }
+
+        class ImportViewAccount(
+            network: MBlockchainNetwork,
+            addressByChain: Map<MBlockchain, String>
+        ) : ApiMethod<MImportedViewWalletResponse>() {
+            override val name: String = "importViewAccount"
+            override val type: Type = MImportedViewWalletResponse::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(network.value)
+                .jsonObject(
+                    JSONObject().apply {
+                        addressByChain.forEach { (chain, address) ->
+                            put(chain.name, address)
+                        }
+                    }
+                )
+                .build()
+        }
+    }
+
+    /* Wallet Data */
+    object WalletData {
+        class GetAddressInfo(
+            chain: MBlockchain,
+            network: MBlockchainNetwork,
+            addressOrDomain: String
+        ) : ApiMethod<MApiGetAddressInfoResult>() {
+            override val name: String = "getAddressInfo"
+            override val type: Type = MApiGetAddressInfoResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .string(network.value)
+                .string(addressOrDomain)
+                .build()
+        }
+
+        class DecryptComment(accountId: String, activity: MApiTransaction, enclaveToken: String) :
+            ApiMethod<String>() {
+            override val name: String = "decryptComment"
+            override val type: Type = String::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(activity, MApiTransaction::class.java)
+                .string(enclaveToken)
+                .build()
+        }
+
+        class FetchActivityDetails(accountId: String, activity: MApiTransaction) :
+            ApiMethod<MApiTransaction>() {
+            override val name: String = "fetchActivityDetails"
+            override val type: Type = MApiTransaction::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(activity, MApiTransaction::class.java)
+                .build()
+        }
+
+        class ReconcileActivityUpdate(
+            accountId: String,
+            previousActivities: List<MApiTransaction>,
+            confirmedActivities: List<MApiTransaction>,
+            pendingActivities: List<MApiTransaction>?,
+            contextActivities: List<MApiTransaction>? = null
+        ) : ApiMethod<MApiReconcileActivityUpdateResult>() {
+            @JsonClass(generateAdapter = true)
+            data class Options(val contextActivities: List<MApiTransaction>? = null)
+
+            override val name: String = "reconcileActivityUpdate"
+            override val type: Type = MApiReconcileActivityUpdateResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsArray(previousActivities, MApiTransaction::class.java)
+                .jsArray(confirmedActivities, MApiTransaction::class.java)
+                .jsObject(
+                    pendingActivities,
+                    Types.newParameterizedType(List::class.java, MApiTransaction::class.java)
+                )
+                .jsObject(Options(contextActivities), Options::class.java)
+                .build()
+        }
+
+        class FetchPastActivities(
+            accountId: String,
+            limit: Int,
+            slug: String?,
+            toTimestamp: Long?
+        ) : ApiMethod<FetchPastActivities.Result>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Result(val activities: List<MApiTransaction>, val hasMore: Boolean)
+
+            override val name: String = "fetchPastActivities"
+            override val type: Type = Result::class.java
+            override val arguments: String = run {
+                var builder = ArgumentsBuilder()
+                    .string(accountId)
+                    .number(limit)
+                    .string(slug)
+
+                toTimestamp?.let {
+                    builder = builder.number(it)
+                }
+
+                builder.build()
+            }
+        }
+
+        class FetchTransactionById(options: Options) : ApiMethod<List<MApiTransaction>>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Options(
+                val chain: String,
+                val network: String,
+                val walletAddress: String,
+                val txId: String? = null,
+                val txHash: String? = null
+            )
+
+            override val name: String = "fetchTransactionById"
+            override val type: Type =
+                Types.newParameterizedType(List::class.java, MApiTransaction::class.java)
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(options, Options::class.java)
+                .build()
+        }
+    }
+
+    /* Tokens */
+    object Tokens {
+        class BuildTokenSlug(chain: String, address: String) : ApiMethod<String>() {
+            override val name: String = "buildTokenSlug"
+            override val type: Type = String::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain)
+                .string(address)
+                .build()
+        }
+
+        class FetchTokenDetails(assets: List<String>) : ApiMethod<List<MApiTokenDetails>>() {
+            override val name: String = "fetchTokenDetails"
+            override val type: Type =
+                Types.newParameterizedType(List::class.java, MApiTokenDetails::class.java)
+            override val arguments: String = ArgumentsBuilder()
+                .jsArray(assets, String::class.java)
+                .build()
+        }
+
+        class FetchMarketAssets(langCode: String) : ApiMethod<MApiMarketAssetsResponse>() {
+            override val name: String = "fetchMarketAssets"
+            override val type: Type = MApiMarketAssetsResponse::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(langCode)
+                .build()
+        }
+    }
+
+    object Settings {
+        class FetchMnemonic(accountId: String, enclaveToken: String) : ApiMethod<Array<String>>() {
+            override val name: String = "fetchMnemonic"
+            override val type: Type = Array<String>::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(enclaveToken)
+                .build()
+        }
+
+        class GetWalletVariants(accountId: String, page: Int, mnemonic: Array<String>) :
+            ApiMethod<Array<ApiGroupedWalletVariant>>() {
+            override val name: String = "getWalletVariants"
+            override val type: Type = Array<ApiGroupedWalletVariant>::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .number(page)
+                .jsArray(mnemonic.toList(), String::class.java)
+                .build()
+        }
+
+        class CreateSubWallet(accountId: String, enclaveToken: String) :
+            ApiMethod<ApiCreateSubWalletResult>() {
+            override val name: String = "createSubWallet"
+            override val type: Type = ApiCreateSubWalletResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(enclaveToken)
+                .build()
+        }
+
+        class AddSubWallet(accountId: String, byChain: Map<String, ApiSubWallet>) :
+            ApiMethod<ApiAddSubWalletResult>() {
+            override val name: String = "addSubWallet"
+            override val type: Type = ApiAddSubWalletResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(
+                    byChain,
+                    Types.newParameterizedType(
+                        Map::class.java,
+                        String::class.java,
+                        ApiSubWallet::class.java
+                    )
+                )
+                .build()
+        }
+
+        class AddAllFoundSubwallets(
+            accountId: String,
+            foundWallets: List<Map<String, ApiSubWallet>>
+        ) : ApiMethod<ApiAddAllFoundSubwalletsResult>() {
+            override val name: String = "addAllFoundSubwallets"
+            override val type: Type = ApiAddAllFoundSubwalletsResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsArray(
+                    foundWallets,
+                    Types.newParameterizedType(
+                        Map::class.java,
+                        String::class.java,
+                        ApiSubWallet::class.java
+                    )
+                )
+                .build()
+        }
+    }
+
+    /* Transfer */
+
+    object Transfer {
+        class CheckTransactionDraft(chain: MBlockchain, options: MApiCheckTransactionDraftOptions) :
+            ApiMethod<MApiCheckTransactionDraftResult>() {
+            override val name: String = "checkTransactionDraft"
+            override val type: Type = MApiCheckTransactionDraftResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .jsObject(options, MApiCheckTransactionDraftOptions::class.java)
+                .build()
+        }
+
+        class SubmitTransfer(chain: MBlockchain, options: MApiSubmitTransferOptions) :
+            ApiMethod<ApiSubmitTransferResult>() {
+            override val name: String = "submitTransfer"
+            override val type: Type = ApiSubmitTransferResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .jsObject(options, MApiSubmitTransferOptions::class.java)
+                .build()
+        }
+
+        class SignDappTransfers(
+            dappChain: ApiDappSessionChain,
+            accountId: String,
+            transactions: List<ApiDappTransfer>,
+            options: Options
+        ) : ApiMethod<Any>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Options(
+                val enclaveToken: String?,
+                val validUntil: Long?,
+                val vestingAddress: String?,
+                val isLegacyOutput: Boolean?
+            )
+
+            override val name: String = "signDappTransfers"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(dappChain, ApiDappSessionChain::class.java)
+                .string(accountId)
+                .jsArray(transactions, ApiDappTransfer::class.java)
+                .jsObject(options, Options::class.java)
+                .build()
+        }
+
+        class SignDappData(
+            dappChain: ApiDappSessionChain,
+            accountId: String,
+            dappUrl: String,
+            payloadToSign: MSignDataPayload,
+            enclaveToken: String
+        ) : ApiMethod<JSONObject>() {
+
+            override val name: String = "signDappData"
+            override val type: Type = JSONObject::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(dappChain, ApiDappSessionChain::class.java)
+                .string(accountId)
+                .string(dappUrl)
+                .jsObject(payloadToSign, MSignDataPayload::class.java)
+                .string(enclaveToken)
+                .build()
+        }
+    }
+
+    /* Swap */
+
+    object Swap {
+        class ResolveSwapDefaults(request: MApiSwapDefaultsRequest) :
+            ApiMethod<MApiSwapDefaults>() {
+            override val name: String = "resolveSwapDefaults"
+            override val type: Type = MApiSwapDefaults::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(request, MApiSwapDefaultsRequest::class.java)
+                .build()
+        }
+
+        class SwapEstimate(accountId: String, request: MApiSwapEstimateRequest) :
+            ApiMethod<MApiSwapEstimateResponse>() {
+            override val name: String = "swapEstimate"
+            override val type: Type = MApiSwapEstimateResponse::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(request, MApiSwapEstimateRequest::class.java)
+                .build()
+        }
+
+        class FetchSwaps(
+            accountId: String,
+            items: List<MApiFetchSwapItem>,
+            existingActivities: List<MApiTransaction> = emptyList()
+        ) : ApiMethod<MApiFetchSwapsResult>() {
+            override val name: String = "fetchSwaps"
+            override val type: Type = MApiFetchSwapsResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsArray(items, MApiFetchSwapItem::class.java)
+                .jsArray(existingActivities, MApiTransaction::class.java)
+                .build()
+        }
+
+        class ConfirmSwapMfaRequest(accountId: String, swapId: String, txHash: String) :
+            ApiMethod<Unit>() {
+            override val name: String = "confirmSwapMfaRequest"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(swapId)
+                .string(txHash)
+                .build()
+        }
+    }
+
+    /* Ton Connect */
+
+    object DApp {
+        class GetDapps(accountId: String) : ApiMethod<List<ApiDapp>>() {
+            override val name: String = "getDapps"
+            override val type: Type =
+                Types.newParameterizedType(List::class.java, ApiDapp::class.java)
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .build()
+        }
+
+        class TonConnectHandleDeepLink(
+            url: String,
+            isFromInAppBrowser: Boolean? = null,
+            identifier: String? = null
+        ) : ApiMethod<ReturnStrategy?>() {
+            override val name: String = "tonConnect_handleDeepLink"
+            override val type: Type = ReturnStrategy::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(url)
+                .boolean(isFromInAppBrowser)
+                .string(identifier)
+                .build()
+        }
+
+        class ConfirmDappRequestSendTransaction(promiseId: String, signedMessages: JSONArray) :
+            ApiMethod<Unit>() {
+            override val name: String = "confirmDappRequestSendTransaction"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .jsObject(signedMessages, JSONArray::class.java)
+                .build()
+        }
+
+        class ConfirmDappRequestSendTransactionMfa(promiseId: String, mfaRequestHash: String) :
+            ApiMethod<Unit>() {
+            @JsonClass(generateAdapter = true)
+            data class Payload(val mfaRequestHash: String)
+
+            override val name: String = "confirmDappRequestSendTransaction"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .jsObject(Payload(mfaRequestHash), Payload::class.java)
+                .build()
+        }
+
+        class ConfirmDappRequestSignData(promiseId: String, signedData: JSONObject) :
+            ApiMethod<Unit>() {
+            override val name: String = "confirmDappRequestSignData"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .jsObject(signedData, JSONObject::class.java)
+                .build()
+        }
+
+        class SignDappProof(
+            dappChains: List<ApiDappSessionChain>,
+            accountId: String,
+            proofData: ApiTonConnectProof?,
+            enclaveToken: String
+        ) : ApiMethod<SignDappProof.Result>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Result(val signatures: List<String>)
+
+            override val name: String = "signDappProof"
+            override val type: Type = Result::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsArray(dappChains, ApiDappSessionChain::class.java)
+                .string(accountId)
+                .jsObject(proofData, ApiTonConnectProof::class.java)
+                .string(enclaveToken)
+                .build()
+        }
+
+        class ConfirmDappRequestConnect(promiseId: String, request: Request) : ApiMethod<Unit>() {
+            override val name: String = "confirmDappRequestConnect"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .jsObject(request, Request::class.java)
+                .build()
+
+            @JsonClass(generateAdapter = true)
+            data class Request(
+                val accountId: String? = null,
+                val proofSignatures: List<String>? = null
+            )
+        }
+        class CancelDappRequest(promiseId: String, reason: String?) : ApiMethod<Unit>() {
+            override val name: String = "cancelDappRequest"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .apply { reason?.let { string(it) } }
+                .build()
+        }
+
+        class RecordTonConnectEvent(eventName: String, promiseId: String) : ApiMethod<Unit>() {
+            override val name: String = "recordTonConnectEvent"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsonObject(
+                    JSONObject().apply {
+                        put("event_name", eventName)
+                        put("promiseId", promiseId)
+                    }
+                )
+                .build()
+        }
+
+        class DeleteDapp(accountId: String, appClientId: String, origin: String) :
+            ApiMethod<Any>() {
+            override val name: String = "deleteDapp"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(origin)
+                .string(appClientId)
+                .string(null)
+                .build()
+        }
+
+        class DeleteAllDapps(accountId: String) : ApiMethod<Boolean>() {
+            override val name: String = "deleteAllDapps"
+            override val type: Type = Boolean::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .build()
+        }
+
+        object Inject {
+            @JsonClass(generateAdapter = true)
+            data class DAppArg(
+                val url: String,
+                val urlTrustStatus: String = "verified",
+                var accountId: String
+            )
+
+            class TonConnectConnect(
+                dApp: DAppArg,
+                request: ApiDappConnectionRequest,
+                requestId: Int
+            ) : ApiMethod<JSONObject>() {
+                override val name: String = "tonConnect_connect"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, ApiDappConnectionRequest::class.java)
+                    .number(requestId)
+                    .build()
+            }
+
+            class TonConnectReconnect(dApp: DAppArg, requestId: Int) : ApiMethod<JSONObject>() {
+                override val name: String = "tonConnect_reconnect"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .number(requestId)
+                    .build()
+            }
+
+            class TonConnectDisconnect(dApp: DAppArg, request: ApiDappDisconnectRequest) :
+                ApiMethod<JSONObject>() {
+                override val name: String = "tonConnect_disconnect"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, ApiDappDisconnectRequest::class.java)
+                    .build()
+            }
+
+            class TonConnectSendTransaction(dApp: DAppArg, request: ApiDappTransactionRequest) :
+                ApiMethod<JSONObject>() {
+                override val name: String = "tonConnect_sendTransaction"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, ApiDappTransactionRequest::class.java)
+                    .build()
+            }
+
+            class TonConnectSignData(dApp: DAppArg, request: ApiDappSignDataRequest) :
+                ApiMethod<JSONObject>() {
+                override val name: String = "tonConnect_signData"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, ApiDappSignDataRequest::class.java)
+                    .build()
+            }
+
+            class WalletConnectConnect(dApp: DAppArg, request: Any, requestId: Int) :
+                ApiMethod<JSONObject>() {
+                override val name: String = "walletConnect_connect"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, Any::class.java)
+                    .number(requestId)
+                    .build()
+            }
+
+            class WalletConnectReconnect(dApp: DAppArg, requestId: Int) : ApiMethod<JSONObject>() {
+                override val name: String = "walletConnect_reconnect"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .number(requestId)
+                    .build()
+            }
+
+            class WalletConnectDisconnect(dApp: DAppArg, request: Any) : ApiMethod<JSONObject>() {
+                override val name: String = "walletConnect_disconnect"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, Any::class.java)
+                    .build()
+            }
+
+            class WalletConnectSendTransaction(dApp: DAppArg, request: Any) :
+                ApiMethod<JSONObject>() {
+                override val name: String = "walletConnect_sendTransaction"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, Any::class.java)
+                    .build()
+            }
+
+            class WalletConnectSignData(dApp: DAppArg, request: Any) : ApiMethod<JSONObject>() {
+                override val name: String = "walletConnect_signData"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, Any::class.java)
+                    .build()
+            }
+
+            class WalletConnectProxyEvmRpc(dApp: DAppArg, request: Any) : ApiMethod<JSONObject>() {
+                override val name: String = "walletConnect_proxyEvmRpc"
+                override val type: Type = JSONObject::class.java
+                override val arguments: String = ArgumentsBuilder()
+                    .jsObject(dApp, DAppArg::class.java)
+                    .jsObject(request, Any::class.java)
+                    .build()
+            }
+        }
+
+        class WalletConnectHandleDeepLink(url: String, shouldReturnToDapp: Boolean) :
+            ApiMethod<Any?>() {
+            override val name: String = "walletConnect_handleDeepLink"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(url)
+                .boolean(shouldReturnToDapp)
+                .build()
+        }
+
+        class ConfirmWalletConnectPaySignTransaction(
+            promiseId: String,
+            signedTransactions: JSONArray
+        ) : ApiMethod<Unit>() {
+            override val name: String = "confirmWalletConnectPaySignTransaction"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .jsObject(signedTransactions, JSONArray::class.java)
+                .build()
+        }
+
+        class ConfirmWalletConnectPaySignData(promiseId: String, signedData: JSONObject) :
+            ApiMethod<Unit>() {
+            override val name: String = "confirmWalletConnectPaySignData"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .jsObject(signedData, JSONObject::class.java)
+                .build()
+        }
+
+        class CompleteWalletConnectPayDataCollection(promiseId: String) : ApiMethod<Unit>() {
+            override val name: String = "completeWalletConnectPayDataCollection"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .build()
+        }
+
+        class ConfirmWalletConnectPayOptionSelection(promiseId: String, optionId: String) :
+            ApiMethod<Unit>() {
+            override val name: String = "confirmWalletConnectPayOptionSelection"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .string(optionId)
+                .build()
+        }
+
+        class CancelWalletConnectPay(promiseId: String, reason: String?) : ApiMethod<Unit>() {
+            override val name: String = "cancelWalletConnectPay"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(promiseId)
+                .apply { reason?.let { string(it) } }
+                .build()
+        }
+
+        class RefreshWalletConnectPayOptionSelection(
+            paymentLink: String,
+            accountId: String,
+            promiseId: String
+        ) : ApiMethod<Unit>() {
+            override val name: String = "refreshWalletConnectPayOptionSelection"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(paymentLink)
+                .string(accountId)
+                .string(promiseId)
+                .build()
+        }
+    }
+
+    /* Domains */
+    object Domains {
+        class CheckDnsRenewalDraft(accountId: String, nfts: List<ApiNft>) :
+            ApiMethod<CheckDnsRenewalDraft.Result>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Result(val realFee: BigInteger)
+
+            override val name: String = "checkDnsRenewalDraft"
+            override val type: Type = Result::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsArray(nfts, ApiNft::class.java)
+                .build()
+        }
+
+        class SubmitDnsRenewal(
+            accountId: String,
+            enclaveToken: String,
+            nfts: List<ApiNft>,
+            realFee: BigInteger
+        ) : ApiMethod<List<ApiSubmitTransfersResult>>() {
+            override val name: String = "submitDnsRenewal"
+            override val type: Type =
+                Types.newParameterizedType(List::class.java, ApiSubmitTransfersResult::class.java)
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(enclaveToken)
+                .jsArray(nfts, ApiNft::class.java)
+                .bigInt(realFee)
+                .build()
+        }
+
+        class CheckDnsChangeWalletDraft(accountId: String, nft: ApiNft, address: String) :
+            ApiMethod<CheckDnsChangeWalletDraft.Result>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Result(val realFee: BigInteger)
+
+            override val name: String = "checkDnsChangeWalletDraft"
+            override val type: Type = Result::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(nft, ApiNft::class.java)
+                .string(address)
+                .build()
+        }
+
+        class SubmitDnsChangeWallet(
+            accountId: String,
+            enclaveToken: String,
+            nft: ApiNft,
+            address: String,
+            realFee: BigInteger
+        ) : ApiMethod<ApiSubmitTransferResult>() {
+
+            override val name: String = "submitDnsChangeWallet"
+            override val type: Type = ApiSubmitTransferResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(enclaveToken)
+                .jsObject(nft, ApiNft::class.java)
+                .string(address)
+                .bigInt(realFee)
+                .build()
+        }
+    }
+
+    /* Nft */
+    object Nft {
+        class FetchNftByAddress(network: MBlockchainNetwork, nftAddress: String) :
+            ApiMethod<ApiNft?>() {
+            override val name: String = "fetchNftByAddress"
+            override val type: Type = ApiNft::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(network.value)
+                .string(nftAddress)
+                .build()
+        }
+
+        class CheckNftTransferDraft(chain: MBlockchain, options: MApiCheckNftDraftOptions) :
+            ApiMethod<MApiCheckTransactionDraftResult>() {
+            override val name: String = "checkNftTransferDraft"
+            override val type: Type = MApiCheckTransactionDraftResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .jsObject(options, MApiCheckNftDraftOptions::class.java)
+                .build()
+        }
+
+        class SubmitNftTransfer(
+            chain: MBlockchain,
+            accountId: String,
+            enclaveToken: String,
+            nfts: List<ApiNft>,
+            address: String,
+            comment: String?,
+            fee: BigInteger,
+            isNftBurn: Boolean
+        ) : ApiMethod<ApiSubmitTransfersResult>() {
+            override val name: String = "submitNftTransfers"
+            override val type: Type = ApiSubmitTransfersResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .string(accountId)
+                .string(enclaveToken)
+                .jsObject(
+                    nfts.map { it.toDictionary() }.toTypedArray(),
+                    Array<JSONObject>::class.java
+                )
+                .string(address)
+                .string(comment)
+                .bigInt(fee)
+                .boolean(isNftBurn)
+                .build()
+        }
+
+        class CheckNftOwnership(chain: String, accountId: String, nftAddress: String) :
+            ApiMethod<Any>() {
+            override val name: String = "checkNftOwnership"
+            override val type: Type = Boolean::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain)
+                .string(accountId)
+                .string(nftAddress)
+                .build()
+        }
+
+        class ReportNft(chain: MBlockchain, network: MBlockchainNetwork, nftAddress: String) :
+            ApiMethod<Unit>() {
+            @JsonClass(generateAdapter = true)
+            data class Options(val chain: String, val network: String, val nftAddress: String)
+
+            override val name: String = "reportNft"
+            override val type: Type = Unit::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(
+                    Options(chain.name, network.value, nftAddress),
+                    Options::class.java
+                )
+                .build()
+        }
+
+        class FetchNftsFromCollection(accountId: String, collection: Collection) :
+            ApiMethod<Any>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Collection(val chain: String, val address: String)
+
+            override val name: String = "fetchNftsFromCollection"
+            override val type: Type = Boolean::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(collection, Collection::class.java)
+                .build()
+        }
+    }
+
+    /* Staking */
+    object Staking {
+        class CheckStakeDraft(accountId: String, amount: BigInteger, state: StakingState) :
+            ApiMethod<MApiCheckStakeDraftResult>() {
+            override val name: String = "checkStakeDraft"
+            override val type: Type = MApiCheckStakeDraftResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .bigInt(amount)
+                .jsObject(state, StakingState::class.java)
+                .build()
+        }
+
+        class CheckUnstakeDraft(accountId: String, amount: BigInteger, state: StakingState) :
+            ApiMethod<MApiCheckStakeDraftResult>() {
+            override val name: String = "checkUnstakeDraft"
+            override val type: Type = MApiCheckStakeDraftResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .bigInt(amount)
+                .jsObject(state, StakingState::class.java)
+                .build()
+        }
+
+        class SubmitStakingClaimOrUnlock(
+            accountId: String,
+            enclaveToken: String,
+            state: StakingState,
+            realFee: BigInteger
+        ) : ApiMethod<ApiSubmitTransferResult>() {
+            override val name: String = "submitStakingClaimOrUnlock"
+            override val type: Type = ApiSubmitTransferResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(enclaveToken)
+                .jsObject(state, StakingState::class.java)
+                .bigInt(realFee)
+                .build()
+        }
+    }
+
+    /* Notifications */
+    object Notifications {
+        class SubscribeNotifications(props: Props) : ApiMethod<JSONObject>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Props(
+                val userToken: String,
+                val addresses: List<ApiNotificationAddress>,
+                val langCode: String,
+                val platform: String = "android"
+            )
+
+            override val name: String = "subscribeNotifications"
+            override val type: Type = JSONObject::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(props, Props::class.java)
+                .build()
+        }
+
+        class UnsubscribeNotifications(props: Props) : ApiMethod<Any>() {
+
+            @JsonClass(generateAdapter = true)
+            data class Props(val userToken: String, val addresses: List<ApiNotificationAddress>)
+
+            override val name: String = "unsubscribeNotifications"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .jsObject(props, Props::class.java)
+                .build()
+        }
+    }
+
+    /* MFA */
+    object Mfa {
+        @JsonClass(generateAdapter = true)
+        data class ApiMfaRequestCreated(val reqId: String)
+
+        class FetchMfaRequest(hash: String) : ApiMethod<FetchMfaRequest.ApiMfaRequest>() {
+            @JsonClass(generateAdapter = true)
+            data class ApiMfaRequest(
+                val payload: String,
+                val signature: String,
+                val isConfirmed: Boolean,
+                val txHash: String
+            )
+
+            override val name: String = "fetchMfaRequest"
+            override val type: Type = ApiMfaRequest::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(hash)
+                .build()
+        }
+
+        class FetchInstallMfaRequest(reqId: String) :
+            ApiMethod<FetchInstallMfaRequest.ApiInstallMfaRequest>() {
+            @JsonClass(generateAdapter = true)
+            data class ApiInstallMfaRequest(val address: String, val user: AccountMfa.User? = null)
+
+            override val name: String = "fetchInstallMfaRequest"
+            override val type: Type = ApiInstallMfaRequest::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(reqId)
+                .build()
+        }
+
+        class PublishInstallMfaRequest(accountId: String) : ApiMethod<ApiMfaRequestCreated>() {
+            override val name: String = "publishInstallMfaRequest"
+            override val type: Type = ApiMfaRequestCreated::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .build()
+        }
+
+        class InstallMfaFromRequest(accountId: String, user: AccountMfa.User, password: String?) :
+            ApiMethod<String>() {
+            override val name: String = "installMfaFromRequest"
+            override val type: Type = String::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .jsObject(
+                    user,
+                    AccountMfa.User::class.java
+                )
+                .string(password)
+                .build()
+        }
+
+        class PublishRemoveMfaRequest(accountId: String, password: String?) :
+            ApiMethod<ApiMfaRequestCreated>() {
+            override val name: String = "publishRemoveMfaRequest"
+            override val type: Type = ApiMfaRequestCreated::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(password)
+                .build()
+        }
+
+        class ConfirmMfaRemovalRequest(accountId: String) : ApiMethod<Any>() {
+            override val name: String = "confirmMfaRemovalRequest"
+            override val type: Type = Any::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .build()
+        }
+
+        class RefreshMfaState(accountId: String, password: String?) :
+            ApiMethod<RefreshMfaState.Response>() {
+            @JsonClass(generateAdapter = true)
+            data class Response(val changed: Boolean = false, val mfa: AccountMfa? = null)
+
+            override val name: String = "refreshMfaState"
+            override val type: Type = Response::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(password)
+                .build()
+        }
+    }
+
+    /* Permissions */
+
+    object Permissions {
+        class FetchWalletPermissions(accountId: String, chain: MBlockchain) :
+            ApiMethod<List<MWalletPermission>>() {
+            override val name: String = "fetchWalletPermissions"
+            override val type: Type =
+                Types.newParameterizedType(List::class.java, MWalletPermission::class.java)
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .string(chain.name)
+                .build()
+        }
+
+        class FetchWalletPlugins(accountId: String) : ApiMethod<List<MTonPlugin>>() {
+            override val name: String = "fetchWalletPlugins"
+            override val type: Type =
+                Types.newParameterizedType(List::class.java, MTonPlugin::class.java)
+            override val arguments: String = ArgumentsBuilder()
+                .string(accountId)
+                .build()
+        }
+
+        class RevokeWalletPermission(chain: MBlockchain, options: MRevokeWalletPermissionOptions) :
+            ApiMethod<MRevokeWalletPermissionResult>() {
+            override val name: String = "revokeWalletPermission"
+            override val type: Type = MRevokeWalletPermissionResult::class.java
+            override val arguments: String = ArgumentsBuilder()
+                .string(chain.name)
+                .apply {
+                    when (options) {
+                        is MRevokeWalletPermissionOptions.Approval ->
+                            jsObject(options, MRevokeWalletPermissionOptions.Approval::class.java)
+
+                        is MRevokeWalletPermissionOptions.Delegation ->
+                            jsObject(options, MRevokeWalletPermissionOptions.Delegation::class.java)
+                    }
+                }
+                .build()
+        }
+    }
+}
