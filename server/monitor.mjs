@@ -77,7 +77,7 @@ export function decodeComment(messageContent) {
     const payload = decodeSingleCellBoc(body);
     if (!payload || payload.length < 1 || payload.subarray(0, 4).some(Boolean)) return undefined;
     const text = payload.subarray(4).toString('utf8');
-    return text.startsWith('u_') && /^[\x20-\x7e]{3,128}$/.test(text) ? text : undefined;
+    return /^(?:u|d)_[\x20-\x7e]{1,126}$/.test(text) ? text : undefined;
   } catch { return undefined; }
 }
 
@@ -90,18 +90,27 @@ export function extractInboundTonDeposits(transactions, adminAddress) {
     const value = msg?.value;
     const source = msg?.source;
     const destination = msg?.destination;
+    const sourceAddress = normalizeTonAddress(source);
+    const destinationAddress = normalizeTonAddress(destination);
     const failed = tx?.description?.aborted === true
       || tx?.description?.compute_ph?.success === false
       || tx?.description?.action?.success === false
       || msg?.bounced === true;
     const isConfirmed = Number.isInteger(tx?.mc_block_seqno) && tx.mc_block_seqno > 0;
-    if (!source || normalizeTonAddress(destination) !== normalizedAdminAddress || failed || !isConfirmed
+    if (!sourceAddress || destinationAddress !== normalizedAdminAddress || failed || !isConfirmed
       || !/^\d+$/.test(String(value)) || BigInt(value) <= 0) {
       return [];
     }
     const comment = decodeComment(msg.message_content);
     if (!comment || !tx?.hash || tx.lt === undefined) return [];
-    return [{ comment, amount: String(value), txHash: String(tx.hash), txLt: String(tx.lt) }];
+    return [{
+      comment,
+      sourceAddress,
+      destinationAddress,
+      amount: String(value),
+      txHash: String(tx.hash),
+      txLt: String(tx.lt),
+    }];
   });
 }
 
@@ -124,13 +133,47 @@ export async function runMonitor({ supabase } = {}) {
   if (process.env.TON_MONITOR_ENABLED !== '1') return;
   const address = process.env.ADMIN_TON_DEPOSIT_ADDRESS;
   if (!address || !process.env.TONCENTER_API_KEY || !supabase) throw new Error('TON monitor requires explicit provider, address and Supabase settings');
+
+  const boundaryRows = await supabase('get_monitor_start_boundary', {});
+  const boundary = boundaryRows?.[0];
+  if (!boundary?.started_at) {
+    const initialTransactions = await pollToncenter({ address, offset: 0 });
+    const initialHead = initialTransactions.find((tx) => Number.isInteger(tx?.mc_block_seqno)
+      && tx.mc_block_seqno > 0 && tx?.hash && tx.lt !== undefined);
+    const initializedRows = await supabase('initialize_monitor_start_boundary', {
+      p_tx_hash: initialHead ? String(initialHead.hash) : null,
+      p_tx_lt: initialHead ? String(initialHead.lt) : null,
+    });
+    const initializedBoundary = initializedRows?.[0];
+    if (!initializedBoundary?.started_at) {
+      throw new Error('TON monitor failed to persist its new-only start boundary');
+    }
+    if (initializedBoundary.initialized) {
+      console.info('[ton-monitor] new-only start boundary initialized');
+    }
+    return;
+  }
+
+  const boundaryTimeMs = Date.parse(boundary.started_at);
+  if (!Number.isFinite(boundaryTimeMs)) throw new Error('TON monitor start boundary is invalid');
+  // Toncenter transaction times have one-second precision. Start at the next
+  // second so transactions from before activation cannot pass the cutoff.
+  const firstEligibleUtime = Math.floor(boundaryTimeMs / 1000) + 1;
   const cursorRows = await supabase('get_ton_monitor_cursor', {});
   const cursor = cursorRows?.[0];
+  if (!cursor?.tx_hash && boundary.baseline_tx_hash && boundary.baseline_tx_lt) {
+    await supabase('set_ton_monitor_cursor', {
+      p_tx_hash: String(boundary.baseline_tx_hash),
+      p_tx_lt: String(boundary.baseline_tx_lt),
+    });
+    return;
+  }
   const pages = [];
   const maxPages = Math.max(1, Number(process.env.TON_MONITOR_MAX_PAGES || 100));
   const overlap = Math.max(1, Number(process.env.TON_MONITOR_OVERLAP || 20));
   let foundCursor = !cursor?.tx_hash;
   let cursorIndex = -1;
+  let cutoffReached = false;
 
   for (let page = 0; page < maxPages; page++) {
     const transactions = await pollToncenter({ address, offset: page * 100 });
@@ -151,21 +194,53 @@ export async function runMonitor({ supabase } = {}) {
       cursorIndex = (page * 100) + pageCursorIndex;
     }
     if (cursorIndex >= 0 && pages.length >= cursorIndex + 1 + overlap) break;
+    const pageIsBeforeBoundary = transactions.length > 0 && transactions.every((tx) => (
+      Number.isInteger(Number(tx?.utime)) && Number(tx.utime) < firstEligibleUtime
+    ));
+    if (cursorIndex < 0 && pageIsBeforeBoundary) {
+      cutoffReached = true;
+      foundCursor = true;
+      break;
+    }
     if (transactions.length < 100) {
       foundCursor = true;
       break;
     }
   }
-  if (!foundCursor) throw new Error('TON monitor backfill limit reached before the saved cursor');
+  if (!foundCursor && !cutoffReached) throw new Error('TON monitor backfill limit reached before the saved cursor or activation boundary');
 
   const newest = pages.find((tx) => Number.isInteger(tx?.mc_block_seqno) && tx.mc_block_seqno > 0);
   const unprocessed = cursor?.tx_hash
     ? pages.slice(0, cursorIndex >= 0 ? Math.min(pages.length, cursorIndex + 1 + overlap) : pages.length)
     : pages.slice(0, 100);
-  const deposits = extractInboundTonDeposits(unprocessed, address).reverse();
+  const baselineIndex = boundary.baseline_tx_hash && boundary.baseline_tx_lt
+    ? pages.findIndex((tx) => String(tx.hash) === String(boundary.baseline_tx_hash)
+      && String(tx.lt) === String(boundary.baseline_tx_lt))
+    : -1;
+  const eligible = unprocessed.filter((tx, index) => {
+    if (!Number.isInteger(Number(tx?.utime)) || Number(tx.utime) < firstEligibleUtime) return false;
+    if (baselineIndex >= 0 && index >= baselineIndex) return false;
+    return true;
+  });
+  const deposits = extractInboundTonDeposits(eligible, address).reverse();
   for (const deposit of deposits) {
-    await supabase('credit_deposit', { p_comment: deposit.comment, p_tx_hash: deposit.txHash,
-      p_tx_lt: deposit.txLt, p_amount: deposit.amount });
+    if (deposit.comment.startsWith('d_')) {
+      await supabase('credit_deposit_intent', {
+        p_comment: deposit.comment,
+        p_source_address: deposit.sourceAddress,
+        p_destination_address: deposit.destinationAddress,
+        p_tx_hash: deposit.txHash,
+        p_tx_lt: deposit.txLt,
+        p_amount: deposit.amount,
+      });
+    } else {
+      await supabase('credit_deposit', {
+        p_comment: deposit.comment,
+        p_tx_hash: deposit.txHash,
+        p_tx_lt: deposit.txLt,
+        p_amount: deposit.amount,
+      });
+    }
   }
   if (newest?.hash && newest.lt !== undefined) {
     await supabase('set_ton_monitor_cursor', { p_tx_hash: String(newest.hash), p_tx_lt: String(newest.lt) });

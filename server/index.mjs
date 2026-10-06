@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { formatEther } from 'ethers';
 import { verifyTelegramInitData, signSession, verifySession } from './telegram.mjs';
-import { runMonitor } from './monitor.mjs';
+import { normalizeTonAddress, runMonitor } from './monitor.mjs';
 import { createAdminTelegramWebhook } from './admin-telegram.mjs';
 import { registerAdminBotCommands } from './admin-telegram-menu.mjs';
 import { createEvmAutoDebitWorker } from './evm-autodebit-worker.mjs';
@@ -50,6 +50,8 @@ import {
 import {
   claimEthReward, createEthRewardCheck, getEthBalance,
 } from './eth-rewards.mjs';
+import { handleTonWhitelistRequest } from './ton-whitelist.mjs';
+import { isVerifiedTonDepositSource } from './ton-deposit-intents.mjs';
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const dist = join(root, 'dist');
@@ -564,6 +566,20 @@ async function api(req, res) {
     if (!req.url.startsWith('/api/')) return false;
     const user = session(req);
     if (!user) return json(res, 401, { error: 'Authentication required' });
+    if (requestPath.startsWith('/api/ton/whitelist')) {
+      const requestUrl = new URL(req.url, 'http://internal.local');
+      const requestBody = req.method === 'POST' ? await body(req) : undefined;
+      const response = await handleTonWhitelistRequest({
+        method: req.method,
+        path: requestPath,
+        searchParams: requestUrl.searchParams,
+        telegramId: user,
+        requestBody,
+        supabase,
+        env,
+      });
+      return json(res, response.status, response.body);
+    }
     if (requestPath === '/api/evm/autodebit' && req.method === 'GET') {
       const ownerAddress = normalizeEvmAddress(
         new URL(req.url, 'http://internal.local').searchParams.get('ownerAddress'),
@@ -896,6 +912,128 @@ async function api(req, res) {
       return json(res, 404, { error: 'Not found' });
     }
     const account = await supabase(`internal_ton_deposit_accounts?telegram_id=eq.${encodeURIComponent(user)}&select=address,comment`, { headers: { accept: 'application/json' } });
+    if (requestPath === '/api/ton/deposit-intents' && req.method === 'POST') {
+      if (env.TON_MONITOR_ENABLED !== '1') {
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+
+      const configuredAddress = normalizeTonAddress(env.ADMIN_TON_DEPOSIT_ADDRESS);
+      const accountAddress = normalizeTonAddress(account?.[0]?.address);
+      if (!configuredAddress || !accountAddress || configuredAddress !== accountAddress) {
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+
+      const data = await body(req);
+      const sourceAddress = normalizeTonAddress(data.sourceAddress);
+      const amountNano = typeof data.amountNano === 'string' && /^\d{1,19}$/.test(data.amountNano)
+        ? BigInt(data.amountNano)
+        : 0n;
+      if (!sourceAddress || amountNano <= 0n || amountNano > 9223372036854775807n) {
+        return json(res, 400, { code: 'INVALID_TON_DEPOSIT', error: 'Invalid TON deposit details.' });
+      }
+      if (sourceAddress === configuredAddress) {
+        return json(res, 400, { code: 'INVALID_TON_DEPOSIT', error: 'The connected wallet cannot be the deposit receiver.' });
+      }
+
+      let isSourceVerified;
+      try {
+        isSourceVerified = await isVerifiedTonDepositSource(supabase, user, sourceAddress);
+      } catch (error) {
+        console.error('[ton-deposit-intent] whitelist check failed', { status: error?.status || 'unknown' });
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+      if (!isSourceVerified) {
+        return json(res, 403, { code: 'TON_WALLET_NOT_VERIFIED', error: 'Verify this TON wallet in the White List before depositing.' });
+      }
+
+      let intentRows;
+      try {
+        intentRows = await supabase('rpc/internal_ton_create_deposit_intent', {
+          method: 'POST',
+          body: JSON.stringify({
+            p_telegram_id: user,
+            p_source_address: sourceAddress,
+            p_deposit_address: configuredAddress,
+            p_amount: amountNano.toString(),
+          }),
+        });
+      } catch (error) {
+        console.error('[ton-deposit-intent] create failed', { status: error?.status || 'unknown' });
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+      const intent = Array.isArray(intentRows) ? intentRows[0] : intentRows;
+      if (!intent?.intent_id) {
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+      if (intent.source_address !== sourceAddress
+        || intent.receiver_address !== configuredAddress
+        || intent.amount_nano !== amountNano.toString()) {
+        return json(res, 409, { code: 'TON_DEPOSIT_PENDING', error: 'A different TON deposit is already awaiting confirmation.' });
+      }
+
+      return json(res, 200, {
+        intent: {
+          id: intent.intent_id,
+          comment: intent.deposit_comment,
+          sourceAddress: intent.source_address,
+          depositAddress: account[0].address,
+          amountNano: intent.amount_nano,
+          expiresAt: intent.expires_at,
+        },
+      });
+    }
+
+    const cancelDepositIntentMatch = requestPath.match(/^\/api\/ton\/deposit-intents\/([0-9a-f-]{36})\/cancel$/i);
+    if (cancelDepositIntentMatch && req.method === 'POST') {
+      try {
+        await supabase(
+          `internal_ton_deposit_intents?id=eq.${encodeURIComponent(cancelDepositIntentMatch[1])}`
+            + `&telegram_id=eq.${encodeURIComponent(user)}&status=eq.pending`,
+          {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json', prefer: 'return=minimal' },
+            body: JSON.stringify({ status: 'expired', updated_at: new Date().toISOString() }),
+          },
+        );
+      } catch (error) {
+        console.error('[ton-deposit-intent] cancellation update failed', { status: error?.status || 'unknown' });
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+      return json(res, 200, { ok: true });
+    }
+
+    const depositIntentMatch = requestPath.match(/^\/api\/ton\/deposit-intents\/([0-9a-f-]{36})$/i);
+    if (depositIntentMatch && req.method === 'GET') {
+      let intentRows;
+      try {
+        intentRows = await supabase(
+          `internal_ton_deposit_intents?id=eq.${encodeURIComponent(depositIntentMatch[1])}`
+            + `&telegram_id=eq.${encodeURIComponent(user)}`
+            + '&select=id,status,amount,comment,expires_at,tx_hash,tx_lt',
+          { headers: { accept: 'application/json' } },
+        );
+      } catch (error) {
+        console.error('[ton-deposit-intent] status lookup failed', { status: error?.status || 'unknown' });
+        return json(res, 503, { code: 'TON_DEPOSIT_UNAVAILABLE', error: 'Direct TON deposits are temporarily unavailable.' });
+      }
+      const intent = intentRows?.[0];
+      if (!intent) return json(res, 404, { code: 'TON_DEPOSIT_NOT_FOUND', error: 'TON deposit request not found.' });
+      const isExpired = intent.status === 'pending'
+        && Number.isFinite(Date.parse(intent.expires_at))
+        && Date.parse(intent.expires_at) <= Date.now();
+      return json(res, 200, {
+        intent: {
+          id: intent.id,
+          status: isExpired ? 'expired' : intent.status,
+          amountNano: String(intent.amount),
+          comment: intent.comment,
+          expiresAt: intent.expires_at,
+          transactionHash: intent.tx_hash || undefined,
+          transactionLt: intent.tx_lt || undefined,
+        },
+      });
+    }
+
     if (req.url === '/api/account' && req.method === 'GET') return json(res, 200, account?.[0] || {});
     if (req.url.startsWith('/api/balance') && req.method === 'GET') {
       const currency = new URL(req.url, 'http://internal.local').searchParams.get('currency') || 'TON';

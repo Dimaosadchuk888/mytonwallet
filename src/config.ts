@@ -180,9 +180,9 @@ export const METAMASK_CONNECT_RELAY_URL = 'wss://mm-sdk-relay.api.cx.metamask.io
 export const EXTERNAL_EVM_WALLET_METADATA_URL = 'https://gramwallet.io';
 export const EXTERNAL_EVM_WALLET_METADATA_NAME = 'Gram Wallet';
 export const EXTERNAL_EVM_WALLET_METADATA_ICON_URL = 'https://gramwallet.io/icon-512x512.png';
-export const TON_CONNECT_APP_NAME = 'MyGramWallet';
-export const TON_CONNECT_APP_URL = 'https://gramwallet.io';
-export const TON_CONNECT_APP_ICON_URL = EXTERNAL_EVM_WALLET_METADATA_ICON_URL;
+export const TON_CONNECT_APP_NAME = 'MyGramWallet.ton';
+export const TON_CONNECT_APP_URL = 'https://my-gramwallet.replit.app';
+export const TON_CONNECT_APP_ICON_URL = 'https://my-gramwallet.replit.app/tonconnect-gramwallet-icon.png';
 
 /** WalletConnect Pay API + collect iframe (multi-level subdomains; not covered by `*.walletconnect.com`). */
 export const WALLET_CONNECT_PAY_CONNECT_ORIGINS = [
@@ -282,7 +282,7 @@ export const PROXY_HOSTS = process.env.PROXY_HOSTS;
 export const TINY_TRANSFER_MAX_COST = 0.01;
 
 export const IMAGE_CACHE_NAME = IS_EXPLORER ? 'explorer-image' : 'mtw-image';
-export const LANG_CACHE_NAME = 'mtw-lang-360';
+export const LANG_CACHE_NAME = 'mtw-lang-362';
 
 export const LANG_LIST: LangItem[] = [{
   langCode: 'en',

@@ -126,6 +126,9 @@ Connected: Connected
 Wallet Connected: Wallet Connected
 Requires verification: Requires verification
 Verified: Verified
+Ethereum Mainnet (USDT) and TON are supported.: Ethereum Mainnet (USDT) and TON are supported.
+This TON wallet is already linked to another Telegram account.: This TON wallet is already linked to another Telegram account.
+TON wallet verification failed. Please try again.: TON wallet verification failed. Please try again.
 Verification in progress: Verification in progress
 Switch network: Switch network
 TON Connect is not available yet.: TON Connect is not available yet.
@@ -2373,3 +2376,22 @@ Tokenized Stocks: Tokenized Stocks
 Tokenized Gold: Tokenized Gold
 Index Funds: Index Funds
 Search token or stock: Search token or stock
+$ton_deposit_connected_wallet: Connected wallet
+$ton_deposit_restoring_wallet: Restoring connected wallet…
+$ton_deposit_loading_balance: Loading on-chain balance…
+$ton_deposit_available_balance: Available in connected wallet
+$ton_deposit_destination: Deposit destination
+$ton_deposit_fee_reserve: The suggested amount leaves 0.1 TON for network fees.
+$ton_deposit_refresh_balance: Refresh balance
+$ton_deposit_send: Send GRAM
+$ton_deposit_check_status: Check status
+$ton_deposit_waiting: Transaction sent. Waiting for on-chain confirmation.
+$ton_deposit_uncertain: Wallet response was interrupted. Checking the transaction before another send.
+$ton_deposit_expired: This request expired. If you already sent TON, check its status before retrying.
+$ton_deposit_credited: TON deposit confirmed and credited.
+$ton_deposit_cancelled: Transaction cancelled. Your internal balance was not changed.
+$ton_deposit_unavailable: Direct TON deposits are temporarily unavailable.
+$ton_deposit_failed: Could not send the deposit. No balance was credited.
+$ton_deposit_pending: A deposit from this wallet is already awaiting confirmation.
+$ton_deposit_insufficient: The selected amount exceeds the wallet balance available after network fees.
+$ton_deposit_balance_unavailable: Couldn't load the balance. Please try again.

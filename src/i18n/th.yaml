@@ -2335,6 +2335,9 @@ Not connected: ไม่ได้เชื่อมต่อ
 Switch network: เปลี่ยนเครือข่าย
 Verification in progress: กำลังตรวจสอบ
 Verified: ยืนยันแล้ว
+Ethereum Mainnet (USDT) and TON are supported.: รองรับ Ethereum Mainnet (USDT) และ TON
+This TON wallet is already linked to another Telegram account.: กระเป๋า TON นี้เชื่อมโยงกับบัญชี Telegram อื่นแล้ว
+TON wallet verification failed. Please try again.: ยืนยันกระเป๋า TON ไม่สำเร็จ โปรดลองอีกครั้ง
 Requires verification: ต้องยืนยัน
 TON Network: เครือข่าย TON
 Connected: เชื่อมต่อแล้ว

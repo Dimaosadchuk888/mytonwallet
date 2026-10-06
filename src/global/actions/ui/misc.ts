@@ -635,7 +635,10 @@ addActionHandler('closeReceiveModal', (global): GlobalState => {
 
 addActionHandler('openInvoiceModal', (global, actions, params) => {
   global = updateCurrentAccountState(global, { invoiceTokenSlug: params?.tokenSlug });
-  setGlobal({ ...global, isInvoiceModalOpen: true });
+  setGlobal({
+    ...global,
+    isInvoiceModalOpen: true,
+  });
 });
 
 addActionHandler('changeInvoiceToken', (global, actions, params) => {

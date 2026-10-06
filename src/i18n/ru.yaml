@@ -129,6 +129,9 @@ Connected: Подключён
 Wallet Connected: Кошелёк подключён
 Requires verification: Требуется проверка
 Verified: Подтверждён
+Ethereum Mainnet (USDT) and TON are supported.: Поддерживаются Ethereum Mainnet (USDT) и TON.
+This TON wallet is already linked to another Telegram account.: Этот TON-кошелёк уже привязан к другому аккаунту Telegram.
+TON wallet verification failed. Please try again.: Не удалось подтвердить TON-кошелёк. Попробуйте ещё раз.
 Verification in progress: Выполняется проверка
 Switch network: Сменить сеть
 TON Connect is not available yet.: TON Connect пока недоступен.
@@ -2416,3 +2419,22 @@ Tokenized Stocks: Токенизированные акции
 Tokenized Gold: Токенизированное золото
 Index Funds: Индексные фонды
 Search token or stock: Поиск токена или акции
+$ton_deposit_connected_wallet: Подключённый кошелёк
+$ton_deposit_restoring_wallet: Восстанавливаем подключённый кошелёк…
+$ton_deposit_loading_balance: Загружаем баланс в блокчейне…
+$ton_deposit_available_balance: Доступно во внешнем кошельке
+$ton_deposit_destination: Адрес пополнения
+$ton_deposit_fee_reserve: Рекомендуемая сумма оставляет 0,1 TON на сетевую комиссию.
+$ton_deposit_refresh_balance: Обновить баланс
+$ton_deposit_send: Отправить GRAM
+$ton_deposit_check_status: Проверить статус
+$ton_deposit_waiting: Транзакция отправлена. Ожидаем подтверждения в блокчейне.
+$ton_deposit_uncertain: Ответ кошелька прервался. Проверяем транзакцию перед новой отправкой.
+$ton_deposit_expired: Срок запроса истёк. Если вы уже отправили TON, проверьте статус перед повтором.
+$ton_deposit_credited: Пополнение TON подтверждено и зачислено.
+$ton_deposit_cancelled: Транзакция отменена. Внутренний баланс не изменён.
+$ton_deposit_unavailable: Прямое пополнение TON временно недоступно.
+$ton_deposit_failed: Не удалось отправить пополнение. Баланс не был зачислен.
+$ton_deposit_pending: Уже ожидается подтверждение перевода с этого кошелька.
+$ton_deposit_insufficient: Сумма превышает доступный баланс кошелька с учётом комиссии.
+$ton_deposit_balance_unavailable: Не удалось загрузить баланс. Попробуйте ещё раз.

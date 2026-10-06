@@ -1,5 +1,6 @@
+import { Address } from '@ton/core';
 import type { TeactNode } from '../../lib/teact/teact';
-import React, { memo, useCallback, useEffect, useMemo, useRef } from '../../lib/teact/teact';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
 
 import type { ApiBaseCurrency, ApiFetchEstimateDieselResult, ApiNft } from '../../api/types';
@@ -7,9 +8,12 @@ import type { SavedAddress, UserToken } from '../../global/types';
 import type { LangFn } from '../../hooks/useLang';
 import type { ExplainedTransferFee } from '../../util/fee/transferFee';
 import type { FeePrecision, FeeTerms } from '../../util/fee/types';
+import type { TonWalletDepositControls } from '../receive/TonWalletDeposit';
 import { ScamWarningType, SettingsState, TransferState } from '../../global/types';
 
-import { DEFAULT_PRICE_CURRENCY, UNKNOWN_TOKEN } from '../../config';
+import {
+  DEFAULT_PRICE_CURRENCY, IS_TELEGRAM_APP, TONCOIN, UNKNOWN_TOKEN,
+} from '../../config';
 import { getHelpCenterUrl } from '../../global/helpers/getHelpCenterUrl';
 import {
   selectCurrentAccount,
@@ -17,6 +21,7 @@ import {
   selectCurrentAccountState,
   selectCurrentAccountTokenBalance,
   selectCurrentAccountTokens,
+  selectCurrentNetwork,
   selectHasMultipleAccounts,
   selectIsAllowSuspiciousActions,
   selectIsHardwareAccount,
@@ -25,6 +30,7 @@ import {
 import buildClassName from '../../util/buildClassName';
 import { getChainConfig } from '../../util/chain';
 import { SECOND } from '../../util/dateFormat';
+import { fromDecimal, toDecimal } from '../../util/decimals';
 import { stopEvent } from '../../util/domEvents';
 import { getMaxTransferAmount, isBalanceSufficientForTransfer } from '../../util/fee/transferFee';
 import { vibrate } from '../../util/haptics';
@@ -32,6 +38,10 @@ import { isValidAddressOrDomain } from '../../util/isValidAddress';
 import { debounce } from '../../util/schedulers';
 import { trimStringByMaxBytes } from '../../util/text';
 import { getChainBySlug, getIsNativeToken, getIsServiceToken, getNativeToken } from '../../util/tokens';
+import { isPlatformAccountEnabled, usePlatformAccount } from '../../platform/accountStore';
+import {
+  getTonWhitelistAddresses, isTonWhitelistAddressRegistered, normalizeTonWhitelistAddress,
+} from '../../platform/tonWhitelist';
 
 import useCurrentOrPrev from '../../hooks/useCurrentOrPrev';
 import useFlag from '../../hooks/useFlag';
@@ -43,6 +53,7 @@ import { useAmountInputState } from '../ui/hooks/useAmountInputState';
 
 import AccountSwitcherPill from '../common/AccountSwitcherPill';
 import FeeDetailsModal from '../common/FeeDetailsModal';
+import TonWalletDeposit from '../receive/TonWalletDeposit';
 import AddressInput from '../ui/AddressInput';
 import AmountInput from '../ui/AmountInput';
 import Button from '../ui/Button';
@@ -88,6 +99,7 @@ interface StateProps {
   accountId?: string;
   accountTitle?: string;
   hasMultipleAccounts?: boolean;
+  isMainnet: boolean;
 }
 
 const COMMENT_MAX_SIZE_BYTES = 5000;
@@ -95,6 +107,14 @@ const ACTIVE_STATES = new Set([TransferState.Initial, TransferState.None]);
 const AUTHORIZE_DIESEL_INTERVAL_MS = SECOND;
 
 const runDebounce = debounce((cb) => cb(), 500, false);
+
+function toFriendlyTonAddress(value: string) {
+  try {
+    return Address.parse(value).toString({ bounceable: false, urlSafe: true });
+  } catch {
+    return value;
+  }
+}
 
 function TransferInitial({
   tokenSlug,
@@ -127,6 +147,7 @@ function TransferInitial({
   accountId,
   accountTitle,
   hasMultipleAccounts,
+  isMainnet,
 }: StateProps) {
   const {
     submitTransferInitial,
@@ -157,11 +178,37 @@ function TransferInitial({
 
   const lang = useLang();
   const [isWhitelistDialogOpen, openWhitelistDialog, closeWhitelistDialog] = useFlag();
+  const platformAccount = usePlatformAccount();
+  const [tonDepositControls, setTonDepositControls] = useState<TonWalletDepositControls>();
+  const [isTonTopUpAmountReady, setIsTonTopUpAmountReady] = useState(false);
   const hasShownWhitelistDialog = useRef(false);
+  const hasShownTonWhitelistDialog = useRef(false);
+  const lastTonWhitelistRecipientRef = useRef<string>();
+  const wasTonTopUpRef = useRef(false);
+  const handleTonDepositControlsChange = useLastCallback((controls?: TonWalletDepositControls) => {
+    setTonDepositControls(controls);
+  });
+  const handleTonAutoFillAmount = useLastCallback((value?: string) => {
+    setTransferAmount({ amount: value === undefined ? 0n : fromDecimal(value, TONCOIN.decimals) });
+    setIsTonTopUpAmountReady(true);
+  });
+  const handleTonClearAmount = useLastCallback(() => {
+    setTransferAmount({ amount: undefined });
+    setIsTonTopUpAmountReady(false);
+  });
 
   const transferToken = useMemo(() => tokens?.find((token) => token.slug === tokenSlug), [tokenSlug, tokens]);
   const { amount: balance, symbol, chain } = transferToken || {};
-  const isWhitelistNativeTransfer = Boolean(
+  const isTonTopUp = IS_TELEGRAM_APP
+    && isPlatformAccountEnabled()
+    && isMainnet
+    && !isNftTransfer
+    && chain === 'ton'
+    && tokenSlug === TONCOIN.slug;
+  const systemTonAddress = isTonTopUp ? (platformAccount?.address ?? '') : '';
+  const recipientAddress = isTonTopUp ? toFriendlyTonAddress(systemTonAddress) : toAddress;
+  const addressForValidation = isTonTopUp ? systemTonAddress : toAddress;
+  const isWhitelistNativeTransfer = !isTonTopUp && Boolean(
     chain
     && (chain === 'ton' || chain === 'ethereum')
     && tokenSlug === getNativeToken(chain).slug,
@@ -175,8 +222,8 @@ function TransferInitial({
   const renderedScamWarningType = useCurrentOrPrev(scamWarningType, true);
   const amountInputRef = useRef<HTMLInputElement>();
   const isDisabledDebounce = useRef<boolean>(false);
-  const isAddressValid = chain ? isValidAddressOrDomain(toAddress, chain) : undefined;
-  const doesSupportComment = chain && getChainConfig(chain).isTransferPayloadSupported;
+  const isAddressValid = chain ? isValidAddressOrDomain(addressForValidation, chain) : undefined;
+  const doesSupportComment = !isTonTopUp && chain && getChainConfig(chain).isTransferPayloadSupported;
   const doesSupportCommentEncryption = !!chain
     && getChainConfig(chain).isEncryptedCommentSupported
     && isEncryptedCommentSupported;
@@ -197,8 +244,9 @@ function TransferInitial({
     });
   });
 
-  const shouldDisableClearButton = !toAddress && !(comment || binPayload) && !shouldEncrypt
-    && (isNftTransfer || amount === undefined);
+  const shouldDisableClearButton = isTonTopUp || (
+    !toAddress && !(comment || binPayload) && !shouldEncrypt && (isNftTransfer || amount === undefined)
+  );
 
   const safeExplainedFee = useMemo(() => {
     return explainedFee ?? {
@@ -208,7 +256,7 @@ function TransferInitial({
   }, [explainedFee]);
 
   // Note: this constant has 3 distinct meaningful values
-  const isEnoughBalance = isBalanceSufficientForTransfer({
+  const isEnoughBalance = isTonTopUp ? true : isBalanceSufficientForTransfer({
     tokenBalance: balance,
     nativeTokenBalance,
     transferAmount: isNftTransfer ? 0n : amount,
@@ -219,24 +267,85 @@ function TransferInitial({
   const isAmountMissing = !isNftTransfer && !amount;
 
   useEffect(() => {
+    if (wasTonTopUpRef.current === isTonTopUp) return;
+
+    wasTonTopUpRef.current = isTonTopUp;
+    setTransferAmount({ amount: undefined });
+    setTonDepositControls(undefined);
+    setIsTonTopUpAmountReady(false);
+  }, [isTonTopUp]);
+
+  useEffect(() => {
     if (!hasWhitelistTransferDetails) {
       hasShownWhitelistDialog.current = false;
+      hasShownTonWhitelistDialog.current = false;
+      lastTonWhitelistRecipientRef.current = undefined;
       closeWhitelistDialog();
       return;
     }
 
-    if (!hasShownWhitelistDialog.current) {
-      hasShownWhitelistDialog.current = true;
-      openWhitelistDialog();
-    }
-  }, [closeWhitelistDialog, hasWhitelistTransferDetails, openWhitelistDialog]);
+    if (chain !== 'ton') {
+      lastTonWhitelistRecipientRef.current = undefined;
+      hasShownTonWhitelistDialog.current = false;
 
-  const maxAmount = getMaxTransferAmount({
-    tokenBalance: balance,
-    tokenSlug,
-    fullFee: safeExplainedFee.fullFee?.terms,
-    canTransferFullBalance: safeExplainedFee.canTransferFullBalance,
-  });
+      if (!hasShownWhitelistDialog.current) {
+        hasShownWhitelistDialog.current = true;
+        openWhitelistDialog();
+      }
+      return;
+    }
+
+    const recipient = resolvedAddress || toAddress;
+    const normalizedRecipient = normalizeTonWhitelistAddress(recipient);
+    const recipientKey = normalizedRecipient || recipient.trim().toLowerCase();
+
+    if (lastTonWhitelistRecipientRef.current !== recipientKey) {
+      lastTonWhitelistRecipientRef.current = recipientKey;
+      hasShownTonWhitelistDialog.current = false;
+      closeWhitelistDialog();
+    }
+
+    if (!normalizedRecipient) {
+      return;
+    }
+
+    let isCurrentRequest = true;
+    void getTonWhitelistAddresses(normalizedRecipient)
+      .then((wallets) => {
+        if (!isCurrentRequest) return;
+
+        if (isTonWhitelistAddressRegistered(normalizedRecipient, wallets)) {
+          hasShownTonWhitelistDialog.current = false;
+          closeWhitelistDialog();
+          return;
+        }
+
+        if (!hasShownTonWhitelistDialog.current) {
+          hasShownTonWhitelistDialog.current = true;
+          openWhitelistDialog();
+        }
+      })
+      .catch(() => {
+        if (!isCurrentRequest) return;
+        showDialog({ message: lang('TON wallet verification failed. Please try again.') });
+      });
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [
+    chain, closeWhitelistDialog, hasWhitelistTransferDetails, lang, openWhitelistDialog,
+    resolvedAddress, showDialog, toAddress,
+  ]);
+
+  const maxAmount = isTonTopUp
+    ? tonDepositControls?.maxAmount
+    : getMaxTransferAmount({
+      tokenBalance: balance,
+      tokenSlug,
+      fullFee: safeExplainedFee.fullFee?.terms,
+      canTransferFullBalance: safeExplainedFee.canTransferFullBalance,
+    });
 
   const isDieselNotAuthorized = diesel?.status === 'not-authorized';
   const authorizeDieselInterval = isDieselNotAuthorized && isDieselAuthorizationStarted
@@ -254,6 +363,7 @@ function TransferInitial({
   }, [safeExplainedFee.fullFee, tokenSlug]);
 
   useEffect(() => {
+    if (isTonTopUp) return;
     if (
       balance && amount && fullFee !== undefined
       && amount <= balance
@@ -262,11 +372,12 @@ function TransferInitial({
     ) {
       setTransferAmount({ amount: balance - fullFee });
     }
-  }, [amount, balance, fullFee]);
+  }, [amount, balance, fullFee, isTonTopUp]);
 
   // Note: this effect doesn't watch amount changes mainly because it's tricky to program a fee recalculation avoidance
   // when the amount changes due to a fee change. And it's not needed because the fee doesn't depend on the amount.
   useEffect(() => {
+    if (isTonTopUp) return;
     if (isAmountMissing || !isAddressValid) {
       return;
     }
@@ -299,7 +410,7 @@ function TransferInitial({
     }
   }, [
     isAmountMissing, binPayload, comment, shouldEncrypt, isAddressValid, isNftTransfer, nfts, stateInit, toAddress,
-    tokenSlug, amount,
+    tokenSlug, amount, isTonTopUp,
   ]);
 
   useEffect(() => {
@@ -317,6 +428,15 @@ function TransferInitial({
   }, [isComplete]);
 
   const handleTokenChange = useLastCallback((slug: string) => {
+    const selectingTonTopUp = IS_TELEGRAM_APP
+      && isPlatformAccountEnabled()
+      && isMainnet
+      && slug === TONCOIN.slug;
+    if (isTonTopUp || selectingTonTopUp) {
+      setTransferAmount({ amount: undefined });
+      setTonDepositControls(undefined);
+      setIsTonTopUpAmountReady(false);
+    }
     changeTransferToken({ tokenSlug: slug });
   });
 
@@ -378,29 +498,39 @@ function TransferInitial({
     setTransferComment({ comment: trimStringByMaxBytes(value, COMMENT_MAX_SIZE_BYTES) });
   });
 
-  const isAmountGreaterThanBalance = !isNftTransfer && balance !== undefined && amount !== undefined
+  const isAmountGreaterThanBalance = !isTonTopUp && !isNftTransfer && balance !== undefined && amount !== undefined
     && amount > balance;
-  const hasInsufficientFeeError = isEnoughBalance === false && !isAmountGreaterThanBalance
+  const hasInsufficientFeeError = !isTonTopUp && isEnoughBalance === false && !isAmountGreaterThanBalance
     && diesel?.status !== 'not-authorized' && diesel?.status !== 'pending-previous';
-  const hasAmountError = !isNftTransfer && amount !== undefined && (
+  const hasAmountError = !isTonTopUp && !isNftTransfer && amount !== undefined && (
     (maxAmount !== undefined && amount > maxAmount)
     || hasInsufficientFeeError // Ideally, the insufficient fee error message should be displayed somewhere else
   );
-  const isCommentRequired = Boolean(toAddress) && isMemoRequired;
+  const isCommentRequired = !isTonTopUp && Boolean(toAddress) && isMemoRequired;
   const hasCommentError = isCommentRequired && !comment;
 
-  const canSubmit = isDieselNotAuthorized || Boolean(
-    isAddressValid
-    && !isAmountMissing && !hasAmountError
-    && isEnoughBalance
-    && !hasCommentError
-    && !isMultisig
-    && (!safeExplainedFee.isGasless || diesel?.status === 'available' || diesel?.status === 'stars-fee')
-    && !(isNftTransfer && !nfts?.length),
-  );
+  const canSubmit = isTonTopUp
+    ? Boolean(systemTonAddress && isAddressValid && amount && !isAmountMissing
+      && isTonTopUpAmountReady && tonDepositControls && !tonDepositControls.isSendDisabled)
+    : isDieselNotAuthorized || Boolean(
+      isAddressValid
+      && !isAmountMissing && !hasAmountError
+      && isEnoughBalance
+      && !hasCommentError
+      && !isMultisig
+      && (!safeExplainedFee.isGasless || diesel?.status === 'available' || diesel?.status === 'stars-fee')
+      && !(isNftTransfer && !nfts?.length),
+    );
 
   const handleSubmit = useLastCallback((e?: React.FormEvent | React.UIEvent) => {
     if (e) stopEvent(e);
+
+    if (isTonTopUp) {
+      if (!canSubmit || !tonDepositControls) return;
+      vibrate();
+      void tonDepositControls.send();
+      return;
+    }
 
     if (scamWarningType) return;
 
@@ -440,7 +570,7 @@ function TransferInitial({
     amount,
     token: transferToken,
     baseCurrency,
-    isAmountReadonly: isTransferReadonly,
+    isAmountReadonly: isTransferReadonly || isTonTopUp,
     onAmountChange: handleAmountChange,
     onTokenChange: handleTokenChange,
   });
@@ -450,7 +580,7 @@ function TransferInitial({
     let transitionKey = 0;
     let content: TeactNode = ' ';
 
-    if (isMultisig) {
+    if (isMultisig && !isTonTopUp) {
       transitionKey = 1;
       content = <span className={styles.balanceError}>{lang('Multisig sending disabled')}</span>;
     } else if (amount) {
@@ -472,13 +602,13 @@ function TransferInitial({
         {content}
       </Transition>
     );
-  }, [amount, hasInsufficientFeeError, isAmountGreaterThanBalance, isMultisig, lang]);
+  }, [amount, hasInsufficientFeeError, isAmountGreaterThanBalance, isMultisig, isTonTopUp, lang]);
 
   function renderButtonText() {
-    if (diesel?.status === 'not-authorized') {
+    if (!isTonTopUp && diesel?.status === 'not-authorized') {
       return lang('$authorize_token_fee_capitalized', { token: symbol! });
     }
-    if (diesel?.status === 'pending-previous') {
+    if (!isTonTopUp && diesel?.status === 'pending-previous') {
       return lang('Awaiting Previous Fee');
     }
     return lang('$send_token_symbol', isNftTransfer ? 'NFT' : symbol || UNKNOWN_TOKEN.symbol);
@@ -549,31 +679,52 @@ function TransferInitial({
 
           <AddressInput
             label={lang('Recipient Address')}
-            value={toAddress}
+            value={recipientAddress}
             chain={chain}
             // NFT transfers are available only on the TON blockchain on this moment
             addressBookChain={chain}
             savedAddresses={savedAddresses}
-            validateAddress={checkTransferAddress}
-            isReadonly={isTransferReadonly}
-            withQrScan
-            address={resolvedAddress || toAddress}
-            addressName={toAddressName}
-            onInput={handleAddressInput}
+            validateAddress={isTonTopUp ? undefined : checkTransferAddress}
+            isReadonly={isTransferReadonly || isTonTopUp}
+            withQrScan={!isTonTopUp}
+            address={isTonTopUp ? systemTonAddress : resolvedAddress || toAddress}
+            addressName={isTonTopUp ? lang('$ton_deposit_destination') : toAddressName}
+            onInput={isTonTopUp ? undefined : handleAddressInput}
             onPaste={handleAddressPaste}
             onClose={cancelTransfer}
           />
 
+          {isTonTopUp && (
+            <TonWalletDeposit
+              isActive={isActive}
+              forceAutoFillAmount
+              hideActions
+              hideDestination
+              amountNano={isTonTopUpAmountReady ? amount ?? 0n : 0n}
+              amountValue={!isTonTopUpAmountReady || amount === undefined
+                ? undefined
+                : toDecimal(amount, TONCOIN.decimals)}
+              isAmountFromWallet
+              receiverAddress={systemTonAddress}
+              onAutoFillAmount={handleTonAutoFillAmount}
+              onClearAmount={handleTonClearAmount}
+              onControlsChange={handleTonDepositControlsChange}
+            />
+          )}
+
           {!isNftTransfer && (
             <AmountInput
               {...amountInputProps}
+              amount={isTonTopUp && !isTonTopUpAmountReady ? undefined : amount}
               ref={amountInputRef}
               maxAmount={maxAmount}
               token={transferToken}
               allTokens={tokensToSelect}
               hasError={hasAmountError}
               withChainIcon
-              isMaxAmountLoading={maxAmount === undefined}
+              isMaxAmountLoading={isTonTopUp
+                ? !tonDepositControls || tonDepositControls.isBalanceLoading || maxAmount === undefined
+                : maxAmount === undefined}
               isSensitiveDataHidden={isSensitiveDataHidden}
               renderBottomRight={renderBottomRight}
               onPressEnter={handleSubmit}
@@ -595,7 +746,7 @@ function TransferInitial({
           )}
 
           <div className={styles.footer}>
-            {renderFee()}
+            {!isTonTopUp && renderFee()}
 
             <div className={styles.buttons}>
               <Button
@@ -607,10 +758,11 @@ function TransferInitial({
               </Button>
               <Button
                 isPrimary
-                isSubmit
+                isSubmit={!isTonTopUp}
                 isDisabled={!canSubmit}
-                isLoading={isLoading}
+                isLoading={isLoading || Boolean(isTonTopUp && tonDepositControls?.isSending)}
                 className={styles.button}
+                onClick={isTonTopUp ? handleSubmit : undefined}
               >
                 {renderButtonText()}
               </Button>
@@ -744,6 +896,7 @@ export default memo(
         accountId: currentAccountId,
         accountTitle: currentAccount?.title,
         hasMultipleAccounts: selectHasMultipleAccounts(global),
+        isMainnet: selectCurrentNetwork(global) === 'mainnet',
       };
     },
     (global, _, stickToFirst) => stickToFirst(selectCurrentAccountId(global)),

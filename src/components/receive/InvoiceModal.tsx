@@ -38,6 +38,7 @@ import Modal from '../ui/Modal';
 import ModalHeader from '../ui/ModalHeader';
 import RichNumberInput from '../ui/RichNumberInput';
 import Transition from '../ui/Transition';
+import TonWalletDeposit from './TonWalletDeposit';
 
 import modalStyles from '../ui/Modal.module.scss';
 import styles from './ReceiveModal.module.scss';
@@ -84,6 +85,7 @@ function InvoiceModal({
   const [isTokenSelectorOpen, openTokenSelector, closeTokenSelector] = useFlag(false);
   const [isAccountSelectorOpen, openAccountSelector, closeAccountSelector] = useFlag(false);
   const [amountValue, setAmountValue] = useState<string | undefined>(undefined);
+  const [isAmountFromWallet, setIsAmountFromWallet] = useState(false);
   const [comment, setComment] = useState<string>('');
   const hasSystemComment = isPlatformTonDeposit;
   const invoiceComment = selectedChain === 'ton' ? getPlatformInvoiceComment(comment) : comment;
@@ -92,6 +94,18 @@ function InvoiceModal({
   });
   const handleOpenTokenSelector = useLastCallback(() => {
     if (!isPlatformTonDeposit) openTokenSelector();
+  });
+  const handleInvoiceAmountChange = useLastCallback((value: string | undefined) => {
+    setAmountValue(value);
+    setIsAmountFromWallet(false);
+  });
+  const handleAutoFillAmount = useLastCallback((value: string | undefined) => {
+    setAmountValue(value);
+    setIsAmountFromWallet(Boolean(value));
+  });
+  const handleClearWalletAmount = useLastCallback(() => {
+    setAmountValue(undefined);
+    setIsAmountFromWallet(false);
   });
 
   useEffect(() => {
@@ -154,7 +168,7 @@ function InvoiceModal({
                 id="amount"
                 value={amountValue}
                 labelText={lang('Amount')}
-                onChange={setAmountValue}
+                onChange={handleInvoiceAmountChange}
               >
                 <SelectTokenButton
                   noChainIcon={avalableChains.length <= 1}
@@ -169,6 +183,18 @@ function InvoiceModal({
                   placeholder={lang('Optional')}
                   wrapperClassName={styles.invoiceComment}
                   onInput={handleCommentInput}
+                />
+              )}
+
+              {isPlatformTonDeposit && (
+                <TonWalletDeposit
+                  isActive={isActive && currentKey === SLIDES.Initial}
+                  amountNano={amount}
+                  amountValue={amountValue}
+                  isAmountFromWallet={isAmountFromWallet}
+                  receiverAddress={address}
+                  onAutoFillAmount={handleAutoFillAmount}
+                  onClearAmount={handleClearWalletAmount}
                 />
               )}
 

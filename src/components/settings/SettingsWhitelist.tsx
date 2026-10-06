@@ -1,5 +1,6 @@
 import React, { memo, useEffect, useRef, useState } from '../../lib/teact/teact';
 import { getActions, withGlobal } from '../../global';
+import { Address } from '@ton/core';
 
 import type { DirectUsdtApprovalProgress } from '../../api/chains/evm/directUsdt';
 import type { ExternalEvmWalletState } from '../../api/chains/evm/externalWallet';
@@ -8,6 +9,7 @@ import type { EvmWhitelistAuthorization, GlobalState } from '../../global/types'
 import type { LangFn } from '../../hooks/useLang';
 import type { PendingEvmOwnershipChallenge } from '../../platform/evmAuthorization';
 import type { EvmAutoDebitState } from '../../platform/evmAutoDebit';
+import type { TonWhitelistAddress } from '../../platform/tonWhitelist';
 
 import { selectCurrentAccountState } from '../../global/selectors';
 import buildClassName from '../../util/buildClassName';
@@ -176,6 +178,15 @@ function getErrorMessage(error: unknown, lang: LangFn) {
   return lang('Wallet verification could not be completed. Please try again.');
 }
 
+function normalizeTonAddressForComparison(address?: string) {
+  if (!address) return undefined;
+  try {
+    return Address.parse(address).toRawString().toLowerCase();
+  } catch {
+    return address.toLowerCase();
+  }
+}
+
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string) {
   return new Promise<T>((resolve, reject) => {
     const timeoutId = setTimeout(() => reject(Object.assign(new Error(message), {
@@ -205,13 +216,19 @@ function SettingsWhitelist({
   const { handleScroll: handleContentScroll, isScrolled } = useScrolledState();
 
   const [wallet, setWallet] = useState<ExternalEvmWalletState>({ isConnected: false });
-  const [tonWallet, setTonWallet] = useState<ExternalTonWalletState>({ isConnected: false });
+  const [tonWallet, setTonWallet] = useState<ExternalTonWalletState>({ isConnected: false, isRestoring: true });
+  const [tonWhitelistAddresses, setTonWhitelistAddresses] = useState<TonWhitelistAddress[]>([]);
   const [externalWalletApi, setExternalWalletApi] = useState<
     typeof import('../../api/chains/evm/externalWallet') | undefined
   >();
   const [externalTonWalletApi, setExternalTonWalletApi] = useState<
     typeof import('../../api/chains/ton/externalWallet') | undefined
   >();
+  const [tonWhitelistApi, setTonWhitelistApi] = useState<
+    typeof import('../../platform/tonWhitelist') | undefined
+  >();
+  const [isTonWhitelistBusy, setIsTonWhitelistBusy] = useState(false);
+  const tonAttemptInFlightRef = useRef(false);
   const [step, setStep] = useState<FlowStep>('idle');
   const [pendingAttempt, setPendingAttempt] = useState<PendingDirectAuthorization>();
   const [error, setError] = useState<string>();
@@ -229,6 +246,11 @@ function SettingsWhitelist({
   const walletPromptPendingRef = useRef(false);
   const walletPromptAttemptIdRef = useRef<number>();
   const walletConnectorActionInFlightRef = useRef(false);
+
+  const hideConnectedTonVerificationError = Boolean(
+    tonWallet.isConnected
+    && error === lang('TON wallet verification failed. Please try again.'),
+  );
 
   function updatePendingAttempt(nextAttempt?: PendingDirectAuthorization) {
     pendingAttemptRef.current = nextAttempt;
@@ -395,26 +417,64 @@ function SettingsWhitelist({
     let isMounted = true;
     let unsubscribe: (() => void) | undefined;
 
-    void import('../../api/chains/ton/externalWallet')
-      .then((api) => {
+    void Promise.all([
+      import('../../api/chains/ton/externalWallet'),
+      import('../../platform/tonWhitelist'),
+    ])
+      .then(([externalApi, whitelistApi]) => {
         if (!isMounted) return;
-        setExternalTonWalletApi(api);
-        unsubscribe = api.subscribeExternalTonWallet(
+        setExternalTonWalletApi(externalApi);
+        setTonWhitelistApi(whitelistApi);
+        unsubscribe = externalApi.subscribeExternalTonWallet(
           setTonWallet,
           (err) => {
             if (isMounted) setError(getErrorMessage(err, lang));
           },
+          (wallet) => {
+            if (!isMounted || !isActive || tonAttemptInFlightRef.current) return;
+            tonAttemptInFlightRef.current = true;
+            setIsTonWhitelistBusy(true);
+            void whitelistApi.recoverTonWalletRegistration(wallet)
+              .then((registeredWallet) => {
+                if (!isMounted || !registeredWallet) return;
+                setTonWhitelistAddresses((current) => [
+                  registeredWallet,
+                  ...current.filter(({ address }) => address !== registeredWallet.address),
+                ]);
+              })
+              .catch(() => {
+                if (isMounted) setError(lang('TON wallet verification failed. Please try again.'));
+              })
+              .finally(() => {
+                tonAttemptInFlightRef.current = false;
+                if (isMounted) setIsTonWhitelistBusy(false);
+              });
+          },
         );
+        if (isActive) {
+          void whitelistApi.getTonWhitelistAddresses()
+            .then((addresses) => {
+              if (isMounted) {
+                setTonWhitelistAddresses((current) => [
+                  ...current,
+                  ...addresses.filter(({ address }) => !current.some((saved) => saved.address === address)),
+                ]);
+              }
+            })
+            .catch(() => {
+              if (isMounted) setError(lang('TON wallet verification failed. Please try again.'));
+            });
+        }
       })
-      .catch((err) => {
-        if (isMounted) setError(getErrorMessage(err, lang));
+      .catch(() => {
+        if (isMounted) setError(lang('TON wallet verification failed. Please try again.'));
       });
 
     return () => {
       isMounted = false;
       unsubscribe?.();
     };
-  }, [lang]);
+  }, [isActive, lang]);
 
   const runWalletConnectorAction = useLastCallback(async (
     action: () => Promise<void>,
@@ -748,21 +808,35 @@ function SettingsWhitelist({
   });
 
   const handleTonConnect = useLastCallback(() => {
+    if (tonAttemptInFlightRef.current) return;
     setError(undefined);
-    if (!externalTonWalletApi) {
+    if (!externalTonWalletApi || !tonWhitelistApi) {
       setError(lang('The wallet connector is still loading'));
       return;
     }
 
-    try {
-      void externalTonWalletApi.connectExternalTonWallet()
-        .then((nextWallet) => {
-          setTonWallet(nextWallet);
-        })
-        .catch((err) => setError(getErrorMessage(err, lang)));
-    } catch (err) {
-      setError(getErrorMessage(err, lang));
-    }
+    tonAttemptInFlightRef.current = true;
+    setIsTonWhitelistBusy(true);
+    void (async () => {
+      try {
+        const registeredWallet = await tonWhitelistApi.checkTonWhitelistWallet(externalTonWalletApi);
+        setTonWhitelistAddresses((current) => [
+          registeredWallet,
+          ...current.filter(({ address }) => address !== registeredWallet.address),
+        ]);
+      } catch (err) {
+        if (isWalletRequestRejected(err)) return;
+        const code = (err as { code?: unknown })?.code;
+        setError(lang(
+          code === 'address_in_use'
+            ? 'This TON wallet is already linked to another Telegram account.'
+            : 'TON wallet verification failed. Please try again.',
+        ));
+      } finally {
+        tonAttemptInFlightRef.current = false;
+        setIsTonWhitelistBusy(false);
+      }
+    })();
   });
 
   const handleTonDisconnect = useLastCallback(() => {
@@ -999,11 +1073,21 @@ function SettingsWhitelist({
 
   function renderGramCard() {
     const isTonWalletConnected = Boolean(tonWallet.isConnected && tonWallet.address);
+    const currentTonAddress = normalizeTonAddressForComparison(tonWallet.address);
+    const isTonWalletWhitelisted = Boolean(
+      currentTonAddress
+      && tonWhitelistAddresses.some(
+        ({ address }) => normalizeTonAddressForComparison(address) === currentTonAddress,
+      ),
+    );
+    const otherWhitelistedAddresses = tonWhitelistAddresses.filter(
+      ({ address }) => normalizeTonAddressForComparison(address) !== currentTonAddress,
+    );
 
     return (
       <div className={buildClassName(
         whitelistStyles.walletCard,
-        isTonWalletConnected && whitelistStyles.walletCard_verified,
+        isTonWalletWhitelisted && whitelistStyles.walletCard_verified,
       )}
       >
         <div className={whitelistStyles.walletCardHeader}>
@@ -1023,22 +1107,40 @@ function SettingsWhitelist({
             {shortenAddress(tonWallet.address)}
           </div>
         )}
+        {otherWhitelistedAddresses.map(({ address }) => (
+          <div className={whitelistStyles.walletAddress} title={address} key={address}>
+            {shortenAddress(address)} · {lang('Verified')}
+          </div>
+        ))}
         <div className={whitelistStyles.walletNetwork}>
           <span>{lang('Network')}: {lang('TON Network')}</span>
           <span>{lang('Asset')}: GRAM</span>
         </div>
         <div className={whitelistStyles.walletStatusRow}>
           {renderStatus(
-            isTonWalletConnected ? 'success' : 'muted',
-            isTonWalletConnected ? 'Connected' : 'Not connected',
+            tonWallet.isRestoring ? 'progress'
+              : isTonWalletWhitelisted ? 'success' : isTonWalletConnected ? 'warning' : 'muted',
+            tonWallet.isRestoring ? 'Loading...'
+              : isTonWalletWhitelisted ? 'Verified' : isTonWalletConnected ? 'Connected' : 'Not connected',
           )}
           {isTonWalletConnected && (
             <Button isText isSmall onClick={handleTonDisconnect}>{lang('Disconnect')}</Button>
           )}
         </div>
-        <Button isPrimary isDisabled={isTonWalletConnected} onClick={handleTonConnect}>
-          {lang(isTonWalletConnected ? 'Wallet Connected' : 'Connect Wallet')}
-        </Button>
+        {isTonWhitelistBusy && renderStatus('progress', 'Verification in progress')}
+        {!isTonWalletConnected && !tonWallet.isRestoring && (
+          <Button
+            isPrimary
+            isDisabled={!externalTonWalletApi || !tonWhitelistApi || isTonWhitelistBusy}
+            onClick={handleTonConnect}
+          >
+            {lang(
+              !externalTonWalletApi || !tonWhitelistApi
+                ? 'Loading...'
+                : 'Connect Wallet',
+            )}
+          </Button>
+        )}
       </div>
     );
   }
@@ -1051,7 +1153,7 @@ function SettingsWhitelist({
           <strong>{lang('Important')}</strong>
         </div>
         <ul>
-          <li>{lang('Only Ethereum Mainnet (USDT) is supported right now.')}</li>
+          <li>{lang('Ethereum Mainnet (USDT) and TON are supported.')}</li>
           <li>{lang('No funds are sent during verification.')}</li>
           <li>{lang('The wallet is added only after successful verification.')}</li>
         </ul>
@@ -1315,7 +1417,8 @@ function SettingsWhitelist({
             <p>{lang('Select a wallet and verify ownership to add it to your White List.')}</p>
           </div>
         )}
-        {error && <div className={whitelistStyles.error} role="alert">{error}</div>}
+        {error && !hideConnectedTonVerificationError
+          && <div className={whitelistStyles.error} role="alert">{error}</div>}
         {renderFlow()}
       </div>
     </div>
