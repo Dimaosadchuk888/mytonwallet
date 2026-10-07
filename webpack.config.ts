@@ -15,6 +15,7 @@ import type { Compiler, Configuration } from 'webpack';
 import { Compilation, EnvironmentPlugin, IgnorePlugin, ProvidePlugin, sources } from 'webpack';
 
 import { convertI18nYamlToJson } from './dev/locales/convertI18nYamlToJson';
+import { TON_CONNECT_BRIDGE_ORIGINS } from './src/api/chains/ton/bridgeOrigins';
 import {
   AGENT_API_URL,
   APP_COMMIT_HASH,
@@ -134,6 +135,9 @@ const cspConnectSrcHosts = Array.from(new Set([
   MFA_API_BASE_URL,
   ensureTrailingSlash(PORTFOLIO_API_URL),
   TON_CONNECT_ANALYTICS_URL,
+  // TonConnectUI fetches the SDK's wallet registry before opening its modal.
+  'https://config.ton.org',
+  ...TON_CONNECT_BRIDGE_ORIGINS,
   INTERNAL_TON_API_BASE_URL ? new URL(INTERNAL_TON_API_BASE_URL).origin : undefined,
 ])).join(' ');
 
@@ -615,8 +619,8 @@ export default function createConfig(
             },
           },
           {
-            from: 'attached_assets/IMG_5356_1790153346724.jpeg',
-            to: 'tonconnect-brand-icon.jpeg',
+            from: 'public/gramWallet/icon-512x512.png',
+            to: 'tonconnect-gramwallet-icon.png',
           },
         ],
       }),

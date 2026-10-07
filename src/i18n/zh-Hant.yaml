@@ -2328,6 +2328,9 @@ Not connected: 未連線
 Switch network: 切換網路
 Verification in progress: 驗證中
 Verified: 已驗證
+Ethereum Mainnet (USDT) and TON are supported.: 支援 Ethereum Mainnet (USDT) 和 TON。
+This TON wallet is already linked to another Telegram account.: 此 TON 錢包已連結至其他 Telegram 帳號。
+TON wallet verification failed. Please try again.: TON 錢包驗證失敗，請再試一次。
 Requires verification: 需要驗證
 TON Network: TON 網路
 Connected: 已連線
